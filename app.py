@@ -238,6 +238,31 @@ def formato_fecha(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     return "No especificada" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
 
+def texto_dias_restantes(valor):
+    fecha = pd.to_datetime(valor, errors="coerce")
+    if pd.isna(fecha):
+        return "Plazo no disponible"
+    dias = (fecha.date() - date.today()).days
+    if dias > 1:
+        return f"Faltan {dias} días"
+    if dias == 1:
+        return "Falta 1 día"
+    if dias == 0:
+        return "Finaliza hoy"
+    if dias == -1:
+        return "Finalizó hace 1 día"
+    return f"Finalizó hace {abs(dias)} días"
+
+def texto_antiguedad(valor):
+    if pd.isna(valor):
+        return "Actualización no disponible"
+    dias = max(0, (date.today() - valor.date()).days)
+    if dias == 0:
+        return "Actualizada hoy"
+    if dias == 1:
+        return "Hace 1 día"
+    return f"Hace {dias} días"
+
 @st.cache_data(ttl=300, show_spinner="Cargando licitaciones…")
 def cargar_datos(db_mtime):
     del db_mtime
@@ -375,7 +400,7 @@ with kpi2:
 with kpi3:
     st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid">{formato_eur(presupuesto_medio)}</div><div class="metric-lbl-grid">Presupuesto Medio (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi4:
-    st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">Última Actualización BD</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">Última Actualización BD</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_antiguedad(ultima_act)}</div></div>', unsafe_allow_html=True)
 
 filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
@@ -563,7 +588,7 @@ else:
                         with mc1:
                             st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid" style="font-size: 0.85rem;">{formato_eur(r["pbl_sin_iva"])}</div><div class="metric-lbl-grid">PBL SIN IVA</div></div>', unsafe_allow_html=True)
                         with mc2:
-                            st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{formato_fecha(r["fecha_limite"])}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div></div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{formato_fecha(r["fecha_limite"])}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_dias_restantes(r["fecha_limite"])}</div></div>', unsafe_allow_html=True)
 
                         with st.expander("📄 Ver documentación"):
                             docs = json.loads(r['documentos_adjuntos']) if r['documentos_adjuntos'] else []
