@@ -14,8 +14,13 @@ from google.genai import types
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Licitaciones | Dashboard", layout="wide", page_icon="🏛️")
 
-# --- RUTA EXACTA A LA BASE DE DATOS ---
-DB_PATH = r"C:\Users\sobre\Landa Soluciones de Ingeniería Civil SC\LANDA - Documentos\11 Automatizaciones\Dashboard licitaciones\licitaciones.db"
+# --- RUTA DE LA BASE DE DATOS ADAPTADA (LOCAL Y NUBE) ---
+RUTA_LOCAL_PC = r"C:\Users\sobre\Landa Soluciones de Ingeniería Civil SC\LANDA - Documentos\11 Automatizaciones\Dashboard licitaciones\licitaciones.db"
+
+if os.path.exists(RUTA_LOCAL_PC):
+    DB_PATH = RUTA_LOCAL_PC
+else:
+    DB_PATH = "licitaciones.db"
 
 # --- CONFIGURACIÓN DE GEMINI ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "TU_API_KEY_AQUI")
@@ -181,7 +186,6 @@ st.markdown("""
     .metric-val-grid { font-size: 1.35rem; font-weight: 800; color: #0d6efd; letter-spacing: -0.5px; }
     .metric-lbl-grid { font-size: 0.72rem; color: #475569; text-transform: uppercase; font-weight: 700; margin-top: 4px; }
 
-    /* Altura igualada para tarjetas por fila */
     .row-widget.stHorizontal { align-items: stretch !important; }
     div[data-testid="stVerticalBlock"]:has(> div.stContainer) { height: 100%; }
     div[data-testid="stContainer"] { height: 100% !important; display: flex !important; flex-direction: column !important; justify-content: space-between !important; }
@@ -217,10 +221,9 @@ def cargar_datos():
 try:
     df = cargar_datos()
 except Exception as e:
-    st.error(f"❌ No se encontró 'licitaciones.db' en la ruta {DB_PATH}. Error: {e}")
+    st.error(f"❌ No se pudo conectar a la base de datos en {DB_PATH}. Error: {e}")
     st.stop()
 
-# Determinar valores máximos y fechas por defecto sensatas
 max_pbl_db = float(df['pbl_sin_iva'].max() or 200000.0)
 if max_pbl_db <= 0:
     max_pbl_db = 200000.0
@@ -231,7 +234,6 @@ f_max_db = fechas_validas.max().date() if not fechas_validas.empty else date.tod
 hoy = date.today()
 f_inicio_default = hoy if hoy <= f_max_db else f_min_db
 
-# --- INICIALIZAR FILTROS POR DEFECTO AL ARRANCAR ---
 if "f_cpv" not in st.session_state:
     st.session_state["f_cpv"] = "71"
 if "f_estado" not in st.session_state:
@@ -241,10 +243,8 @@ if "f_pbl_max" not in st.session_state:
 if "f_fecha" not in st.session_state:
     st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
 
-# --- SIDEBAR: FILTROS ORDENADOS ---
 st.sidebar.title("🎛️ Filtros Avanzados")
 
-# Botones de control de filtros (uno arriba del otro ocupando todo el ancho)
 if st.sidebar.button("🗑️ Quitar filtros", use_container_width=True):
     st.session_state["f_texto"] = ""
     st.session_state["f_tipo"] = []
@@ -275,22 +275,15 @@ if st.sidebar.button("↩️ Filtros iniciales", use_container_width=True):
 
 st.sidebar.divider()
 
-# 1. Palabras clave
 busqueda_texto = st.sidebar.text_input("🔍 Palabras clave (título, expediente...):", key="f_texto")
-
-# 2. Tipo de Contrato
 tipos_list = sorted([x for x in df['tipo_contrato_desc'].unique() if x])
 tipo_sel = st.sidebar.multiselect("📦 Tipo de Contrato:", tipos_list, key="f_tipo")
-
-# 3. CPV
 cpv_2dig = st.sidebar.text_input("🏷️ CPV (2 dígitos):", max_chars=2, key="f_cpv")
 
-# Estado
 estados_unicos = df['estado'].dropna().unique().tolist()
 opciones_estado = {c: MAPA_ESTADOS.get(c, (c, ''))[0] for c in estados_unicos}
 estados_sel = st.sidebar.multiselect("📌 Estado:", list(opciones_estado.keys()), format_func=lambda x: opciones_estado[x], key="f_estado")
 
-# 4. Las ubicaciones (CCAA, Provincia, Municipio)
 ccaa_list = sorted([x for x in df['comunidad_autonoma'].dropna().unique() if x])
 ccaa_sel = st.sidebar.multiselect("🗺️ Comunidad Autónoma:", ccaa_list, key="f_ccaa")
 
@@ -300,7 +293,6 @@ prov_sel = st.sidebar.multiselect("📍 Provincia:", prov_list, key="f_prov")
 muni_list = sorted([x for x in df[df['provincia'].isin(prov_sel)]['municipio'].dropna().unique() if x]) if prov_sel else sorted([x for x in df['municipio'].dropna().unique() if x])
 muni_sel = st.sidebar.multiselect("🏙️ Municipio:", muni_list, key="f_muni")
 
-# 5. Los presupuestos y fecha de presentación
 st.sidebar.markdown("💶 **Presupuesto Base sin IVA (€):**")
 pbl_min_val = st.sidebar.number_input("Mínimo €", min_value=0.0, step=10000.0, key="f_pbl_min")
 pbl_max_val = st.sidebar.number_input("Máximo €", min_value=0.0, value=200000.0, step=50000.0, key="f_pbl_max")
@@ -310,11 +302,9 @@ if not fechas_validas.empty:
 else:
     fecha_rango = None
 
-# 6. El órgano de contratación
 organos = sorted([x for x in df['organo_contratante'].dropna().unique() if x])
 organo_sel = st.sidebar.multiselect("🏛️ Órgano de Contratación:", organos, key="f_organo")
 
-# --- APLICAR FILTROS ---
 df_f = df.copy()
 
 if busqueda_texto.strip():
@@ -337,7 +327,6 @@ if cpv_2dig.strip():
     prefijo = cpv_2dig.strip()
     df_f = df_f[df_f['cpv'].apply(lambda x: any(c.strip().startswith(prefijo) for c in str(x).split(',')) if x else False)]
 
-# --- CABECERA Y 4 KPIS ENMARCADOS ---
 st.title("🏛️ Monitor de Licitaciones")
 st.caption("Plataforma de Contratación del Sector Público")
 
@@ -359,13 +348,10 @@ with kpi4:
 
 st.divider()
 
-# --- VERIFICACIÓN DE RESULTADOS VACÍOS ---
 if df_f.empty:
     st.warning("⚠️ No se ha encontrado ninguna licitación que coincida con los filtros aplicados. Prueba a relajar los criterios de búsqueda.")
 else:
     st.write("")
-
-    # --- VISTA POR PESTAÑAS ---
     tab_tarjetas, tab_mapa = st.tabs(["🗂️ Vista Tarjetas", "🗺️ Mapa Geográfico"])
 
     with tab_mapa:
@@ -380,12 +366,10 @@ else:
             df_mapa['ccaa_clean'] = df_mapa['comunidad_autonoma'].fillna('No especificada')
             df_mapa['expediente_clean'] = df_mapa['expediente'].fillna('N/A')
             
-            # --- SEPARAR PUNTOS SOLAPADOS (JITTER GEOGRÁFICO) ---
             np.random.seed(42)
             df_mapa['lat_j'] = df_mapa['latitud'] + np.random.normal(0, 0.00008, size=len(df_mapa))
             df_mapa['lon_j'] = df_mapa['longitud'] + np.random.normal(0, 0.00008, size=len(df_mapa))
 
-            # --- TAMAÑO FINO Y DINÁMICO POR PERCENTILES (1px a 8px) ---
             valid_pbl = df_mapa['pbl_sin_iva'].replace(0, np.nan).dropna()
             if not valid_pbl.empty and len(valid_pbl) > 1:
                 p5, p95 = np.percentile(valid_pbl, [5, 95])
@@ -417,7 +401,6 @@ else:
             
             view_state = pdk.ViewState(latitude=40.4168, longitude=-3.7038, zoom=5.4, pitch=0)
             
-            # --- TOOLTIP CON LA INFORMACIÓN EXACTA REQUERIDA ---
             tooltip = {
                 "html": "<b>{titulo}</b><br/>"
                         "🏛️ <b>Órgano de contratación:</b> {organo_contratante}<br/>"
@@ -431,7 +414,6 @@ else:
             r = pdk.Deck(layers=[layer], initial_view_state=view_state, tooltip=tooltip, map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json")
             st.pydeck_chart(r)
 
-            # --- PANEL DE ACCESO RÁPIDO BAJO EL MAPA ---
             with st.expander("📋 Ver listado y accesos directos de las licitaciones en este mapa"):
                 st.write("Selecciona una licitación para acceder directamente a su ficha oficial:")
                 for _, r_map in df_mapa.iterrows():
@@ -445,7 +427,6 @@ else:
             st.info("No hay licitaciones con coordenadas geográficas disponibles para mostrar en el mapa.")
 
     with tab_tarjetas:
-        # --- BARRA DE ORDENACIÓN ---
         col_ord1, col_ord2 = st.columns([2, 3])
         with col_ord1:
             criterio_orden = st.selectbox(
@@ -465,7 +446,6 @@ else:
 
         st.write("")
 
-        # --- LÓGICA DE PAGINACIÓN ---
         ITEMS_POR_PAGINA = 12
         total_items = len(df_f)
         total_paginas = max(1, (total_items + ITEMS_POR_PAGINA - 1) // ITEMS_POR_PAGINA)
@@ -476,7 +456,6 @@ else:
         if st.session_state.pagina_actual > total_paginas:
             st.session_state.pagina_actual = total_paginas
 
-        # --- BARRA DE PAGINACIÓN SUPERIOR ---
         col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
         with col_p1:
             if st.button("⬅️ Anterior", key="btn_ant_sup", use_container_width=True, disabled=(st.session_state.pagina_actual <= 1)):
@@ -530,7 +509,6 @@ else:
                         with mc2:
                             st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{r["fecha_limite"] or "No especificada"}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div></div>', unsafe_allow_html=True)
 
-                        # DESPLEGABLE 1: DOCUMENTACIÓN
                         with st.expander("📄 Ver documentación"):
                             docs = json.loads(r['documentos_adjuntos']) if r['documentos_adjuntos'] else []
                             if docs:
@@ -540,7 +518,6 @@ else:
                             else:
                                 st.write("Sin documentos adjuntos directos.")
 
-                        # DESPLEGABLE 2: RESUMEN IA 🧠
                         with st.expander("🧠 Resumen Técnico IA"):
                             raw_resumen = r.get('resumen_ia')
                             
@@ -578,7 +555,7 @@ else:
                                     st.markdown(f"🛡️ **Seguro RC:**\n{res_ia.get('seguro_rc', '• No especificado')}")
                                     st.markdown(f"🏦 **Garantías y Depósitos:**\n{res_ia.get('garantia', '• No especificado')}")
                                     st.markdown(f"⚠️ **Condicionantes y Plazos:**\n{res_ia.get('condicionantes_destacados', '• No especificado')}")
-                                except Exception as json_err:
+                                except Exception:
                                     st.markdown(f"🏗️ **Alcance Técnico:**\n{raw_resumen}")
                             else:
                                 st.write("Licitación pendiente de análisis ejecutivo estricto. Revisa si hay texto descargado.")
@@ -599,7 +576,6 @@ else:
                                     else:
                                         msg_container.error("⚠️ La IA finalizó pero no devolvió datos.")
 
-        # --- BARRA DE PAGINACIÓN INFERIOR ---
         st.divider()
         col_inf1, col_inf2, col_inf3 = st.columns([1, 2, 1])
         with col_inf1:
