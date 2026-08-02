@@ -192,8 +192,10 @@ st.markdown("""
     div[data-testid="stExpander"] { margin-top: 14px !important; }
     .stMarkdown a.anchor-link, [data-testid="stHeaderActionElements"] { display: none !important; }
     @media (max-width: 768px) {
-        .block-container { padding: 1rem 0.75rem 2rem !important; }
-        div[data-testid="stHorizontalBlock"] { flex-direction: column !important; gap: 0.7rem !important; }
+        .block-container { padding: 2.5rem 0.75rem 2rem !important; }
+        div[data-testid="stHorizontalBlock"] { flex-direction: column !important; gap: 0.45rem !important; }
+        .metric-box-grid { margin-bottom: 0.35rem !important; }
+        h1 { margin-top: 0 !important; line-height: 1.2 !important; }
         div[data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; max-width: 100% !important; flex: 1 1 100% !important; }\n        div[data-testid="stHorizontalBlock"], .metric-box-grid, div[data-testid="stExpander"] { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
         h1 { font-size: 1.8rem !important; }
     }
@@ -373,6 +375,26 @@ with kpi3:
     st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid">{formato_eur(presupuesto_medio)}</div><div class="metric-lbl-grid">Presupuesto Medio (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi4:
     st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">Última Actualización BD</div></div>', unsafe_allow_html=True)
+
+filtros_activos = []
+if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
+if tipo_sel: filtros_activos.append('Tipo: ' + ', '.join(tipo_sel))
+if cpv_2dig.strip(): filtros_activos.append('CPV: ' + cpv_2dig.strip())
+if estados_sel: filtros_activos.append('Estado: ' + ', '.join(opciones_estado[e] for e in estados_sel))
+if ccaa_sel: filtros_activos.append('CC. AA.: ' + ', '.join(ccaa_sel))
+if prov_sel: filtros_activos.append('Provincia: ' + ', '.join(prov_sel))
+if muni_sel: filtros_activos.append('Municipio: ' + ', '.join(muni_sel))
+if pbl_min_val > 0 or pbl_max_val < max_pbl_db:
+    filtros_activos.append(f'Presupuesto: {formato_eur(pbl_min_val)} – {formato_eur(pbl_max_val)}')
+if fecha_rango and len(fecha_rango) == 2:
+    filtros_activos.append(f'Fecha límite: {fecha_rango[0].strftime("%d/%m/%Y")} – {fecha_rango[1].strftime("%d/%m/%Y")}')
+if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
+
+resumen_filtros = ' · '.join(filtros_activos) if filtros_activos else 'Ninguno'
+st.markdown(
+    f'<div style="margin-top:0.65rem; padding:0.55rem 0.75rem; border-radius:8px; background:#eef4ff; color:#334155; font-size:0.82rem;"><b>🔎 Filtros aplicados:</b> {html.escape(resumen_filtros)}</div>',
+    unsafe_allow_html=True
+)
 
 st.divider()
 
