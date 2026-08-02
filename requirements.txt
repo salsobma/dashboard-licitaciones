@@ -6,3 +6,4 @@ requests
 beautifulsoup4
 google-genai
 openpyxl
+streamlit-local-storage==0.0.25
