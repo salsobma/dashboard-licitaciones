@@ -1,0 +1,9 @@
+streamlit
+pandas
+sqlite3
+pydeck
+numpy
+requests
+beautifulsoup4
+google-genai
+openpyxl
