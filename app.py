@@ -1,3 +1,4 @@
+import html
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -8,19 +9,15 @@ import os
 import requests
 from datetime import date
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 from google import genai
 from google.genai import types
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Licitaciones | Dashboard", layout="wide", page_icon="🏛️")
+st.set_page_config(page_title="Licitaciones | Dashboard", layout="wide", page_icon="🏛️", initial_sidebar_state="collapsed")
 
 # --- RUTA DE LA BASE DE DATOS ADAPTADA (LOCAL Y NUBE) ---
-RUTA_LOCAL_PC = r"C:\Users\sobre\Landa Soluciones de Ingeniería Civil SC\LANDA - Documentos\11 Automatizaciones\Dashboard licitaciones\licitaciones.db"
-
-if os.path.exists(RUTA_LOCAL_PC):
-    DB_PATH = RUTA_LOCAL_PC
-else:
-    DB_PATH = "licitaciones.db"
+DB_PATH = os.getenv("LICITACIONES_DB_PATH", "licitaciones.db")
 
 # --- CONFIGURACIÓN DE GEMINI ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "TU_API_KEY_AQUI")
@@ -187,6 +184,8 @@ st.markdown("""
     .metric-box-grid { background-color: #ffffff; border-radius: 8px; padding: 12px 10px; text-align: center; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
     .metric-val-grid { font-size: 1.35rem; font-weight: 800; color: #0d6efd; letter-spacing: -0.5px; }
     .metric-lbl-grid { font-size: 0.72rem; color: #475569; text-transform: uppercase; font-weight: 700; margin-top: 4px; }
+    .card-metric { height: 100px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; box-sizing: border-box !important; }
+    .top-kpi { height: 112px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; box-sizing: border-box !important; }
 
     .row-widget.stHorizontal { align-items: stretch !important; }
     div[data-testid="stVerticalBlock"]:has(> div.stContainer) { height: 100%; }
@@ -194,6 +193,15 @@ st.markdown("""
 
     div[data-testid="stExpander"] { margin-top: 14px !important; }
     .stMarkdown a.anchor-link, [data-testid="stHeaderActionElements"] { display: none !important; }
+    @media (max-width: 768px) {
+        .block-container { padding: 2.5rem 0.75rem 2rem !important; }
+        div[data-testid="stHorizontalBlock"] { flex-direction: column !important; gap: 0.45rem !important; }
+        div[data-testid="stHorizontalBlock"]:has(.metric-box-grid) > div[data-testid="stColumn"] { padding-bottom: 0.45rem !important; box-sizing: border-box !important; }
+        .metric-box-grid { border: 3px solid #f8f9fa !important; box-shadow: inset 0 0 0 1px #e2e8f0 !important; }
+        h1 { margin-top: 0 !important; line-height: 1.2 !important; }
+        div[data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; max-width: 100% !important; flex: 0 0 auto !important; }\n        div[data-testid="stHorizontalBlock"], .metric-box-grid, div[data-testid="stExpander"] { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
+        h1 { font-size: 1.8rem !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -209,58 +217,74 @@ MAPA_TIPOS = {
     '21': 'Concesión de Servicios', '31': 'Concesión de Obras'
 }
 
-@st.cache_data
-def cargar_datos():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS licitaciones (
-        id TEXT PRIMARY KEY,
-        id_licitacion_corta TEXT,
-        expediente TEXT,
-        titulo TEXT,
-        organo_contratante TEXT,
-        tipo_contrato TEXT,
-        estado TEXT,
-        pbl_sin_iva REAL,
-        pbl_con_iva REAL,
-        valor_estimado REAL,
-        cpv TEXT,
-        codigo_postal TEXT,
-        municipio TEXT,
-        provincia TEXT,
-        comunidad_autonoma TEXT,
-        latitud REAL,
-        longitud REAL,
-        fecha_limite TEXT,
-        fecha_actualizacion TEXT,
-        url_licitacion TEXT,
-        documentos_adjuntos TEXT,
-        analizado_ia INTEGER DEFAULT 0,
-        resumen_ia TEXT,
-        puntuacion_ia INTEGER
-    )
-    """)
-    conn.commit()
-    
-    df = pd.read_sql_query("SELECT * FROM licitaciones", conn)
-    conn.close()
-    
+def texto_seguro(valor, fallback="N/A"):
+    if valor is None or (not isinstance(valor, (list, dict)) and pd.isna(valor)):
+        valor = fallback
+    return html.escape(str(valor))
+
+def url_externa_segura(valor):
+    if not isinstance(valor, str):
+        return None
+    try:
+        parsed = urlparse(valor.strip())
+    except ValueError:
+        return None
+    return valor.strip() if parsed.scheme in {"http", "https"} and parsed.netloc else None
+
+def formato_eur(valor):
+    if pd.isna(valor):
+        return "No especificado"
+    return f"{float(valor):,.2f}".translate(str.maketrans({",": ".", ".": ","})) + " €"
+
+def formato_fecha(valor):
+    fecha = pd.to_datetime(valor, errors="coerce")
+    return "No especificada" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
+
+def texto_dias_restantes(valor):
+    fecha = pd.to_datetime(valor, errors="coerce")
+    if pd.isna(fecha):
+        return "Plazo no disponible"
+    dias = (fecha.date() - date.today()).days
+    if dias > 1:
+        return f"Faltan {dias} días"
+    if dias == 1:
+        return "Falta 1 día"
+    if dias == 0:
+        return "Finaliza hoy"
+    if dias == -1:
+        return "Finalizó hace 1 día"
+    return f"Finalizó hace {abs(dias)} días"
+
+def texto_antiguedad(valor):
+    if pd.isna(valor):
+        return "Actualización no disponible"
+    dias = max(0, (date.today() - valor.date()).days)
+    if dias == 0:
+        return "Actualizada hoy"
+    if dias == 1:
+        return "Hace 1 día"
+    return f"Hace {dias} días"
+
+@st.cache_data(ttl=300, show_spinner="Cargando licitaciones…")
+def cargar_datos(db_mtime):
+    del db_mtime
+    uri = f"file:{os.path.abspath(DB_PATH).replace('\\', '/')}?mode=ro"
+    with sqlite3.connect(uri, uri=True, timeout=10) as conn:
+        df = pd.read_sql_query("SELECT * FROM licitaciones", conn)
+
     df['fecha_limite_dt'] = pd.to_datetime(df['fecha_limite'].str.slice(0, 10), errors='coerce', utc=True)
     df['fecha_act_dt'] = pd.to_datetime(df['fecha_actualizacion'], errors='coerce', utc=True)
     df['tipo_contrato_desc'] = df['tipo_contrato'].map(MAPA_TIPOS).fillna('Otros')
     return df
 
 try:
-    df = cargar_datos()
+    df = cargar_datos(os.path.getmtime(DB_PATH))
 except Exception as e:
     st.error(f"❌ No se pudo conectar a la base de datos en {DB_PATH}. Error: {e}")
     st.stop()
 
-max_pbl_db = float(df['pbl_sin_iva'].max() or 200000.0)
-if max_pbl_db <= 0:
-    max_pbl_db = 200000.0
+max_pbl_value = df['pbl_sin_iva'].max()
+max_pbl_db = float(max_pbl_value) if pd.notnull(max_pbl_value) and max_pbl_value > 0 else 200000.0
 
 fechas_validas = df['fecha_limite_dt'].dropna()
 f_min_db = fechas_validas.min().date() if not fechas_validas.empty else date.today()
@@ -343,7 +367,7 @@ df_f = df.copy()
 
 if busqueda_texto.strip():
     q = busqueda_texto.lower().strip()
-    df_f = df_f[df_f['titulo'].str.lower().str.contains(q, na=False) | df_f['expediente'].str.lower().str.contains(q, na=False) | df_f['organo_contratante'].str.lower().str.contains(q, na=False)]
+    df_f = df_f[df_f['titulo'].str.lower().str.contains(q, na=False, regex=False) | df_f['expediente'].str.lower().str.contains(q, na=False, regex=False) | df_f['organo_contratante'].str.lower().str.contains(q, na=False, regex=False)]
 
 if estados_sel: df_f = df_f[df_f['estado'].isin(estados_sel)]
 if tipo_sel: df_f = df_f[df_f['tipo_contrato_desc'].isin(tipo_sel)]
@@ -372,13 +396,33 @@ presupuesto_medio = df_f['pbl_sin_iva'].mean() if not df_f.empty and len(df_f) >
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
 with kpi1:
-    st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid">{len(df_f)}</div><div class="metric-lbl-grid">Licitaciones Filtradas</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{len(df_f)}</div><div class="metric-lbl-grid">Licitaciones Filtradas</div></div>', unsafe_allow_html=True)
 with kpi2:
-    st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid">{volumen_total:,.2f} €</div><div class="metric-lbl-grid">Volumen Total (sin IVA)</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(volumen_total)}</div><div class="metric-lbl-grid">Volumen Total (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi3:
-    st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid">{presupuesto_medio:,.2f} €</div><div class="metric-lbl-grid">Presupuesto Medio (sin IVA)</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_medio)}</div><div class="metric-lbl-grid">Presupuesto Medio (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi4:
-    st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">Última Actualización BD</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">Última Actualización BD</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_antiguedad(ultima_act)}</div></div>', unsafe_allow_html=True)
+
+filtros_activos = []
+if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
+if tipo_sel: filtros_activos.append('Tipo: ' + ', '.join(tipo_sel))
+if cpv_2dig.strip(): filtros_activos.append('CPV: ' + cpv_2dig.strip())
+if estados_sel: filtros_activos.append('Estado: ' + ', '.join(opciones_estado[e] for e in estados_sel))
+if ccaa_sel: filtros_activos.append('CC. AA.: ' + ', '.join(ccaa_sel))
+if prov_sel: filtros_activos.append('Provincia: ' + ', '.join(prov_sel))
+if muni_sel: filtros_activos.append('Municipio: ' + ', '.join(muni_sel))
+if pbl_min_val > 0 or pbl_max_val < max_pbl_db:
+    filtros_activos.append(f'Presupuesto: {formato_eur(pbl_min_val)} – {formato_eur(pbl_max_val)}')
+if fecha_rango and len(fecha_rango) == 2:
+    filtros_activos.append(f'Fecha límite: {fecha_rango[0].strftime("%d/%m/%Y")} – {fecha_rango[1].strftime("%d/%m/%Y")}')
+if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
+
+resumen_filtros = ' · '.join(filtros_activos) if filtros_activos else 'Ninguno'
+st.markdown(
+    f'<div style="margin-top:0.65rem; padding:0.55rem 0.75rem; border-radius:8px; background:#eef4ff; color:#334155; font-size:0.82rem;"><b>🔎 Filtros aplicados:</b> {html.escape(resumen_filtros)}</div>',
+    unsafe_allow_html=True
+)
 
 st.divider()
 
@@ -386,14 +430,14 @@ if df_f.empty:
     st.warning("⚠️ No se ha encontrado ninguna licitación que coincida con los filtros aplicados. Prueba a relajar los criterios de búsqueda.")
 else:
     st.write("")
-    tab_tarjetas, tab_mapa = st.tabs(["🗂️ Vista Tarjetas", "🗺️ Mapa Geográfico"])
+    tab_tarjetas, tab_mapa = st.tabs(["🗂️ Vista Tarjetas", "🗺️ Mapa"])
 
     with tab_mapa:
         st.subheader("📍 Ubicación de las licitaciones")
         df_mapa = df_f.dropna(subset=['latitud', 'longitud']).copy()
         
         if not df_mapa.empty:
-            df_mapa['pbl_fmt'] = df_mapa['pbl_sin_iva'].apply(lambda x: f"{x:,.2f} €" if pd.notnull(x) else "No especificado")
+            df_mapa['pbl_fmt'] = df_mapa['pbl_sin_iva'].apply(lambda x: formato_eur(x))
             df_mapa['fecha_limite_fmt'] = df_mapa['fecha_limite'].fillna('No especificada')
             df_mapa['municipio_clean'] = df_mapa['municipio'].fillna('No especificado')
             df_mapa['provincia_clean'] = df_mapa['provincia'].fillna('No especificada')
@@ -504,13 +548,22 @@ else:
             
             for col, (_, r) in zip(cols, lote.iterrows()):
                 st_txt, badge_cls = MAPA_ESTADOS.get(r['estado'], (r['estado'], 'badge-res'))
-                link_html = f'<a href="{r["url_licitacion"]}" target="_blank" class="external-link-btn" title="Ver ficha en la Plataforma">🔗</a>' if r['url_licitacion'] else ''
-                
+                st_txt = texto_seguro(st_txt, "Estado desconocido")
+                url_oficial = url_externa_segura(r.get("url_licitacion"))
+                link_html = f'<a href="{html.escape(url_oficial, quote=True)}" target="_blank" rel="noopener noreferrer" class="external-link-btn" title="Ver ficha en la Plataforma">🔗</a>' if url_oficial else ''
+
                 muni = r.get('municipio')
                 prov = r.get('provincia')
                 query_maps = f"{muni}, {prov}" if pd.notnull(muni) and pd.notnull(prov) else (muni or "España")
-                maps_url = f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(query_maps)}"
-                maps_html = f'<a href="{maps_url}" target="_blank" class="maps-btn" title="Cómo llegar a {muni or 'Ubicación'}">📍</a>'
+                maps_url = f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(str(query_maps))}"
+                maps_html = f'<a href="{html.escape(maps_url, quote=True)}" target="_blank" rel="noopener noreferrer" class="maps-btn" title="Ver ubicación en el mapa">📍</a>'
+                titulo_safe = texto_seguro(r.get('titulo'), 'Sin título')
+                organo_safe = texto_seguro(r.get('organo_contratante'), 'Organismo N/A')
+                muni_safe = texto_seguro(muni)
+                prov_safe = texto_seguro(prov)
+                tipo_safe = texto_seguro(r.get('tipo_contrato_desc'), 'Otros')
+                expediente_safe = texto_seguro(r.get('expediente'))
+                cpv_safe = texto_seguro(r.get('cpv'))
                 
                 with col:
                     with st.container(border=True):
@@ -520,31 +573,34 @@ else:
                             <div style="display: flex; gap: 4px;">{link_html} {maps_html}</div>
                         </div>
                         <h5 style="margin: 10px 0 6px 0; color: #1a252c; line-height: 1.35; font-size: 0.95rem; min-height: 2.7em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
-                            {r['titulo'] or 'Sin título'}
+                            {titulo_safe}
                         </h5>
                         <p style="margin: 0; font-size: 0.8rem; color: #495057; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                            🏛️ <b>{r['organo_contratante'] or 'Organismo N/A'}</b>
+                            🏛️ <b>{organo_safe}</b>
                         </p>
                         <p style="margin: 2px 0 4px 0; font-size: 0.78rem; color: #6c757d;">
-                            📍 {r['municipio'] or 'N/A'} ({r['provincia'] or 'N/A'}) | 📦 <b>{r['tipo_contrato_desc']}</b>
+                            📍 {muni_safe} ({prov_safe}) | 📦 <b>{tipo_safe}</b>
                         </p>
                         <p style="margin: 0 0 10px 0; font-size: 0.75rem; color: #8b949e;">
-                            <b>Exp:</b> {r['expediente'] or 'N/A'} | <b>CPV:</b> {r['cpv'] or 'N/A'}
+                            <b>Exp:</b> {expediente_safe} | <b>CPV:</b> {cpv_safe}
                         </p>
                         """, unsafe_allow_html=True)
                         
                         mc1, mc2 = st.columns(2)
                         with mc1:
-                            st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid" style="font-size: 0.85rem;">{r["pbl_sin_iva"]:,.2f} €</div><div class="metric-lbl-grid">PBL SIN IVA</div></div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.85rem;">{formato_eur(r["pbl_sin_iva"])}</div><div class="metric-lbl-grid">PBL SIN IVA</div></div>', unsafe_allow_html=True)
                         with mc2:
-                            st.markdown(f'<div class="metric-box-grid"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{r["fecha_limite"] or "No especificada"}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div></div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{formato_fecha(r["fecha_limite"])}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_dias_restantes(r["fecha_limite"])}</div></div>', unsafe_allow_html=True)
 
                         with st.expander("📄 Ver documentación"):
                             docs = json.loads(r['documentos_adjuntos']) if r['documentos_adjuntos'] else []
                             if docs:
                                 st.write("**Documentos descargables:**")
                                 for d in docs:
-                                    st.markdown(f"📥 [{d['tipo']} - {d['nombre']}]({d['url']})")
+                                    doc_url = url_externa_segura(d.get('url'))
+                                    if doc_url:
+                                        etiqueta = f"{d.get('tipo', 'Documento')} - {d.get('nombre', 'Archivo')}"
+                                        st.link_button(etiqueta, doc_url, use_container_width=True)
                             else:
                                 st.write("Sin documentos adjuntos directos.")
 
@@ -588,23 +644,7 @@ else:
                                 except Exception:
                                     st.markdown(f"🏗️ **Alcance Técnico:**\n{raw_resumen}")
                             else:
-                                st.write("Licitación pendiente de análisis ejecutivo estricto. Revisa si hay texto descargado.")
-                                btn_key = f"btn_directo_{r['id']}"
-                                
-                                if st.button("🚀 Lanzar Análisis Ejecutivo IA", key=btn_key, use_container_width=True):
-                                    msg_container = st.empty()
-                                    msg_container.info("⏳ Extrayendo ponderaciones numéricas exactas...")
-                                    
-                                    resultado, error_msg = analizar_licitacion_directo(r.to_dict())
-                                    
-                                    if error_msg:
-                                        msg_container.error(error_msg)
-                                    elif resultado:
-                                        msg_container.success("¡Análisis de puntos completado!")
-                                        st.cache_data.clear()
-                                        st.rerun()
-                                    else:
-                                        msg_container.error("⚠️ La IA finalizó pero no devolvió datos.")
+                                st.info("Resumen pendiente de análisis privado. La aplicación pública no ejecuta modelos de IA.")
 
         st.divider()
         col_inf1, col_inf2, col_inf3 = st.columns([1, 2, 1])

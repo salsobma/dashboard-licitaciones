@@ -6,7 +6,7 @@ import os
 import pandas as pd
 
 # --- RUTA EXACTA A LA BASE DE DATOS ---
-DB_PATH = r"C:\Users\sobre\Landa Soluciones de Ingeniería Civil SC\LANDA - Documentos\11 Automatizaciones\Dashboard licitaciones\licitaciones.db"
+DB_PATH = os.getenv("LICITACIONES_DB_PATH", "licitaciones.db")
 
 # Carpeta donde guardas los archivos Atom / XML
 CARPETA_DATOS = "datos_atom"
