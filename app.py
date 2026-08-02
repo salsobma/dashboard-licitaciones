@@ -194,7 +194,7 @@ st.markdown("""
     @media (max-width: 768px) {
         .block-container { padding: 2.5rem 0.75rem 2rem !important; }
         div[data-testid="stHorizontalBlock"] { flex-direction: column !important; gap: 0.45rem !important; }
-        div[data-testid="stHorizontalBlock"]:has(.metric-box-grid) > div[data-testid="stColumn"] { margin-bottom: 0.45rem !important; }
+        div[data-testid="stHorizontalBlock"]:has(.metric-box-grid) > div[data-testid="stColumn"] { padding-bottom: 0.45rem !important; box-sizing: border-box !important; }
         h1 { margin-top: 0 !important; line-height: 1.2 !important; }
         div[data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; max-width: 100% !important; flex: 1 1 100% !important; }\n        div[data-testid="stHorizontalBlock"], .metric-box-grid, div[data-testid="stExpander"] { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
         h1 { font-size: 1.8rem !important; }
