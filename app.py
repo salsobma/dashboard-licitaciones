@@ -179,8 +179,10 @@ st.markdown("""
     .badge-ev { background-color: #fd7e14; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.75em; font-weight: 600; }
     .badge-adj { background-color: #0d6efd; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.75em; font-weight: 600; }
     .badge-res { background-color: #6c757d; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.75em; font-weight: 600; }
-    .external-link-btn { color: #0d6efd; text-decoration: none; font-size: 0.85rem; font-weight: 600; background-color: #e7f1ff; padding: 2px 8px; border-radius: 6px; border: 1px solid #b6d4fe; }
+    .external-link-btn { color: #0d6efd; text-decoration: none; font-size: 0.9rem; font-weight: 600; background-color: #e7f1ff; padding: 3px 8px; border-radius: 6px; border: 1px solid #b6d4fe; display: inline-block; }
     .external-link-btn:hover { background-color: #0d6efd; color: white; }
+    .maps-btn { color: #198754; text-decoration: none; font-size: 0.9rem; font-weight: 600; background-color: #e8f5e9; padding: 3px 8px; border-radius: 6px; border: 1px solid #c3e6cb; display: inline-block; }
+    .maps-btn:hover { background-color: #198754; color: white; }
     
     .metric-box-grid { background-color: #ffffff; border-radius: 8px; padding: 12px 10px; text-align: center; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
     .metric-val-grid { font-size: 1.35rem; font-weight: 800; color: #0d6efd; letter-spacing: -0.5px; }
@@ -445,16 +447,6 @@ else:
             
             r = pdk.Deck(layers=[layer], initial_view_state=view_state, tooltip=tooltip, map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json")
             st.pydeck_chart(r)
-
-            with st.expander("📋 Ver listado y accesos directos de las licitaciones en este mapa"):
-                st.write("Selecciona una licitación para acceder directamente a su ficha oficial:")
-                for _, r_map in df_mapa.iterrows():
-                    col_m1, col_m2 = st.columns([5, 1])
-                    with col_m1:
-                        st.markdown(f"**{r_map['titulo']}** — *{r_map['organo_contratante']}* ({r_map['pbl_fmt']})")
-                    with col_m2:
-                        if r_map['url_licitacion']:
-                            st.markdown(f'<a href="{r_map["url_licitacion"]}" target="_blank" class="external-link-btn">🔗 Abrir</a>', unsafe_allow_html=True)
         else:
             st.info("No hay licitaciones con coordenadas geográficas disponibles para mostrar en el mapa.")
 
@@ -514,12 +506,18 @@ else:
                 st_txt, badge_cls = MAPA_ESTADOS.get(r['estado'], (r['estado'], 'badge-res'))
                 link_html = f'<a href="{r["url_licitacion"]}" target="_blank" class="external-link-btn" title="Ver ficha en la Plataforma">🔗</a>' if r['url_licitacion'] else ''
                 
+                muni = r.get('municipio')
+                prov = r.get('provincia')
+                query_maps = f"{muni}, {prov}" if pd.notnull(muni) and pd.notnull(prov) else (muni or "España")
+                maps_url = f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(query_maps)}"
+                maps_html = f'<a href="{maps_url}" target="_blank" class="maps-btn" title="Cómo llegar a {muni or 'Ubicación'}">📍</a>'
+                
                 with col:
                     with st.container(border=True):
                         st.markdown(f"""
                         <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                             <span class="{badge_cls}">{st_txt}</span>
-                            <div>{link_html}</div>
+                            <div style="display: flex; gap: 4px;">{link_html} {maps_html}</div>
                         </div>
                         <h5 style="margin: 10px 0 6px 0; color: #1a252c; line-height: 1.35; font-size: 0.95rem; min-height: 2.7em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
                             {r['titulo'] or 'Sin título'}
