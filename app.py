@@ -20,7 +20,7 @@ st.set_page_config(page_title="Licitaciones | Dashboard", layout="wide", page_ic
 # --- FAVORITOS GUARDADOS EN ESTE NAVEGADOR ---
 FAVORITOS_KEY = "dashboard_licitaciones_favoritos"
 local_storage = LocalStorage()
-favoritos_raw = local_storage.getItem(FAVORITOS_KEY, key="favoritos_local_get")
+favoritos_raw = local_storage.getItem(FAVORITOS_KEY)
 
 if "favoritos_ids" not in st.session_state:
     st.session_state["favoritos_ids"] = []
@@ -40,8 +40,7 @@ if not st.session_state["favoritos_cargados"] and favoritos_raw is not None:
 if st.session_state.pop("favoritos_pendientes", False):
     local_storage.setItem(
         FAVORITOS_KEY,
-        json.dumps(st.session_state["favoritos_ids"]),
-        key=f"favoritos_local_set_{st.session_state['favoritos_version']}"
+        json.dumps(st.session_state["favoritos_ids"])
     )
 
 def alternar_favorito(licitacion_id):
