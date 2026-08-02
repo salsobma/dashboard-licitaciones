@@ -210,6 +210,38 @@ MAPA_TIPOS = {
 @st.cache_data
 def cargar_datos():
     conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS licitaciones (
+        id TEXT PRIMARY KEY,
+        id_licitacion_corta TEXT,
+        expediente TEXT,
+        titulo TEXT,
+        organo_contratante TEXT,
+        tipo_contrato TEXT,
+        estado TEXT,
+        pbl_sin_iva REAL,
+        pbl_con_iva REAL,
+        valor_estimado REAL,
+        cpv TEXT,
+        codigo_postal TEXT,
+        municipio TEXT,
+        provincia TEXT,
+        comunidad_autonoma TEXT,
+        latitud REAL,
+        longitud REAL,
+        fecha_limite TEXT,
+        fecha_actualizacion TEXT,
+        url_licitacion TEXT,
+        documentos_adjuntos TEXT,
+        analizado_ia INTEGER DEFAULT 0,
+        resumen_ia TEXT,
+        puntuacion_ia INTEGER
+    )
+    """)
+    conn.commit()
+    
     df = pd.read_sql_query("SELECT * FROM licitaciones", conn)
     conn.close()
     
