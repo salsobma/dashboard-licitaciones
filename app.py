@@ -763,11 +763,11 @@ components.html("""
     const storageKey = "dashboard_licitaciones_scroll";
     const scrollContainer = parentDocument.querySelector('[data-testid="stMain"]');
 
+    const savedScroll = parentWindow.sessionStorage.getItem(storageKey);
+
     const restoreScroll = () => {
-        if (!scrollContainer) return;
-        const saved = parentWindow.sessionStorage.getItem(storageKey);
-        if (!saved) return;
-        parentWindow.sessionStorage.removeItem(storageKey);
+        if (!scrollContainer || !savedScroll) return;
+        const saved = savedScroll;
 
         if (saved === "tarjetas") {
             const pageIndicator = Array.from(parentDocument.querySelectorAll("p"))
@@ -806,6 +806,9 @@ components.html("""
 
     requestAnimationFrame(() => requestAnimationFrame(restoreScroll));
     setTimeout(restoreScroll, 250);
+    setTimeout(restoreScroll, 700);
+    setTimeout(restoreScroll, 1400);
+    setTimeout(() => parentWindow.sessionStorage.removeItem(storageKey), 1600);
     bindButtons();
     const observer = new MutationObserver(bindButtons);
     observer.observe(parentDocument.body, { childList: true, subtree: true });
