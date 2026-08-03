@@ -14,47 +14,9 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from google import genai
 from google.genai import types
-from streamlit_local_storage import LocalStorage
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Licitaciones | Dashboard", layout="wide", page_icon="🏛️", initial_sidebar_state="collapsed")
-
-# --- FAVORITOS GUARDADOS EN ESTE NAVEGADOR ---
-FAVORITOS_KEY = "dashboard_licitaciones_favoritos"
-local_storage = LocalStorage()
-favoritos_raw = local_storage.getItem(FAVORITOS_KEY)
-
-if "favoritos_ids" not in st.session_state:
-    st.session_state["favoritos_ids"] = []
-if "favoritos_cargados" not in st.session_state:
-    st.session_state["favoritos_cargados"] = False
-if "favoritos_version" not in st.session_state:
-    st.session_state["favoritos_version"] = 0
-
-if not st.session_state["favoritos_cargados"] and favoritos_raw is not None:
-    try:
-        valores = json.loads(favoritos_raw) if isinstance(favoritos_raw, str) else favoritos_raw
-        st.session_state["favoritos_ids"] = [str(x) for x in valores] if isinstance(valores, list) else []
-    except (TypeError, ValueError, json.JSONDecodeError):
-        st.session_state["favoritos_ids"] = []
-    st.session_state["favoritos_cargados"] = True
-
-if st.session_state.pop("favoritos_pendientes", False):
-    local_storage.setItem(
-        FAVORITOS_KEY,
-        json.dumps(st.session_state["favoritos_ids"])
-    )
-
-def alternar_favorito(licitacion_id):
-    favorito_id = str(licitacion_id)
-    favoritos = set(st.session_state.get("favoritos_ids", []))
-    if favorito_id in favoritos:
-        favoritos.remove(favorito_id)
-    else:
-        favoritos.add(favorito_id)
-    st.session_state["favoritos_ids"] = sorted(favoritos)
-    st.session_state["favoritos_version"] += 1
-    st.session_state["favoritos_pendientes"] = True
 
 # --- RUTA DE LA BASE DE DATOS ADAPTADA (LOCAL Y NUBE) ---
 DB_PATH = os.getenv("LICITACIONES_DB_PATH", "licitaciones.db")
@@ -528,15 +490,6 @@ def render_grid_tarjetas(df_vista, key_prefix):
                     with mc2:
                         st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{formato_fecha(r["fecha_limite"])}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_dias_restantes(r["fecha_limite"])}</div></div>', unsafe_allow_html=True)
 
-                    es_favorita = str(r["id"]) in set(st.session_state.get("favoritos_ids", []))
-                    st.button(
-                        "⭐ En favoritos" if es_favorita else "☆ Añadir a favoritos",
-                        key=f"favorito_{key_prefix}_{r['id']}",
-                        on_click=alternar_favorito,
-                        args=(r["id"],),
-                        use_container_width=True
-                    )
-
                     with st.expander("📄 Ver documentación"):
                         docs = json.loads(r['documentos_adjuntos']) if r['documentos_adjuntos'] else []
                         if docs:
@@ -597,9 +550,8 @@ if df_f.empty:
     st.warning("⚠️ No se ha encontrado ninguna licitación que coincida con los filtros aplicados. Prueba a relajar los criterios de búsqueda.")
 else:
     st.write("")
-    tab_tarjetas, tab_favoritos, tab_graficos, tab_mapa = st.tabs([
+    tab_tarjetas, tab_graficos, tab_mapa = st.tabs([
         "🗂️ Vista Tarjetas",
-        f"⭐ Favoritos ({len(st.session_state['favoritos_ids'])})",
         "📊 Gráficos",
         "🗺️ Mapa"
     ])
@@ -809,17 +761,6 @@ else:
         else:
             st.info("No hay licitaciones con coordenadas geográficas disponibles para mostrar en el mapa.")
 
-    with tab_favoritos:
-        st.caption("Los favoritos se guardan únicamente en este navegador y dispositivo.")
-        favoritos_actuales = set(st.session_state.get("favoritos_ids", []))
-        df_favoritos = df[df["id"].astype(str).isin(favoritos_actuales)].copy()
-
-        if df_favoritos.empty:
-            st.info("Todavía no has guardado ninguna licitación. Pulsa ☆ Añadir a favoritos dentro de una tarjeta.")
-        else:
-            st.write(f"**{len(df_favoritos)} licitaciones guardadas**")
-            render_grid_tarjetas(df_favoritos.sort_values(by="fecha_limite_dt", ascending=True, na_position="last"), "favoritos")
-
     with tab_tarjetas:
         col_ord1, col_ord2 = st.columns([2, 3])
         with col_ord1:
@@ -939,12 +880,7 @@ components.html("""
             if (button.dataset.licitacionesScrollBound === "1") return;
             const label = (button.innerText || button.textContent || "").trim();
 
-            if (label.includes("Añadir a favoritos") || label.includes("En favoritos") || label.includes("Quitar de favoritos")) {
-                button.addEventListener("pointerdown", () => {
-                    parentWindow.sessionStorage.setItem(storageKey, String(scrollContainer?.scrollTop || 0));
-                }, { capture: true });
-                button.dataset.licitacionesScrollBound = "1";
-            } else if (label.includes("Siguiente") || label.includes("Anterior")) {
+            if (label.includes("Siguiente") || label.includes("Anterior")) {
                 button.addEventListener("pointerdown", () => {
                     parentWindow.sessionStorage.setItem(storageKey, "tarjetas");
                 }, { capture: true });
