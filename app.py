@@ -761,8 +761,10 @@ components.html("""
     const parentWindow = window.parent;
     const parentDocument = parentWindow.document;
     const storageKey = "dashboard_licitaciones_scroll";
+    const scrollContainer = parentDocument.querySelector('[data-testid="stMain"]');
 
     const restoreScroll = () => {
+        if (!scrollContainer) return;
         const saved = parentWindow.sessionStorage.getItem(storageKey);
         if (!saved) return;
         parentWindow.sessionStorage.removeItem(storageKey);
@@ -771,10 +773,15 @@ components.html("""
             const pageIndicator = Array.from(parentDocument.querySelectorAll("p"))
                 .find((element) => /^Página \d+ de \d+/.test((element.textContent || "").trim()));
             const target = pageIndicator?.closest('[data-testid="stHorizontalBlock"]') || pageIndicator;
-            if (target) target.scrollIntoView({ behavior: "auto", block: "start" });
+            if (target) {
+                const targetTop = target.getBoundingClientRect().top
+                    - scrollContainer.getBoundingClientRect().top
+                    + scrollContainer.scrollTop;
+                scrollContainer.scrollTo({ top: targetTop, behavior: "auto" });
+            }
         } else {
             const position = Number(saved);
-            if (Number.isFinite(position)) parentWindow.scrollTo({ top: position, behavior: "auto" });
+            if (Number.isFinite(position)) scrollContainer.scrollTo({ top: position, behavior: "auto" });
         }
     };
 
@@ -785,7 +792,7 @@ components.html("""
 
             if (label.includes("Añadir a favoritos") || label.includes("En favoritos") || label.includes("Quitar de favoritos")) {
                 button.addEventListener("pointerdown", () => {
-                    parentWindow.sessionStorage.setItem(storageKey, String(parentWindow.scrollY));
+                    parentWindow.sessionStorage.setItem(storageKey, String(scrollContainer?.scrollTop || 0));
                 }, { capture: true });
                 button.dataset.licitacionesScrollBound = "1";
             } else if (label.includes("Siguiente") || label.includes("Anterior")) {
