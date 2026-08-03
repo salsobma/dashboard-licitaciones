@@ -606,11 +606,19 @@ else:
         fechas_publicacion = pd.to_datetime(
             df_graficos[campo_fecha_publicacion], errors="coerce", utc=True
         ).dt.tz_convert(None)
-        presupuesto_diario = (
+        datos_publicacion_diaria = (
             df_graficos.assign(fecha_publicacion=fechas_publicacion.dt.normalize())
             .dropna(subset=["fecha_publicacion"])
-            .groupby("fecha_publicacion", as_index=False)["pbl_sin_iva"]
+        )
+        presupuesto_diario = (
+            datos_publicacion_diaria.groupby("fecha_publicacion", as_index=False)["pbl_sin_iva"]
             .sum()
+            .sort_values("fecha_publicacion")
+        )
+        licitaciones_diarias = (
+            datos_publicacion_diaria.groupby("fecha_publicacion", as_index=False)
+            .size()
+            .rename(columns={"size": "licitaciones"})
             .sort_values("fecha_publicacion")
         )
 
@@ -736,6 +744,19 @@ else:
             )
             .properties(height=420)
         )
+        grafico_licitaciones_diarias = (
+            alt.Chart(licitaciones_diarias)
+            .mark_line(color=color_naranja, point=alt.OverlayMarkDef(color=color_naranja, size=45), strokeWidth=3)
+            .encode(
+                x=alt.X("fecha_publicacion:T", title="Fecha de publicación", axis=alt.Axis(format="%d/%m/%Y")),
+                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
+                tooltip=[
+                    alt.Tooltip("fecha_publicacion:T", title="Fecha", format="%d/%m/%Y"),
+                    alt.Tooltip("licitaciones:Q", title="Licitaciones anunciadas")
+                ]
+            )
+            .properties(height=340)
+        )
         grafico_presupuesto_diario = (
             alt.Chart(presupuesto_diario)
             .mark_line(color=color_azul, point=alt.OverlayMarkDef(color=color_azul, size=45), strokeWidth=3)
@@ -779,6 +800,11 @@ else:
             with st.container(border=True):
                 st.markdown("#### Presupuesto por órgano de contratación")
                 st.altair_chart(grafico_presupuesto_organo, use_container_width=True)
+
+        with st.container(border=True):
+            st.markdown("#### Licitaciones anunciadas por día")
+            st.caption(f"Número de licitaciones agrupadas según {descripcion_fecha_publicacion}.")
+            st.altair_chart(grafico_licitaciones_diarias, use_container_width=True)
 
         with st.container(border=True):
             st.markdown("#### Presupuesto publicado por día")
