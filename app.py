@@ -624,6 +624,13 @@ def render_grid_tarjetas(df_vista, key_prefix):
             st_txt = texto_seguro(st_txt, "Estado desconocido")
             url_oficial = url_externa_segura(r.get("url_licitacion"))
             link_html = f'<a href="{html.escape(url_oficial, quote=True)}" target="_blank" rel="noopener noreferrer" class="external-link-btn" title="Ver ficha en la Plataforma">🔗</a>' if url_oficial else ''
+            movimiento = r.get("movimiento")
+            if movimiento == "Nueva licitación":
+                movimiento_html = '<span title="Nueva licitación" aria-label="Nueva licitación" style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#22c55e;border:2px solid #dcfce7;margin:auto 4px;"></span>'
+            elif movimiento == "Actualizada":
+                movimiento_html = '<span title="Licitación actualizada" aria-label="Licitación actualizada" style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#3b82f6;border:2px solid #dbeafe;margin:auto 4px;"></span>'
+            else:
+                movimiento_html = ""
 
             muni = r.get('municipio')
             prov = r.get('provincia')
@@ -643,7 +650,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                     st.markdown(f"""
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                         <span class="{badge_cls}">{st_txt}</span>
-                        <div style="display: flex; gap: 4px;">{link_html} {maps_html}</div>
+                        <div style="display: flex; align-items:center; gap: 4px;">{movimiento_html} {link_html} {maps_html}</div>
                     </div>
                     <h5 style="margin: 10px 0 6px 0; color: #1a252c; line-height: 1.35; font-size: 0.95rem; min-height: 2.7em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
                         {titulo_safe}
@@ -725,9 +732,10 @@ if df_f.empty:
     st.warning("⚠️ No se ha encontrado ninguna licitación que coincida con los filtros aplicados. Prueba a relajar los criterios de búsqueda.")
 else:
     st.write("")
-    tab_tarjetas, tab_radar, tab_graficos, tab_mapa = st.tabs([
-        "🗂️ Vista Tarjetas",
+    df_radar_filtrado = pd.DataFrame()
+    tab_radar, tab_tarjetas, tab_graficos, tab_mapa = st.tabs([
         "⚡ Últimas actualizaciones",
+        "🗂️ Histórico",
         "📊 Gráficos",
         "🗺️ Mapa"
     ])
@@ -821,12 +829,50 @@ else:
                     df_radar = df_radar.sort_values(
                         "fecha_act_dt", ascending=False, na_position="last"
                     )
-                    render_grid_tarjetas(df_radar.head(30), "radar")
-                    if len(df_radar) > 30:
-                        st.caption(
-                            f"Se muestran las 30 actualizaciones más recientes de "
-                            f"{len(df_radar)} resultados."
+                    df_radar_filtrado = df_radar.copy()
+                    items_radar = 12
+                    total_radar = len(df_radar_filtrado)
+                    paginas_radar = max(
+                        1, (total_radar + items_radar - 1) // items_radar
+                    )
+                    if "pagina_radar" not in st.session_state:
+                        st.session_state.pagina_radar = 1
+                    if st.session_state.pagina_radar > paginas_radar:
+                        st.session_state.pagina_radar = paginas_radar
+
+                    rad_ant, rad_info, rad_sig = st.columns([1, 2, 1])
+                    with rad_ant:
+                        if st.button(
+                            "⬅️ Anterior", key="radar_anterior",
+                            use_container_width=True,
+                            disabled=st.session_state.pagina_radar <= 1,
+                        ):
+                            st.session_state.pagina_radar -= 1
+                            st.rerun()
+                    with rad_info:
+                        st.markdown(
+                            f"<p style='text-align:center;font-weight:600;margin-top:6px;'>"
+                            f"Página {st.session_state.pagina_radar} de {paginas_radar} "
+                            f"(Total: {total_radar} actualizaciones)</p>",
+                            unsafe_allow_html=True,
                         )
+                    with rad_sig:
+                        if st.button(
+                            "Siguiente ➡️", key="radar_siguiente",
+                            use_container_width=True,
+                            disabled=st.session_state.pagina_radar >= paginas_radar,
+                        ):
+                            st.session_state.pagina_radar += 1
+                            st.rerun()
+
+                    inicio_radar = (
+                        st.session_state.pagina_radar - 1
+                    ) * items_radar
+                    fin_radar = inicio_radar + items_radar
+                    render_grid_tarjetas(
+                        df_radar_filtrado.iloc[inicio_radar:fin_radar],
+                        "radar",
+                    )
             else:
                 st.info("El feed oficial no contiene actualizaciones en este momento.")
         except Exception as error_feed:
@@ -839,8 +885,28 @@ else:
     with tab_graficos:
         st.subheader("📊 Análisis de las licitaciones")
         st.caption("Los gráficos se actualizan automáticamente con los filtros aplicados.")
+        fuente_graficos = st.radio(
+            "Datos que quieres analizar:",
+            ["Histórico", "Últimas actualizaciones", "Combinado"],
+            horizontal=True,
+            key="fuente_graficos",
+        )
+        if fuente_graficos == "Últimas actualizaciones":
+            df_graficos = df_radar_filtrado.copy()
+        elif fuente_graficos == "Combinado":
+            df_graficos = pd.concat(
+                [df_f, df_radar_filtrado], ignore_index=True, sort=False
+            )
+            if "id" in df_graficos.columns:
+                df_graficos = df_graficos.drop_duplicates(
+                    subset=["id"], keep="last"
+                )
+        else:
+            df_graficos = df_f.copy()
 
-        df_graficos = df_f.copy()
+        if df_graficos.empty:
+            st.info("No hay datos de esta fuente que coincidan con los filtros actuales.")
+            df_graficos = df_f.iloc[0:0].copy()
         df_graficos["provincia_grafico"] = df_graficos["provincia"].fillna("No especificada")
         df_graficos["comunidad_grafico"] = df_graficos["comunidad_autonoma"].fillna("No especificada")
         df_graficos["organo_grafico"] = df_graficos["organo_contratante"].fillna("No especificado")
@@ -877,15 +943,23 @@ else:
             .sort_values("pbl_sin_iva", ascending=False)
             .head(15)
         )
-        if "fecha_publicacion" in df_graficos.columns and df_graficos["fecha_publicacion"].notna().any():
-            campo_fecha_publicacion = "fecha_publicacion"
-            descripcion_fecha_publicacion = "la fecha real de publicación"
+        fechas_actualizacion_grafico = pd.to_datetime(
+            df_graficos["fecha_actualizacion"], errors="coerce", utc=True
+        )
+        if "fecha_publicacion" in df_graficos.columns:
+            fechas_publicacion_reales = pd.to_datetime(
+                df_graficos["fecha_publicacion"], errors="coerce", utc=True
+            )
+            fechas_publicacion = fechas_publicacion_reales.fillna(
+                fechas_actualizacion_grafico
+            ).dt.tz_convert(None)
+            descripcion_fecha_publicacion = (
+                "la fecha de publicación y, cuando no está disponible, "
+                "la fecha de actualización"
+            )
         else:
-            campo_fecha_publicacion = "fecha_actualizacion"
-            descripcion_fecha_publicacion = "la fecha de actualización (base anterior sin fecha de publicación)"
-        fechas_publicacion = pd.to_datetime(
-            df_graficos[campo_fecha_publicacion], errors="coerce", utc=True
-        ).dt.tz_convert(None)
+            fechas_publicacion = fechas_actualizacion_grafico.dt.tz_convert(None)
+            descripcion_fecha_publicacion = "la fecha de actualización del feed"
         datos_publicacion_diaria = (
             df_graficos.assign(fecha_publicacion=fechas_publicacion.dt.normalize())
             .dropna(subset=["fecha_publicacion"])
@@ -1093,7 +1167,27 @@ else:
 
     with tab_mapa:
         st.subheader("📍 Ubicación de las licitaciones")
-        df_mapa = df_f.dropna(subset=['latitud', 'longitud']).copy()
+        fuente_mapa = st.radio(
+            "Datos que quieres mostrar:",
+            ["Histórico", "Últimas actualizaciones", "Combinado"],
+            horizontal=True,
+            key="fuente_mapa",
+        )
+        if fuente_mapa == "Últimas actualizaciones":
+            df_base_mapa = df_radar_filtrado.copy()
+        elif fuente_mapa == "Combinado":
+            df_base_mapa = pd.concat(
+                [df_f, df_radar_filtrado], ignore_index=True, sort=False
+            )
+            if "id" in df_base_mapa.columns:
+                df_base_mapa = df_base_mapa.drop_duplicates(
+                    subset=["id"], keep="last"
+                )
+        else:
+            df_base_mapa = df_f.copy()
+        if df_base_mapa.empty and not set(["latitud", "longitud"]).issubset(df_base_mapa.columns):
+            df_base_mapa = df_f.iloc[0:0].copy()
+        df_mapa = df_base_mapa.dropna(subset=['latitud', 'longitud']).copy()
         
         if not df_mapa.empty:
             df_mapa['pbl_fmt'] = df_mapa['pbl_sin_iva'].apply(lambda x: formato_eur(x))
