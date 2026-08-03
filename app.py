@@ -597,8 +597,14 @@ else:
             .sort_values("pbl_sin_iva", ascending=False)
             .head(15)
         )
+        if "fecha_publicacion" in df_graficos.columns and df_graficos["fecha_publicacion"].notna().any():
+            campo_fecha_publicacion = "fecha_publicacion"
+            descripcion_fecha_publicacion = "la fecha real de publicación"
+        else:
+            campo_fecha_publicacion = "fecha_actualizacion"
+            descripcion_fecha_publicacion = "la fecha de actualización (base anterior sin fecha de publicación)"
         fechas_publicacion = pd.to_datetime(
-            df_graficos["fecha_actualizacion"], errors="coerce", utc=True
+            df_graficos[campo_fecha_publicacion], errors="coerce", utc=True
         ).dt.tz_convert(None)
         presupuesto_diario = (
             df_graficos.assign(fecha_publicacion=fechas_publicacion.dt.normalize())
@@ -776,7 +782,7 @@ else:
 
         with st.container(border=True):
             st.markdown("#### Presupuesto publicado por día")
-            st.caption("Suma diaria del presupuesto base de licitación sin IVA según la fecha de publicación/actualización disponible en la base.")
+            st.caption(f"Suma diaria del presupuesto base de licitación sin IVA según {descripcion_fecha_publicacion}.")
             st.altair_chart(grafico_presupuesto_diario, use_container_width=True)
 
     with tab_mapa:
