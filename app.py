@@ -718,7 +718,7 @@ else:
         inicio = (st.session_state.pagina_actual - 1) * ITEMS_POR_PAGINA
         fin = inicio + ITEMS_POR_PAGINA
         df_pagina = df_f.iloc[inicio:fin]
-        st.markdown('<div id="tarjetas-inicio"></div>', unsafe_allow_html=True)
+        st.markdown('<div id="tarjetas-inicio" style="height: 1px; margin: 0; padding: 0;" aria-hidden="true">&nbsp;</div>', unsafe_allow_html=True)
 
         render_grid_tarjetas(df_pagina, "principal")
 
