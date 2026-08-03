@@ -464,6 +464,122 @@ st.markdown(
 
 st.divider()
 
+def render_grid_tarjetas(df_vista, key_prefix):
+    for i in range(0, len(df_vista), 3):
+        cols = st.columns(3)
+        lote = df_vista.iloc[i:i+3]
+        
+        for col, (_, r) in zip(cols, lote.iterrows()):
+            st_txt, badge_cls = MAPA_ESTADOS.get(r['estado'], (r['estado'], 'badge-res'))
+            st_txt = texto_seguro(st_txt, "Estado desconocido")
+            url_oficial = url_externa_segura(r.get("url_licitacion"))
+            link_html = f'<a href="{html.escape(url_oficial, quote=True)}" target="_blank" rel="noopener noreferrer" class="external-link-btn" title="Ver ficha en la Plataforma">🔗</a>' if url_oficial else ''
+
+            muni = r.get('municipio')
+            prov = r.get('provincia')
+            query_maps = f"{muni}, {prov}" if pd.notnull(muni) and pd.notnull(prov) else (muni or "España")
+            maps_url = f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(str(query_maps))}"
+            maps_html = f'<a href="{html.escape(maps_url, quote=True)}" target="_blank" rel="noopener noreferrer" class="maps-btn" title="Ver ubicación en el mapa">📍</a>'
+            titulo_safe = texto_seguro(r.get('titulo'), 'Sin título')
+            organo_safe = texto_seguro(r.get('organo_contratante'), 'Organismo N/A')
+            muni_safe = texto_seguro(muni)
+            prov_safe = texto_seguro(prov)
+            tipo_safe = texto_seguro(r.get('tipo_contrato_desc'), 'Otros')
+            expediente_safe = texto_seguro(r.get('expediente'))
+            cpv_safe = texto_seguro(r.get('cpv'))
+            
+            with col:
+                with st.container(border=True):
+                    st.markdown(f"""
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                        <span class="{badge_cls}">{st_txt}</span>
+                        <div style="display: flex; gap: 4px;">{link_html} {maps_html}</div>
+                    </div>
+                    <h5 style="margin: 10px 0 6px 0; color: #1a252c; line-height: 1.35; font-size: 0.95rem; min-height: 2.7em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                        {titulo_safe}
+                    </h5>
+                    <p style="margin: 0; font-size: 0.8rem; color: #495057; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        🏛️ <b>{organo_safe}</b>
+                    </p>
+                    <p style="margin: 2px 0 4px 0; font-size: 0.78rem; color: #6c757d;">
+                        📍 {muni_safe} ({prov_safe}) | 📦 <b>{tipo_safe}</b>
+                    </p>
+                    <p style="margin: 0 0 10px 0; font-size: 0.75rem; color: #8b949e;">
+                        <b>Exp:</b> {expediente_safe} | <b>CPV:</b> {cpv_safe}
+                    </p>
+                    """, unsafe_allow_html=True)
+                    
+                    mc1, mc2 = st.columns(2)
+                    with mc1:
+                        st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.85rem;">{formato_eur(r["pbl_sin_iva"])}</div><div class="metric-lbl-grid">PBL SIN IVA</div></div>', unsafe_allow_html=True)
+                    with mc2:
+                        st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{formato_fecha(r["fecha_limite"])}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_dias_restantes(r["fecha_limite"])}</div></div>', unsafe_allow_html=True)
+
+                    es_favorita = str(r["id"]) in set(st.session_state.get("favoritos_ids", []))
+                    st.button(
+                        "⭐ En favoritos" if es_favorita else "☆ Añadir a favoritos",
+                        key=f"favorito_{key_prefix}_{r['id']}",
+                        on_click=alternar_favorito,
+                        args=(r["id"],),
+                        use_container_width=True
+                    )
+
+                    with st.expander("📄 Ver documentación"):
+                        docs = json.loads(r['documentos_adjuntos']) if r['documentos_adjuntos'] else []
+                        if docs:
+                            st.write("**Documentos descargables:**")
+                            for d in docs:
+                                doc_url = url_externa_segura(d.get('url'))
+                                if doc_url:
+                                    etiqueta = f"{d.get('tipo', 'Documento')} - {d.get('nombre', 'Archivo')}"
+                                    st.link_button(etiqueta, doc_url, use_container_width=True)
+                        else:
+                            st.write("Sin documentos adjuntos directos.")
+
+                    with st.expander("🧠 Resumen Técnico IA"):
+                        raw_resumen = r.get('resumen_ia')
+                        
+                        tiene_resumen = False
+                        if pd.notnull(raw_resumen):
+                            s_val = str(raw_resumen).strip().lower()
+                            if s_val and s_val != 'nan' and s_val != 'none':
+                                tiene_resumen = True
+
+                        if tiene_resumen:
+                            try:
+                                if isinstance(raw_resumen, dict):
+                                    res_ia = raw_resumen
+                                else:
+                                    cleaned_r = str(raw_resumen).strip()
+                                    if cleaned_r.startswith("```json"):
+                                        cleaned_r = cleaned_r[7:]
+                                    if cleaned_r.endswith("```"):
+                                        cleaned_r = cleaned_r[:-3]
+                                    res_ia = json.loads(cleaned_r.strip())
+                                    
+                                if isinstance(res_ia.get('alcance_tecnico'), str) and res_ia.get('alcance_tecnico').strip().startswith('{'):
+                                    try:
+                                        nested = json.loads(res_ia.get('alcance_tecnico'))
+                                        if isinstance(nested, dict):
+                                            res_ia = nested
+                                    except:
+                                        pass
+
+                                st.markdown(f"🏗️ **Alcance Técnico:**\n{res_ia.get('alcance_tecnico', '• No especificado')}")
+                                st.divider()
+                                st.markdown(f"⚖️ **Criterios de Puntuación:**\n{res_ia.get('criterios_puntuacion', '• No especificado')}")
+                                st.markdown(f"💼 **Solvencia Requerida / Clasificación:**\n{res_ia.get('solvencia_requerida', '• No especificado')}")
+                                st.markdown(f"👨‍💼 **Equipo Técnico y Titulaciones:**\n{res_ia.get('equipo_y_titulaciones', '• No especificado')}")
+                                st.markdown(f"🛡️ **Seguro RC:**\n{res_ia.get('seguro_rc', '• No especificado')}")
+                                st.markdown(f"🏦 **Garantías y Depósitos:**\n{res_ia.get('garantia', '• No especificado')}")
+                                st.markdown(f"⚠️ **Condicionantes y Plazos:**\n{res_ia.get('condicionantes_destacados', '• No especificado')}")
+                            except Exception:
+                                st.markdown(f"🏗️ **Alcance Técnico:**\n{raw_resumen}")
+                        else:
+                            st.info("Resumen pendiente de análisis privado. La aplicación pública no ejecuta modelos de IA.")
+
+
+
 if df_f.empty:
     st.warning("⚠️ No se ha encontrado ninguna licitación que coincida con los filtros aplicados. Prueba a relajar los criterios de búsqueda.")
 else:
@@ -541,23 +657,7 @@ else:
             st.info("Todavía no has guardado ninguna licitación. Pulsa ☆ Añadir a favoritos dentro de una tarjeta.")
         else:
             st.write(f"**{len(df_favoritos)} licitaciones guardadas**")
-            for _, fav in df_favoritos.sort_values(by="fecha_limite_dt", ascending=True, na_position="last").iterrows():
-                with st.container(border=True):
-                    st.markdown(f"#### {texto_seguro(fav.get('titulo'), 'Sin título')}")
-                    st.caption(f"{texto_seguro(fav.get('organo_contratante'), 'Organismo N/A')} · {formato_eur(fav.get('pbl_sin_iva'))} · {formato_fecha(fav.get('fecha_limite'))}")
-                    fav_c1, fav_c2 = st.columns(2)
-                    with fav_c1:
-                        fav_url = url_externa_segura(fav.get("url_licitacion"))
-                        if fav_url:
-                            st.link_button("🔗 Ver ficha oficial", fav_url, use_container_width=True)
-                    with fav_c2:
-                        st.button(
-                            "★ Quitar de favoritos",
-                            key=f"quitar_favorito_{fav['id']}",
-                            on_click=alternar_favorito,
-                            args=(fav["id"],),
-                            use_container_width=True
-                        )
+            render_grid_tarjetas(df_favoritos.sort_values(by="fecha_limite_dt", ascending=True, na_position="last"), "favoritos")
 
     with tab_tarjetas:
         col_ord1, col_ord2 = st.columns([2, 3])
@@ -607,118 +707,7 @@ else:
         fin = inicio + ITEMS_POR_PAGINA
         df_pagina = df_f.iloc[inicio:fin]
 
-        for i in range(0, len(df_pagina), 3):
-            cols = st.columns(3)
-            lote = df_pagina.iloc[i:i+3]
-            
-            for col, (_, r) in zip(cols, lote.iterrows()):
-                st_txt, badge_cls = MAPA_ESTADOS.get(r['estado'], (r['estado'], 'badge-res'))
-                st_txt = texto_seguro(st_txt, "Estado desconocido")
-                url_oficial = url_externa_segura(r.get("url_licitacion"))
-                link_html = f'<a href="{html.escape(url_oficial, quote=True)}" target="_blank" rel="noopener noreferrer" class="external-link-btn" title="Ver ficha en la Plataforma">🔗</a>' if url_oficial else ''
-
-                muni = r.get('municipio')
-                prov = r.get('provincia')
-                query_maps = f"{muni}, {prov}" if pd.notnull(muni) and pd.notnull(prov) else (muni or "España")
-                maps_url = f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(str(query_maps))}"
-                maps_html = f'<a href="{html.escape(maps_url, quote=True)}" target="_blank" rel="noopener noreferrer" class="maps-btn" title="Ver ubicación en el mapa">📍</a>'
-                titulo_safe = texto_seguro(r.get('titulo'), 'Sin título')
-                organo_safe = texto_seguro(r.get('organo_contratante'), 'Organismo N/A')
-                muni_safe = texto_seguro(muni)
-                prov_safe = texto_seguro(prov)
-                tipo_safe = texto_seguro(r.get('tipo_contrato_desc'), 'Otros')
-                expediente_safe = texto_seguro(r.get('expediente'))
-                cpv_safe = texto_seguro(r.get('cpv'))
-                
-                with col:
-                    with st.container(border=True):
-                        st.markdown(f"""
-                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                            <span class="{badge_cls}">{st_txt}</span>
-                            <div style="display: flex; gap: 4px;">{link_html} {maps_html}</div>
-                        </div>
-                        <h5 style="margin: 10px 0 6px 0; color: #1a252c; line-height: 1.35; font-size: 0.95rem; min-height: 2.7em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
-                            {titulo_safe}
-                        </h5>
-                        <p style="margin: 0; font-size: 0.8rem; color: #495057; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                            🏛️ <b>{organo_safe}</b>
-                        </p>
-                        <p style="margin: 2px 0 4px 0; font-size: 0.78rem; color: #6c757d;">
-                            📍 {muni_safe} ({prov_safe}) | 📦 <b>{tipo_safe}</b>
-                        </p>
-                        <p style="margin: 0 0 10px 0; font-size: 0.75rem; color: #8b949e;">
-                            <b>Exp:</b> {expediente_safe} | <b>CPV:</b> {cpv_safe}
-                        </p>
-                        """, unsafe_allow_html=True)
-                        
-                        mc1, mc2 = st.columns(2)
-                        with mc1:
-                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.85rem;">{formato_eur(r["pbl_sin_iva"])}</div><div class="metric-lbl-grid">PBL SIN IVA</div></div>', unsafe_allow_html=True)
-                        with mc2:
-                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{formato_fecha(r["fecha_limite"])}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_dias_restantes(r["fecha_limite"])}</div></div>', unsafe_allow_html=True)
-
-                        es_favorita = str(r["id"]) in set(st.session_state.get("favoritos_ids", []))
-                        st.button(
-                            "★ En favoritos" if es_favorita else "☆ Añadir a favoritos",
-                            key=f"favorito_{r['id']}",
-                            on_click=alternar_favorito,
-                            args=(r["id"],),
-                            use_container_width=True
-                        )
-
-                        with st.expander("📄 Ver documentación"):
-                            docs = json.loads(r['documentos_adjuntos']) if r['documentos_adjuntos'] else []
-                            if docs:
-                                st.write("**Documentos descargables:**")
-                                for d in docs:
-                                    doc_url = url_externa_segura(d.get('url'))
-                                    if doc_url:
-                                        etiqueta = f"{d.get('tipo', 'Documento')} - {d.get('nombre', 'Archivo')}"
-                                        st.link_button(etiqueta, doc_url, use_container_width=True)
-                            else:
-                                st.write("Sin documentos adjuntos directos.")
-
-                        with st.expander("🧠 Resumen Técnico IA"):
-                            raw_resumen = r.get('resumen_ia')
-                            
-                            tiene_resumen = False
-                            if pd.notnull(raw_resumen):
-                                s_val = str(raw_resumen).strip().lower()
-                                if s_val and s_val != 'nan' and s_val != 'none':
-                                    tiene_resumen = True
-
-                            if tiene_resumen:
-                                try:
-                                    if isinstance(raw_resumen, dict):
-                                        res_ia = raw_resumen
-                                    else:
-                                        cleaned_r = str(raw_resumen).strip()
-                                        if cleaned_r.startswith("```json"):
-                                            cleaned_r = cleaned_r[7:]
-                                        if cleaned_r.endswith("```"):
-                                            cleaned_r = cleaned_r[:-3]
-                                        res_ia = json.loads(cleaned_r.strip())
-                                        
-                                    if isinstance(res_ia.get('alcance_tecnico'), str) and res_ia.get('alcance_tecnico').strip().startswith('{'):
-                                        try:
-                                            nested = json.loads(res_ia.get('alcance_tecnico'))
-                                            if isinstance(nested, dict):
-                                                res_ia = nested
-                                        except:
-                                            pass
-
-                                    st.markdown(f"🏗️ **Alcance Técnico:**\n{res_ia.get('alcance_tecnico', '• No especificado')}")
-                                    st.divider()
-                                    st.markdown(f"⚖️ **Criterios de Puntuación:**\n{res_ia.get('criterios_puntuacion', '• No especificado')}")
-                                    st.markdown(f"💼 **Solvencia Requerida / Clasificación:**\n{res_ia.get('solvencia_requerida', '• No especificado')}")
-                                    st.markdown(f"👨‍💼 **Equipo Técnico y Titulaciones:**\n{res_ia.get('equipo_y_titulaciones', '• No especificado')}")
-                                    st.markdown(f"🛡️ **Seguro RC:**\n{res_ia.get('seguro_rc', '• No especificado')}")
-                                    st.markdown(f"🏦 **Garantías y Depósitos:**\n{res_ia.get('garantia', '• No especificado')}")
-                                    st.markdown(f"⚠️ **Condicionantes y Plazos:**\n{res_ia.get('condicionantes_destacados', '• No especificado')}")
-                                except Exception:
-                                    st.markdown(f"🏗️ **Alcance Técnico:**\n{raw_resumen}")
-                            else:
-                                st.info("Resumen pendiente de análisis privado. La aplicación pública no ejecuta modelos de IA.")
+        render_grid_tarjetas(df_pagina, "principal")
 
         st.divider()
         col_inf1, col_inf2, col_inf3 = st.columns([1, 2, 1])
