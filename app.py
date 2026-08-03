@@ -1,6 +1,7 @@
 import html
 import streamlit as st
 import streamlit.components.v1 as components
+import altair as alt
 import sqlite3
 import pandas as pd
 import json
@@ -596,7 +597,155 @@ if df_f.empty:
     st.warning("⚠️ No se ha encontrado ninguna licitación que coincida con los filtros aplicados. Prueba a relajar los criterios de búsqueda.")
 else:
     st.write("")
-    tab_tarjetas, tab_favoritos, tab_mapa = st.tabs(["🗂️ Vista Tarjetas", f"⭐ Favoritos ({len(st.session_state['favoritos_ids'])})", "🗺️ Mapa"])
+    tab_tarjetas, tab_favoritos, tab_graficos, tab_mapa = st.tabs([
+        "🗂️ Vista Tarjetas",
+        f"⭐ Favoritos ({len(st.session_state['favoritos_ids'])})",
+        "📊 Gráficos",
+        "🗺️ Mapa"
+    ])
+
+    with tab_graficos:
+        st.subheader("📊 Análisis de las licitaciones")
+        st.caption("Los gráficos se actualizan automáticamente con los filtros aplicados.")
+
+        df_graficos = df_f.copy()
+        df_graficos["provincia_grafico"] = df_graficos["provincia"].fillna("No especificada")
+        df_graficos["pbl_sin_iva"] = pd.to_numeric(df_graficos["pbl_sin_iva"], errors="coerce").fillna(0)
+
+        color_azul = "#2563eb"
+        color_verde = "#0f9d6e"
+        color_naranja = "#f59e0b"
+        color_rojo = "#ef4444"
+
+        por_provincia = (
+            df_graficos.groupby("provincia_grafico", as_index=False)
+            .size()
+            .rename(columns={"size": "licitaciones"})
+            .sort_values("licitaciones", ascending=False)
+            .head(12)
+        )
+        presupuesto_provincia = (
+            df_graficos.groupby("provincia_grafico", as_index=False)["pbl_sin_iva"]
+            .sum()
+            .sort_values("pbl_sin_iva", ascending=False)
+            .head(12)
+        )
+
+        tramos_presupuesto = [
+            "Menos de 25.000 €",
+            "25.000–50.000 €",
+            "50.000–100.000 €",
+            "100.000–200.000 €",
+            "Más de 200.000 €"
+        ]
+        df_graficos["tramo_presupuesto"] = pd.cut(
+            df_graficos["pbl_sin_iva"],
+            bins=[-np.inf, 25000, 50000, 100000, 200000, np.inf],
+            labels=tramos_presupuesto,
+            right=False
+        )
+        por_tramo = (
+            df_graficos.groupby("tramo_presupuesto", observed=False)
+            .size()
+            .reindex(tramos_presupuesto, fill_value=0)
+            .rename("licitaciones")
+            .reset_index()
+        )
+
+        fechas_limite_grafico = pd.to_datetime(df_graficos["fecha_limite_dt"], errors="coerce")
+        dias_restantes = (fechas_limite_grafico.dt.normalize() - pd.Timestamp.today().normalize()).dt.days
+        orden_vencimientos = ["Finalizan hoy", "Próximos 3 días", "Entre 4 y 7 días", "Más de 7 días"]
+        df_vencimientos = pd.DataFrame({"dias": dias_restantes}).dropna()
+        df_vencimientos = df_vencimientos[df_vencimientos["dias"] >= 0]
+        df_vencimientos["plazo"] = np.select(
+            [
+                df_vencimientos["dias"] == 0,
+                df_vencimientos["dias"].between(1, 3),
+                df_vencimientos["dias"].between(4, 7)
+            ],
+            orden_vencimientos[:3],
+            default=orden_vencimientos[3]
+        )
+        por_vencimiento = (
+            df_vencimientos.groupby("plazo")
+            .size()
+            .reindex(orden_vencimientos, fill_value=0)
+            .rename("licitaciones")
+            .reset_index()
+        )
+
+        grafico_provincias = (
+            alt.Chart(por_provincia)
+            .mark_bar(color=color_azul, cornerRadiusEnd=4)
+            .encode(
+                x=alt.X("licitaciones:Q", title="Número de licitaciones"),
+                y=alt.Y("provincia_grafico:N", title=None, sort="-x"),
+                tooltip=[
+                    alt.Tooltip("provincia_grafico:N", title="Provincia"),
+                    alt.Tooltip("licitaciones:Q", title="Licitaciones")
+                ]
+            )
+            .properties(height=300)
+        )
+        grafico_presupuesto_provincia = (
+            alt.Chart(presupuesto_provincia)
+            .mark_bar(color=color_verde, cornerRadiusEnd=4)
+            .encode(
+                x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
+                y=alt.Y("provincia_grafico:N", title=None, sort="-x"),
+                tooltip=[
+                    alt.Tooltip("provincia_grafico:N", title="Provincia"),
+                    alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
+                ]
+            )
+            .properties(height=300)
+        )
+        grafico_tramos = (
+            alt.Chart(por_tramo)
+            .mark_bar(color=color_naranja, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+            .encode(
+                x=alt.X("tramo_presupuesto:N", title=None, sort=tramos_presupuesto, axis=alt.Axis(labelAngle=-25)),
+                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
+                tooltip=[
+                    alt.Tooltip("tramo_presupuesto:N", title="Tramo"),
+                    alt.Tooltip("licitaciones:Q", title="Licitaciones")
+                ]
+            )
+            .properties(height=300)
+        )
+        grafico_vencimientos = (
+            alt.Chart(por_vencimiento)
+            .mark_bar(color=color_rojo, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+            .encode(
+                x=alt.X("plazo:N", title=None, sort=orden_vencimientos, axis=alt.Axis(labelAngle=-20)),
+                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
+                tooltip=[
+                    alt.Tooltip("plazo:N", title="Vencimiento"),
+                    alt.Tooltip("licitaciones:Q", title="Licitaciones")
+                ]
+            )
+            .properties(height=300)
+        )
+
+        grafico_fila_1a, grafico_fila_1b = st.columns(2)
+        with grafico_fila_1a:
+            with st.container(border=True):
+                st.markdown("#### Licitaciones por provincia")
+                st.altair_chart(grafico_provincias, use_container_width=True)
+        with grafico_fila_1b:
+            with st.container(border=True):
+                st.markdown("#### Presupuesto por provincia")
+                st.altair_chart(grafico_presupuesto_provincia, use_container_width=True)
+
+        grafico_fila_2a, grafico_fila_2b = st.columns(2)
+        with grafico_fila_2a:
+            with st.container(border=True):
+                st.markdown("#### Distribución por presupuesto")
+                st.altair_chart(grafico_tramos, use_container_width=True)
+        with grafico_fila_2b:
+            with st.container(border=True):
+                st.markdown("#### Próximos vencimientos")
+                st.altair_chart(grafico_vencimientos, use_container_width=True)
 
     with tab_mapa:
         st.subheader("📍 Ubicación de las licitaciones")
