@@ -768,7 +768,9 @@ components.html("""
         parentWindow.sessionStorage.removeItem(storageKey);
 
         if (saved === "tarjetas") {
-            const target = parentDocument.getElementById("tarjetas-inicio");
+            const pageIndicator = Array.from(parentDocument.querySelectorAll("p"))
+                .find((element) => /^Página \d+ de \d+/.test((element.textContent || "").trim()));
+            const target = pageIndicator?.closest('[data-testid="stHorizontalBlock"]') || pageIndicator;
             if (target) target.scrollIntoView({ behavior: "auto", block: "start" });
         } else {
             const position = Number(saved);
