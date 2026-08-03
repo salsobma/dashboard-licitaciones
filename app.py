@@ -652,7 +652,7 @@ else:
             .reset_index()
         )
 
-        fechas_limite_grafico = pd.to_datetime(df_graficos["fecha_limite_dt"], errors="coerce")
+        fechas_limite_grafico = pd.to_datetime(df_graficos["fecha_limite_dt"], errors="coerce", utc=True).dt.tz_convert(None)
         dias_restantes = (fechas_limite_grafico.dt.normalize() - pd.Timestamp.today().normalize()).dt.days
         orden_vencimientos = ["Finalizan hoy", "Próximos 3 días", "Entre 4 y 7 días", "Más de 7 días"]
         df_vencimientos = pd.DataFrame({"dias": dias_restantes}).dropna()
