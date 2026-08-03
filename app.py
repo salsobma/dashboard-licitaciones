@@ -1241,6 +1241,10 @@ else:
 
     with tab_mapa:
         st.subheader("📍 Ubicación de las licitaciones")
+        st.caption(
+            "Las ubicaciones del feed son aproximadas: se calculan mediante el "
+            "código postal o, si no está disponible, mediante un municipio inequívoco."
+        )
         fuente_mapa = st.radio(
             "Datos que quieres mostrar:",
             ["Histórico", "Últimas actualizaciones", "Combinado"],
@@ -1270,6 +1274,11 @@ else:
             df_mapa['provincia_clean'] = df_mapa['provincia'].fillna('No especificada')
             df_mapa['ccaa_clean'] = df_mapa['comunidad_autonoma'].fillna('No especificada')
             df_mapa['expediente_clean'] = df_mapa['expediente'].fillna('N/A')
+            if "origen_coordenadas" not in df_mapa.columns:
+                df_mapa["origen_coordenadas"] = "Histórico"
+            df_mapa["origen_coordenadas"] = df_mapa[
+                "origen_coordenadas"
+            ].fillna("Histórico")
             
             np.random.seed(42)
             df_mapa['lat_j'] = df_mapa['latitud'] + np.random.normal(0, 0.00008, size=len(df_mapa))
@@ -1310,6 +1319,7 @@ else:
                 "html": "<b>{titulo}</b><br/>"
                         "🏛️ <b>Órgano de contratación:</b> {organo_contratante}<br/>"
                         "📍 <b>Ubicación:</b> {municipio_clean} ({provincia_clean}, {ccaa_clean})<br/>"
+                        "🧭 <b>Origen de ubicación:</b> {origen_coordenadas}<br/>"
                         "💶 <b>PBL sin IVA:</b> {pbl_fmt}<br/>"
                         "📅 <b>Fecha presentación oferta:</b> {fecha_limite_fmt}<br/>"
                         "📁 <b>Código expediente:</b> {expediente_clean}",
