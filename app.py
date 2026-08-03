@@ -196,6 +196,10 @@ st.markdown("""
     .company-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; }
     .company-action { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 0.6rem 0.9rem; border: 1px solid #bfd2ea; border-radius: 8px; background: #f8fbff; color: #0b5ed7 !important; text-decoration: none !important; font-weight: 700; box-sizing: border-box; }
     .company-action:hover { background: #0d6efd; border-color: #0d6efd; color: white !important; }
+    .data-source { margin: -0.35rem 0 1rem; color: #64748b; font-size: 0.82rem; }
+    .data-source a { color: #0b5ed7 !important; font-weight: 700; text-decoration: none !important; }
+    .data-source a:hover { text-decoration: underline !important; }
+    .legal-note { margin-top: 1.5rem; padding: 0.9rem 1rem; border-top: 1px solid #dbe3ec; color: #64748b; font-size: 0.78rem; line-height: 1.45; }
 
     .row-widget.stHorizontal { align-items: stretch !important; }
     div[data-testid="stVerticalBlock"]:has(> div.stContainer) { height: 100%; }
@@ -398,8 +402,8 @@ if cpv_2dig.strip():
     prefijo = cpv_2dig.strip()
     df_f = df_f[df_f['cpv'].apply(lambda x: any(c.strip().startswith(prefijo) for c in str(x).split(',')) if x else False)]
 
-st.title("🏛️ Monitor de Licitaciones")
-st.caption("Plataforma de Contratación del Sector Público")
+st.title("🏛️ LicitAI Dashboard by Landa")
+st.caption("Oportunidades y análisis de licitaciones para proyectos de ingeniería civil.")
 
 st.markdown("""
 <div class="company-card">
@@ -418,6 +422,14 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+st.markdown(
+    '<p class="data-source">🔎 <b>Fuente de los datos:</b> '
+    '<a href="https://contrataciondelestado.es/" target="_blank" rel="noopener noreferrer">'
+    'Plataforma de Contratación del Sector Público</a>. '
+    'Consulta siempre la documentación oficial antes de preparar una oferta.</p>',
+    unsafe_allow_html=True,
+)
 
 ultima_act = df['fecha_act_dt'].max()
 fecha_act_fmt = ultima_act.strftime("%d/%m/%Y %H:%M") if pd.notnull(ultima_act) else "No disponible"
@@ -954,6 +966,14 @@ else:
             if st.button("Siguiente ➡️", key="btn_sig_inf", use_container_width=True, disabled=(st.session_state.pagina_actual >= total_paginas)):
                 st.session_state.pagina_actual += 1
                 st.rerun()
+
+st.markdown(
+    '<div class="legal-note"><b>Aviso:</b> LicitAI Dashboard by Landa es una herramienta '
+    'independiente de consulta y análisis. No pertenece ni representa a la Plataforma de '
+    'Contratación del Sector Público. La información oficial y vinculante es la publicada '
+    'en dicha plataforma.</div>',
+    unsafe_allow_html=True,
+)
 
 # Mantiene una navegación vertical predecible tras los reruns de Streamlit.
 components.html("""
