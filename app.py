@@ -402,8 +402,8 @@ if cpv_2dig.strip():
     prefijo = cpv_2dig.strip()
     df_f = df_f[df_f['cpv'].apply(lambda x: any(c.strip().startswith(prefijo) for c in str(x).split(',')) if x else False)]
 
-st.title("🏛️ LicitAI Dashboard by Landa")
-st.caption("Oportunidades y análisis de licitaciones para proyectos de ingeniería civil.")
+st.title("🏛️ LandAI Licitaciones")
+st.caption("Dashboard de oportunidades y análisis para proyectos de ingeniería civil.")
 
 st.markdown("""
 <div class="company-card">
@@ -968,7 +968,7 @@ else:
                 st.rerun()
 
 st.markdown(
-    '<div class="legal-note"><b>Aviso:</b> LicitAI Dashboard by Landa es una herramienta '
+    '<div class="legal-note"><b>Aviso:</b> LandAI Licitaciones es una herramienta '
     'independiente de consulta y análisis. No pertenece ni representa a la Plataforma de '
     'Contratación del Sector Público. La información oficial y vinculante es la publicada '
     'en dicha plataforma.</div>',
