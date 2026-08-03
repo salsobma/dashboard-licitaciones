@@ -729,7 +729,7 @@ else:
                     alt.Tooltip("licitaciones:Q", title="Licitaciones")
                 ]
             )
-            .properties(height=320)
+            .properties(height=420)
         )
         grafico_presupuesto_organo = (
             alt.Chart(presupuesto_organo)
