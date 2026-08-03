@@ -196,6 +196,10 @@ st.markdown("""
     .company-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; }
     .company-action { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 0.6rem 0.9rem; border: 1px solid #bfd2ea; border-radius: 8px; background: #f8fbff; color: #0b5ed7 !important; text-decoration: none !important; font-weight: 700; box-sizing: border-box; }
     .company-action:hover { background: #0d6efd; border-color: #0d6efd; color: white !important; }
+    .dashboard-top-header { display: grid; grid-template-columns: minmax(0, 1fr) minmax(460px, 0.95fr); align-items: center; gap: 1.5rem; margin-bottom: 1rem; }
+    .dashboard-top-header .company-card { margin-top: 0; padding: 1rem; }
+    .dashboard-top-header .company-copy { margin: 0.25rem 0 0.75rem; }
+    .dashboard-top-header .company-action { min-height: 38px; padding: 0.45rem 0.7rem; font-size: 0.82rem; }
 
     .row-widget.stHorizontal { align-items: stretch !important; }
     div[data-testid="stVerticalBlock"]:has(> div.stContainer) { height: 100%; }
@@ -212,6 +216,7 @@ st.markdown("""
         .company-card { padding: 1rem !important; }
         .company-actions { flex-direction: column !important; }
         .company-action { width: 100% !important; }
+        .dashboard-top-header { grid-template-columns: minmax(0, 1fr) !important; gap: 0.85rem !important; }
         div[data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; max-width: 100% !important; flex: 0 0 auto !important; }\n        div[data-testid="stHorizontalBlock"], .metric-box-grid, div[data-testid="stExpander"] { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
         h1 { font-size: 1.8rem !important; }
     }
@@ -964,6 +969,33 @@ components.html("""
     const parentDocument = parentWindow.document;
     const storageKey = "dashboard_licitaciones_scroll";
     const scrollContainer = parentDocument.querySelector('[data-testid="stMain"]');
+
+    const arrangeTopHeader = () => {
+        const heading = Array.from(parentDocument.querySelectorAll("h1"))
+            .find((element) => (element.textContent || "").includes("Monitor de Licitaciones"));
+        const companyCard = parentDocument.querySelector(".company-card");
+        if (!heading || !companyCard || companyCard.closest(".dashboard-top-header")) return;
+
+        const titleBlock = heading.closest('[data-testid="stElementContainer"]') || heading.parentElement;
+        const captionBlock = titleBlock?.nextElementSibling;
+        if (!titleBlock || !titleBlock.parentNode) return;
+
+        const wrapper = parentDocument.createElement("div");
+        wrapper.className = "dashboard-top-header";
+        const titleGroup = parentDocument.createElement("div");
+        titleGroup.className = "dashboard-title-group";
+
+        titleBlock.parentNode.insertBefore(wrapper, titleBlock);
+        wrapper.appendChild(titleGroup);
+        titleGroup.appendChild(titleBlock);
+        if (captionBlock && (captionBlock.textContent || "").includes("Plataforma de Contratación")) {
+            titleGroup.appendChild(captionBlock);
+        }
+        wrapper.appendChild(companyCard);
+    };
+
+    arrangeTopHeader();
+    parentWindow.setTimeout(arrangeTopHeader, 150);
 
     const savedScroll = parentWindow.sessionStorage.getItem(storageKey);
 
