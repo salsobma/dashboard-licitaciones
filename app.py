@@ -1,5 +1,6 @@
 import html
 import streamlit as st
+import streamlit.components.v1 as components
 import sqlite3
 import pandas as pd
 import json
@@ -717,6 +718,7 @@ else:
         inicio = (st.session_state.pagina_actual - 1) * ITEMS_POR_PAGINA
         fin = inicio + ITEMS_POR_PAGINA
         df_pagina = df_f.iloc[inicio:fin]
+        st.markdown('<div id="tarjetas-inicio"></div>', unsafe_allow_html=True)
 
         render_grid_tarjetas(df_pagina, "principal")
 
@@ -751,3 +753,54 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+# Mantiene una navegación vertical predecible tras los reruns de Streamlit.
+components.html("""
+<script>
+(() => {
+    const parentWindow = window.parent;
+    const parentDocument = parentWindow.document;
+    const storageKey = "dashboard_licitaciones_scroll";
+
+    const restoreScroll = () => {
+        const saved = parentWindow.sessionStorage.getItem(storageKey);
+        if (!saved) return;
+        parentWindow.sessionStorage.removeItem(storageKey);
+
+        if (saved === "tarjetas") {
+            const target = parentDocument.getElementById("tarjetas-inicio");
+            if (target) target.scrollIntoView({ behavior: "auto", block: "start" });
+        } else {
+            const position = Number(saved);
+            if (Number.isFinite(position)) parentWindow.scrollTo({ top: position, behavior: "auto" });
+        }
+    };
+
+    const bindButtons = () => {
+        parentDocument.querySelectorAll("button").forEach((button) => {
+            if (button.dataset.licitacionesScrollBound === "1") return;
+            const label = (button.innerText || button.textContent || "").trim();
+
+            if (label.includes("Añadir a favoritos") || label.includes("En favoritos") || label.includes("Quitar de favoritos")) {
+                button.addEventListener("pointerdown", () => {
+                    parentWindow.sessionStorage.setItem(storageKey, String(parentWindow.scrollY));
+                }, { capture: true });
+                button.dataset.licitacionesScrollBound = "1";
+            } else if (label.includes("Siguiente") || label.includes("Anterior")) {
+                button.addEventListener("pointerdown", () => {
+                    parentWindow.sessionStorage.setItem(storageKey, "tarjetas");
+                }, { capture: true });
+                button.dataset.licitacionesScrollBound = "1";
+            }
+        });
+    };
+
+    requestAnimationFrame(() => requestAnimationFrame(restoreScroll));
+    setTimeout(restoreScroll, 250);
+    bindButtons();
+    const observer = new MutationObserver(bindButtons);
+    observer.observe(parentDocument.body, { childList: true, subtree: true });
+    setTimeout(() => observer.disconnect(), 5000);
+})();
+</script>
+""", height=0, scrolling=False)
