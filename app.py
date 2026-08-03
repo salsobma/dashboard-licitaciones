@@ -635,6 +635,75 @@ if cpv_2dig.strip():
     prefijo = cpv_2dig.strip()
     df_f = df_f[df_f['cpv'].apply(lambda x: any(c.strip().startswith(prefijo) for c in str(x).split(',')) if x else False)]
 
+def aplicar_filtros_al_feed(df_entrada):
+    filtrado = df_entrada.copy()
+    if filtrado.empty:
+        return filtrado
+    historico_ids = set(df["id"].dropna().astype(str))
+    filtrado["movimiento"] = filtrado["id"].astype(str).apply(
+        lambda valor: (
+            "Nueva licitación" if valor not in historico_ids else "Actualizada"
+        )
+    )
+    if busqueda_texto.strip():
+        consulta = busqueda_texto.lower().strip()
+        filtrado = filtrado[
+            filtrado["titulo"].str.lower().str.contains(
+                consulta, na=False, regex=False
+            )
+            | filtrado["expediente"].str.lower().str.contains(
+                consulta, na=False, regex=False
+            )
+            | filtrado["organo_contratante"].str.lower().str.contains(
+                consulta, na=False, regex=False
+            )
+        ]
+    if estados_sel:
+        filtrado = filtrado[filtrado["estado"].isin(estados_sel)]
+    if tipo_sel:
+        filtrado = filtrado[filtrado["tipo_contrato_desc"].isin(tipo_sel)]
+    filtrado = filtrado[
+        (filtrado["pbl_sin_iva"].fillna(0) >= pbl_min_val)
+        & (filtrado["pbl_sin_iva"].fillna(0) <= pbl_max_val)
+    ]
+    if fecha_rango and len(fecha_rango) == 2:
+        filtrado = filtrado[
+            (filtrado["fecha_limite_dt"].dt.date >= fecha_rango[0])
+            & (filtrado["fecha_limite_dt"].dt.date <= fecha_rango[1])
+        ]
+    if ccaa_sel:
+        filtrado = filtrado[
+            filtrado["comunidad_autonoma"].isin(ccaa_sel)
+        ]
+    if prov_sel:
+        filtrado = filtrado[filtrado["provincia"].isin(prov_sel)]
+    if muni_sel:
+        filtrado = filtrado[filtrado["municipio"].isin(muni_sel)]
+    if organo_sel:
+        filtrado = filtrado[
+            filtrado["organo_contratante"].isin(organo_sel)
+        ]
+    if cpv_2dig.strip():
+        prefijo_feed = cpv_2dig.strip()
+        filtrado = filtrado[
+            filtrado["cpv"].apply(
+                lambda valor: any(
+                    codigo.strip().startswith(prefijo_feed)
+                    for codigo in str(valor).split(",")
+                ) if valor else False
+            )
+        ]
+    return filtrado.sort_values(
+        "fecha_act_dt", ascending=False, na_position="last"
+    )
+
+df_radar_filtrado = aplicar_filtros_al_feed(df_radar_catalogo)
+df_combinado = pd.concat(
+    [df_f, df_radar_filtrado], ignore_index=True, sort=False
+)
+if "id" in df_combinado.columns:
+    df_combinado = df_combinado.drop_duplicates(subset=["id"], keep="last")
+
 st.title("🏛️ LandAI Licitaciones")
 st.caption("Dashboard de oportunidades y análisis para proyectos de ingeniería civil.")
 
@@ -664,21 +733,85 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-ultima_act = df['fecha_act_dt'].max()
-fecha_act_fmt = ultima_act.strftime("%d/%m/%Y %H:%M") if pd.notnull(ultima_act) else "No disponible"
-volumen_total = df_f['pbl_sin_iva'].sum() if not df_f.empty and 'pbl_sin_iva' in df_f.columns else 0.0
-presupuesto_medio = df_f['pbl_sin_iva'].mean() if not df_f.empty and len(df_f) > 0 and 'pbl_sin_iva' in df_f.columns else 0.0
+opciones_vista = [
+    "⚡ Últimas actualizaciones",
+    "🗂️ Histórico",
+    "📊 Gráficos",
+    "🗺️ Mapa",
+]
+vista_principal = st.segmented_control(
+    "Vista del dashboard",
+    opciones_vista,
+    default="⚡ Últimas actualizaciones",
+    selection_mode="single",
+    key="vista_principal",
+    label_visibility="collapsed",
+)
+if vista_principal is None:
+    vista_principal = "⚡ Últimas actualizaciones"
+
+if vista_principal == "⚡ Últimas actualizaciones":
+    df_indicadores = df_radar_filtrado
+    etiqueta_cantidad = "Actualizaciones filtradas"
+    etiqueta_actualizacion = "Última actualización feed"
+elif vista_principal == "🗂️ Histórico":
+    df_indicadores = df_f
+    etiqueta_cantidad = "Licitaciones filtradas"
+    etiqueta_actualizacion = "Última actualización BD"
+elif vista_principal == "📊 Gráficos":
+    fuente_indicadores = st.session_state.get(
+        "fuente_graficos", "Histórico"
+    )
+    if fuente_indicadores == "Últimas actualizaciones":
+        df_indicadores = df_radar_filtrado
+    elif fuente_indicadores == "Combinado":
+        df_indicadores = df_combinado
+    else:
+        df_indicadores = df_f
+    etiqueta_cantidad = "Licitaciones filtradas"
+    etiqueta_actualizacion = "Última actualización"
+else:
+    fuente_indicadores = st.session_state.get("fuente_mapa", "Histórico")
+    if fuente_indicadores == "Últimas actualizaciones":
+        df_indicadores = df_radar_filtrado
+    elif fuente_indicadores == "Combinado":
+        df_indicadores = df_combinado
+    else:
+        df_indicadores = df_f
+    etiqueta_cantidad = "Licitaciones filtradas"
+    etiqueta_actualizacion = "Última actualización"
+
+ultima_act = (
+    df_indicadores["fecha_act_dt"].max()
+    if not df_indicadores.empty and "fecha_act_dt" in df_indicadores.columns
+    else pd.NaT
+)
+fecha_act_fmt = (
+    ultima_act.strftime("%d/%m/%Y %H:%M")
+    if pd.notnull(ultima_act) else "No disponible"
+)
+volumen_total = (
+    pd.to_numeric(df_indicadores["pbl_sin_iva"], errors="coerce").fillna(0).sum()
+    if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
+    else 0.0
+)
+presupuesto_medio = (
+    pd.to_numeric(
+        df_indicadores["pbl_sin_iva"], errors="coerce"
+    ).dropna().mean()
+    if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
+    else 0.0
+)
 
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-
 with kpi1:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{len(df_f)}</div><div class="metric-lbl-grid">Licitaciones Filtradas</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{len(df_indicadores)}</div><div class="metric-lbl-grid">{etiqueta_cantidad}</div></div>', unsafe_allow_html=True)
 with kpi2:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(volumen_total)}</div><div class="metric-lbl-grid">Volumen Total (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi3:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_medio)}</div><div class="metric-lbl-grid">Presupuesto Medio (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi4:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">Última Actualización BD</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_antiguedad(ultima_act)}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">{etiqueta_actualizacion}</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_antiguedad(ultima_act)}</div></div>', unsafe_allow_html=True)
 
 filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
@@ -820,15 +953,8 @@ if df_f.empty and df_radar_catalogo.empty:
     st.warning("⚠️ No se ha encontrado ninguna licitación que coincida con los filtros aplicados. Prueba a relajar los criterios de búsqueda.")
 else:
     st.write("")
-    df_radar_filtrado = pd.DataFrame()
-    tab_radar, tab_tarjetas, tab_graficos, tab_mapa = st.tabs([
-        "⚡ Últimas actualizaciones",
-        "🗂️ Histórico",
-        "📊 Gráficos",
-        "🗺️ Mapa"
-    ])
 
-    with tab_radar:
+    if vista_principal == "⚡ Últimas actualizaciones":
         st.subheader("⚡ Radar de actualizaciones")
         st.caption(
             "Cambios publicados recientemente en el feed oficial de la Plataforma de "
@@ -837,54 +963,10 @@ else:
         try:
             if error_feed_catalogo:
                 raise RuntimeError(error_feed_catalogo)
-            df_radar = df_radar_catalogo.copy()
+            df_radar = df_radar_filtrado.copy()
             fecha_feed = fecha_feed_catalogo
 
-            if not df_radar.empty:
-                historico_ids = set(df["id"].dropna().astype(str))
-                df_radar["movimiento"] = df_radar["id"].astype(str).apply(
-                    lambda valor: "Nueva licitación" if valor not in historico_ids else "Actualizada"
-                )
-
-                if busqueda_texto.strip():
-                    q = busqueda_texto.lower().strip()
-                    df_radar = df_radar[
-                        df_radar["titulo"].str.lower().str.contains(q, na=False, regex=False)
-                        | df_radar["expediente"].str.lower().str.contains(q, na=False, regex=False)
-                        | df_radar["organo_contratante"].str.lower().str.contains(q, na=False, regex=False)
-                    ]
-                if estados_sel:
-                    df_radar = df_radar[df_radar["estado"].isin(estados_sel)]
-                if tipo_sel:
-                    df_radar = df_radar[df_radar["tipo_contrato_desc"].isin(tipo_sel)]
-                df_radar = df_radar[
-                    (df_radar["pbl_sin_iva"].fillna(0) >= pbl_min_val)
-                    & (df_radar["pbl_sin_iva"].fillna(0) <= pbl_max_val)
-                ]
-                if fecha_rango and len(fecha_rango) == 2:
-                    df_radar = df_radar[
-                        (df_radar["fecha_limite_dt"].dt.date >= fecha_rango[0])
-                        & (df_radar["fecha_limite_dt"].dt.date <= fecha_rango[1])
-                    ]
-                if ccaa_sel:
-                    df_radar = df_radar[df_radar["comunidad_autonoma"].isin(ccaa_sel)]
-                if prov_sel:
-                    df_radar = df_radar[df_radar["provincia"].isin(prov_sel)]
-                if muni_sel:
-                    df_radar = df_radar[df_radar["municipio"].isin(muni_sel)]
-                if organo_sel:
-                    df_radar = df_radar[df_radar["organo_contratante"].isin(organo_sel)]
-                if cpv_2dig.strip():
-                    prefijo_radar = cpv_2dig.strip()
-                    df_radar = df_radar[
-                        df_radar["cpv"].apply(
-                            lambda valor: any(
-                                codigo.strip().startswith(prefijo_radar)
-                                for codigo in str(valor).split(",")
-                            ) if valor else False
-                        )
-                    ]
-
+            if not df_radar_catalogo.empty:
                 fecha_feed_fmt = formato_fecha(fecha_feed)
                 nuevas = int((df_radar["movimiento"] == "Nueva licitación").sum())
                 actualizadas = int((df_radar["movimiento"] == "Actualizada").sum())
@@ -903,7 +985,6 @@ else:
                     df_radar = df_radar.sort_values(
                         "fecha_act_dt", ascending=False, na_position="last"
                     )
-                    df_radar_filtrado = df_radar.copy()
                     items_radar = 12
                     total_radar = len(df_radar_filtrado)
                     paginas_radar = max(
@@ -956,7 +1037,7 @@ else:
             )
             st.caption(f"Detalle técnico: {error_feed}")
 
-    with tab_graficos:
+    elif vista_principal == "📊 Gráficos":
         st.subheader("📊 Análisis de las licitaciones")
         st.caption("Los gráficos se actualizan automáticamente con los filtros aplicados.")
         fuente_graficos = st.radio(
@@ -1239,7 +1320,7 @@ else:
             st.caption(f"Suma diaria del presupuesto base de licitación sin IVA según {descripcion_fecha_publicacion}.")
             st.altair_chart(grafico_presupuesto_diario, use_container_width=True)
 
-    with tab_mapa:
+    elif vista_principal == "🗺️ Mapa":
         st.subheader("📍 Ubicación de las licitaciones")
         st.caption(
             "Las ubicaciones del feed son aproximadas: se calculan mediante el "
@@ -1331,7 +1412,7 @@ else:
         else:
             st.info("No hay licitaciones con coordenadas geográficas disponibles para mostrar en el mapa.")
 
-    with tab_tarjetas:
+    elif vista_principal == "🗂️ Histórico":
         col_ord1, col_ord2 = st.columns([2, 3])
         with col_ord1:
             criterio_orden = st.selectbox(
