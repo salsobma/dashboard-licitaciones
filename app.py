@@ -224,6 +224,14 @@ st.markdown("""
     .metric-lbl-grid { font-size: 0.72rem; color: #475569; text-transform: uppercase; font-weight: 700; margin-top: 4px; }
     .card-metric { height: 100px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; box-sizing: border-box !important; }
     .top-kpi { height: 112px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; box-sizing: border-box !important; }
+    .company-card { margin-top: 2rem; padding: 1.4rem; border: 1px solid #dbe3ec; border-radius: 12px; background: #ffffff; box-shadow: 0 2px 8px rgba(15,23,42,0.06); }
+    .company-heading { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 0.55rem; }
+    .company-mark { width: 44px; height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: #0d6efd; color: white; font-size: 1.25rem; font-weight: 800; }
+    .company-name { margin: 0; color: #1e293b; font-size: 1.15rem; font-weight: 800; }
+    .company-copy { margin: 0.35rem 0 1rem; color: #475569; line-height: 1.5; }
+    .company-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+    .company-action { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 0.6rem 0.9rem; border: 1px solid #bfd2ea; border-radius: 8px; background: #f8fbff; color: #0b5ed7 !important; text-decoration: none !important; font-weight: 700; box-sizing: border-box; }
+    .company-action:hover { background: #0d6efd; border-color: #0d6efd; color: white !important; }
 
     .row-widget.stHorizontal { align-items: stretch !important; }
     div[data-testid="stVerticalBlock"]:has(> div.stContainer) { height: 100%; }
@@ -237,6 +245,9 @@ st.markdown("""
         div[data-testid="stHorizontalBlock"]:has(.metric-box-grid) > div[data-testid="stColumn"] { padding-bottom: 0.45rem !important; box-sizing: border-box !important; }
         .metric-box-grid { border: 3px solid #f8f9fa !important; box-shadow: inset 0 0 0 1px #e2e8f0 !important; }
         h1 { margin-top: 0 !important; line-height: 1.2 !important; }
+        .company-card { padding: 1rem !important; }
+        .company-actions { flex-direction: column !important; }
+        .company-action { width: 100% !important; }
         div[data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; max-width: 100% !important; flex: 0 0 auto !important; }\n        div[data-testid="stHorizontalBlock"], .metric-box-grid, div[data-testid="stExpander"] { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
         h1 { font-size: 1.8rem !important; }
     }
@@ -721,3 +732,22 @@ else:
             if st.button("Siguiente ➡️", key="btn_sig_inf", use_container_width=True, disabled=(st.session_state.pagina_actual >= total_paginas)):
                 st.session_state.pagina_actual += 1
                 st.rerun()
+
+# --- BLOQUE CORPORATIVO ---
+st.markdown("""
+<div class="company-card">
+    <div class="company-heading">
+        <div class="company-mark">L</div>
+        <div>
+            <p class="company-name">Landa Consultoría y Proyectos</p>
+            <span style="color:#64748b; font-size:0.82rem;">Consultoría técnica y apoyo a licitaciones</span>
+        </div>
+    </div>
+    <p class="company-copy"><b>Te ayudamos a preparar tus licitaciones y ejecutar tus proyectos.</b><br>Cuéntanos qué necesitas y estudiaremos cómo ayudarte.</p>
+    <div class="company-actions">
+        <a class="company-action" href="mailto:info@landaconsultores.com">✉️ info@landaconsultores.com</a>
+        <a class="company-action" href="tel:+34681881782">📞 681 881 782</a>
+        <a class="company-action" href="https://www.landaconsultores.com" target="_blank" rel="noopener noreferrer">🌐 Visitar la web</a>
+    </div>
+</div>
+""", unsafe_allow_html=True)
