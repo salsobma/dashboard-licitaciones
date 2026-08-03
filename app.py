@@ -10,6 +10,7 @@ import pydeck as pdk
 import numpy as np
 import os
 import requests
+import unicodedata
 from datetime import date
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
@@ -427,6 +428,81 @@ def cargar_feed_reciente():
         )
     return radar, actualizado_feed
 
+def _clave_ubicacion(valor):
+    if valor is None or pd.isna(valor):
+        return ""
+    texto = unicodedata.normalize("NFKD", str(valor))
+    return "".join(
+        caracter for caracter in texto if not unicodedata.combining(caracter)
+    ).strip().lower()
+
+def _codigo_postal_normalizado(valor):
+    if valor is None or pd.isna(valor):
+        return ""
+    texto = str(valor).strip().split(".")[0]
+    digitos = "".join(caracter for caracter in texto if caracter.isdigit())
+    return digitos.zfill(5) if digitos else ""
+
+@st.cache_data(ttl=3600)
+def cargar_maestro_ubicaciones():
+    maestro = pd.read_excel(
+        "provincias.xlsx",
+        sheet_name="municipios datos",
+        dtype={"codigo_postal": str},
+    )
+    maestro["cp_clave"] = maestro["codigo_postal"].apply(
+        _codigo_postal_normalizado
+    )
+    maestro["municipio_clave"] = maestro["nucleo_nombre"].apply(
+        _clave_ubicacion
+    )
+    maestro = maestro.dropna(subset=["Latitud", "Longitud"])
+    por_cp = (
+        maestro.drop_duplicates(subset=["cp_clave"])
+        .set_index("cp_clave")
+    )
+    municipios_unicos = maestro[
+        ~maestro["municipio_clave"].duplicated(keep=False)
+    ]
+    por_municipio = municipios_unicos.set_index("municipio_clave")
+    return por_cp, por_municipio
+
+def completar_ubicaciones_feed(df_feed):
+    if df_feed.empty:
+        return df_feed
+    enriquecido = df_feed.copy()
+    enriquecido["origen_coordenadas"] = None
+    try:
+        por_cp, por_municipio = cargar_maestro_ubicaciones()
+    except Exception:
+        return enriquecido
+
+    correspondencias = {
+        "municipio": "nucleo_nombre",
+        "provincia": "PROVINCIA",
+        "comunidad_autonoma": "COMUNIDAD",
+        "latitud": "Latitud",
+        "longitud": "Longitud",
+    }
+    for indice, fila in enriquecido.iterrows():
+        cp = _codigo_postal_normalizado(fila.get("codigo_postal"))
+        referencia = None
+        origen = None
+        if cp and cp in por_cp.index:
+            referencia = por_cp.loc[cp]
+            origen = "Código postal"
+        else:
+            municipio = _clave_ubicacion(fila.get("municipio"))
+            if municipio and municipio in por_municipio.index:
+                referencia = por_municipio.loc[municipio]
+                origen = "Municipio"
+
+        if referencia is not None:
+            for destino, fuente in correspondencias.items():
+                enriquecido.at[indice, destino] = referencia[fuente]
+            enriquecido.at[indice, "origen_coordenadas"] = origen
+    return enriquecido
+
 @st.cache_data(ttl=300, show_spinner="Cargando licitaciones…")
 def cargar_datos(db_mtime):
     del db_mtime
@@ -445,10 +521,22 @@ except Exception as e:
     st.error(f"❌ No se pudo conectar a la base de datos en {DB_PATH}. Error: {e}")
     st.stop()
 
-max_pbl_value = df['pbl_sin_iva'].max()
+try:
+    df_radar_catalogo, fecha_feed_catalogo = cargar_feed_reciente()
+    df_radar_catalogo = completar_ubicaciones_feed(df_radar_catalogo)
+    error_feed_catalogo = None
+except Exception as error_feed_inicial:
+    df_radar_catalogo = pd.DataFrame(columns=df.columns)
+    fecha_feed_catalogo = None
+    error_feed_catalogo = str(error_feed_inicial)
+
+df_catalogo_filtros = pd.concat(
+    [df, df_radar_catalogo], ignore_index=True, sort=False
+)
+max_pbl_value = df_catalogo_filtros['pbl_sin_iva'].max()
 max_pbl_db = float(max_pbl_value) if pd.notnull(max_pbl_value) and max_pbl_value > 0 else 200000.0
 
-fechas_validas = df['fecha_limite_dt'].dropna()
+fechas_validas = df_catalogo_filtros['fecha_limite_dt'].dropna()
 f_min_db = fechas_validas.min().date() if not fechas_validas.empty else date.today()
 f_max_db = fechas_validas.max().date() if not fechas_validas.empty else date.today()
 hoy = date.today()
@@ -496,21 +584,21 @@ if st.sidebar.button("↩️ Filtros iniciales", use_container_width=True):
 st.sidebar.divider()
 
 busqueda_texto = st.sidebar.text_input("🔍 Palabras clave (título, expediente...):", key="f_texto")
-tipos_list = sorted([x for x in df['tipo_contrato_desc'].unique() if x])
+tipos_list = sorted([x for x in df_catalogo_filtros['tipo_contrato_desc'].dropna().unique() if x])
 tipo_sel = st.sidebar.multiselect("📦 Tipo de Contrato:", tipos_list, key="f_tipo")
 cpv_2dig = st.sidebar.text_input("🏷️ CPV (2 dígitos):", max_chars=2, key="f_cpv")
 
-estados_unicos = df['estado'].dropna().unique().tolist()
+estados_unicos = df_catalogo_filtros['estado'].dropna().unique().tolist()
 opciones_estado = {c: MAPA_ESTADOS.get(c, (c, ''))[0] for c in estados_unicos}
 estados_sel = st.sidebar.multiselect("📌 Estado:", list(opciones_estado.keys()), format_func=lambda x: opciones_estado[x], key="f_estado")
 
-ccaa_list = sorted([x for x in df['comunidad_autonoma'].dropna().unique() if x])
+ccaa_list = sorted([x for x in df_catalogo_filtros['comunidad_autonoma'].dropna().unique() if x])
 ccaa_sel = st.sidebar.multiselect("🗺️ Comunidad Autónoma:", ccaa_list, key="f_ccaa")
 
-prov_list = sorted([x for x in df[df['comunidad_autonoma'].isin(ccaa_sel)]['provincia'].dropna().unique() if x]) if ccaa_sel else sorted([x for x in df['provincia'].dropna().unique() if x])
+prov_list = sorted([x for x in df_catalogo_filtros[df_catalogo_filtros['comunidad_autonoma'].isin(ccaa_sel)]['provincia'].dropna().unique() if x]) if ccaa_sel else sorted([x for x in df_catalogo_filtros['provincia'].dropna().unique() if x])
 prov_sel = st.sidebar.multiselect("📍 Provincia:", prov_list, key="f_prov")
 
-muni_list = sorted([x for x in df[df['provincia'].isin(prov_sel)]['municipio'].dropna().unique() if x]) if prov_sel else sorted([x for x in df['municipio'].dropna().unique() if x])
+muni_list = sorted([x for x in df_catalogo_filtros[df_catalogo_filtros['provincia'].isin(prov_sel)]['municipio'].dropna().unique() if x]) if prov_sel else sorted([x for x in df_catalogo_filtros['municipio'].dropna().unique() if x])
 muni_sel = st.sidebar.multiselect("🏙️ Municipio:", muni_list, key="f_muni")
 
 st.sidebar.markdown("💶 **Presupuesto Base sin IVA (€):**")
@@ -522,7 +610,7 @@ if not fechas_validas.empty:
 else:
     fecha_rango = None
 
-organos = sorted([x for x in df['organo_contratante'].dropna().unique() if x])
+organos = sorted([x for x in df_catalogo_filtros['organo_contratante'].dropna().unique() if x])
 organo_sel = st.sidebar.multiselect("🏛️ Órgano de Contratación:", organos, key="f_organo")
 
 df_f = df.copy()
@@ -728,7 +816,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
 
 
 
-if df_f.empty:
+if df_f.empty and df_radar_catalogo.empty:
     st.warning("⚠️ No se ha encontrado ninguna licitación que coincida con los filtros aplicados. Prueba a relajar los criterios de búsqueda.")
 else:
     st.write("")
@@ -747,30 +835,16 @@ else:
             "Contratación del Sector Público. Se actualiza en la nube cada 15 minutos."
         )
         try:
-            df_radar, fecha_feed = cargar_feed_reciente()
+            if error_feed_catalogo:
+                raise RuntimeError(error_feed_catalogo)
+            df_radar = df_radar_catalogo.copy()
+            fecha_feed = fecha_feed_catalogo
 
             if not df_radar.empty:
                 historico_ids = set(df["id"].dropna().astype(str))
                 df_radar["movimiento"] = df_radar["id"].astype(str).apply(
                     lambda valor: "Nueva licitación" if valor not in historico_ids else "Actualizada"
                 )
-
-                # Completa provincia, comunidad y coordenadas mediante el histórico cuando
-                # el código postal ya es conocido, sin modificar el feed oficial.
-                referencia_cp = (
-                    df.dropna(subset=["codigo_postal"])
-                    .drop_duplicates(subset=["codigo_postal"])
-                    .set_index("codigo_postal")
-                )
-                for indice, fila in df_radar.iterrows():
-                    cp = fila.get("codigo_postal")
-                    if pd.notnull(cp) and cp in referencia_cp.index:
-                        for campo in [
-                            "municipio", "provincia", "comunidad_autonoma",
-                            "latitud", "longitud"
-                        ]:
-                            if pd.isna(fila.get(campo)):
-                                df_radar.at[indice, campo] = referencia_cp.at[cp, campo]
 
                 if busqueda_texto.strip():
                     q = busqueda_texto.lower().strip()
