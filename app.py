@@ -876,6 +876,8 @@ indicadores_usan_feed = (
 )
 if indicadores_usan_feed and fecha_feed_catalogo:
     ultima_act = pd.to_datetime(fecha_feed_catalogo, errors="coerce", utc=True)
+    if pd.notnull(ultima_act):
+        ultima_act = ultima_act.tz_convert("Europe/Madrid")
 else:
     ultima_act = (
         df_indicadores["fecha_act_dt"].max()
