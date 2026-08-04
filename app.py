@@ -1583,39 +1583,6 @@ else:
             .sort_values("pbl_sin_iva", ascending=False)
             .head(15)
         )
-        fechas_actualizacion_grafico = pd.to_datetime(
-            df_graficos["fecha_actualizacion"], errors="coerce", utc=True
-        )
-        if "fecha_publicacion" in df_graficos.columns:
-            fechas_publicacion_reales = pd.to_datetime(
-                df_graficos["fecha_publicacion"], errors="coerce", utc=True
-            )
-            fechas_publicacion = fechas_publicacion_reales.fillna(
-                fechas_actualizacion_grafico
-            ).dt.tz_convert(None)
-            descripcion_fecha_publicacion = (
-                "la fecha de publicación y, cuando no está disponible, "
-                "la fecha de actualización"
-            )
-        else:
-            fechas_publicacion = fechas_actualizacion_grafico.dt.tz_convert(None)
-            descripcion_fecha_publicacion = "la fecha de actualización del feed"
-        datos_publicacion_diaria = (
-            df_graficos.assign(fecha_publicacion=fechas_publicacion.dt.normalize())
-            .dropna(subset=["fecha_publicacion"])
-        )
-        presupuesto_diario = (
-            datos_publicacion_diaria.groupby("fecha_publicacion", as_index=False)["pbl_sin_iva"]
-            .sum()
-            .sort_values("fecha_publicacion")
-        )
-        licitaciones_diarias = (
-            datos_publicacion_diaria.groupby("fecha_publicacion", as_index=False)
-            .size()
-            .rename(columns={"size": "licitaciones"})
-            .sort_values("fecha_publicacion")
-        )
-
         tramos_presupuesto = [
             "Menos de 25.000 €",
             "25.000–50.000 €",
@@ -1664,7 +1631,12 @@ else:
             .mark_bar(color=color_azul, cornerRadiusEnd=4)
             .encode(
                 x=alt.X("licitaciones:Q", title="Número de licitaciones"),
-                y=alt.Y("provincia_grafico:N", title=None, sort="-x"),
+                y=alt.Y(
+                    "provincia_grafico:N",
+                    title=None,
+                    sort="-x",
+                    axis=alt.Axis(labelLimit=300, labelPadding=8),
+                ),
                 tooltip=[
                     alt.Tooltip("provincia_grafico:N", title="Provincia"),
                     alt.Tooltip("licitaciones:Q", title="Licitaciones")
@@ -1677,7 +1649,12 @@ else:
             .mark_bar(color=color_verde, cornerRadiusEnd=4)
             .encode(
                 x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
-                y=alt.Y("provincia_grafico:N", title=None, sort="-x"),
+                y=alt.Y(
+                    "provincia_grafico:N",
+                    title=None,
+                    sort="-x",
+                    axis=alt.Axis(labelLimit=300, labelPadding=8),
+                ),
                 tooltip=[
                     alt.Tooltip("provincia_grafico:N", title="Provincia"),
                     alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
@@ -1717,53 +1694,45 @@ else:
             .mark_bar(color="#7c3aed", cornerRadiusEnd=4)
             .encode(
                 x=alt.X("licitaciones:Q", title="Número de licitaciones"),
-                y=alt.Y("comunidad_grafico:N", title=None, sort="-x"),
+                y=alt.Y(
+                    "comunidad_grafico:N",
+                    title=None,
+                    sort="-x",
+                    axis=alt.Axis(labelLimit=420, labelPadding=8),
+                ),
                 tooltip=[
                     alt.Tooltip("comunidad_grafico:N", title="Comunidad autónoma"),
                     alt.Tooltip("licitaciones:Q", title="Licitaciones")
                 ]
             )
-            .properties(height=420)
+            .properties(height=460)
         )
         grafico_presupuesto_organo = (
             alt.Chart(presupuesto_organo)
             .mark_bar(color="#0891b2", cornerRadiusEnd=4)
             .encode(
                 x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
-                y=alt.Y("organo_grafico:N", title=None, sort="-x", axis=alt.Axis(labelLimit=260)),
+                y=alt.Y(
+                    "organo_grafico:N",
+                    title=None,
+                    sort="-x",
+                    axis=alt.Axis(labelLimit=600, labelPadding=8),
+                ),
                 tooltip=[
                     alt.Tooltip("organo_grafico:N", title="Órgano de contratación"),
                     alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
                 ]
             )
-            .properties(height=420)
+            .properties(height=460)
         )
-        grafico_licitaciones_diarias = (
-            alt.Chart(licitaciones_diarias)
-            .mark_line(color=color_naranja, point=alt.OverlayMarkDef(color=color_naranja, size=45), strokeWidth=3)
-            .encode(
-                x=alt.X("fecha_publicacion:T", title="Fecha de publicación", axis=alt.Axis(format="%d/%m/%Y")),
-                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
-                tooltip=[
-                    alt.Tooltip("fecha_publicacion:T", title="Fecha", format="%d/%m/%Y"),
-                    alt.Tooltip("licitaciones:Q", title="Licitaciones anunciadas")
-                ]
-            )
-            .properties(height=340)
-        )
-        grafico_presupuesto_diario = (
-            alt.Chart(presupuesto_diario)
-            .mark_line(color=color_azul, point=alt.OverlayMarkDef(color=color_azul, size=45), strokeWidth=3)
-            .encode(
-                x=alt.X("fecha_publicacion:T", title="Fecha de publicación / actualización", axis=alt.Axis(format="%d/%m/%Y")),
-                y=alt.Y("pbl_sin_iva:Q", title="PBL total sin IVA (€)"),
-                tooltip=[
-                    alt.Tooltip("fecha_publicacion:T", title="Fecha", format="%d/%m/%Y"),
-                    alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto total", format=",.2f")
-                ]
-            )
-            .properties(height=360)
-        )
+
+        with st.container(border=True):
+            st.markdown("#### Licitaciones por comunidad autónoma")
+            st.altair_chart(grafico_comunidades, use_container_width=True)
+
+        with st.container(border=True):
+            st.markdown("#### Presupuesto por órgano de contratación")
+            st.altair_chart(grafico_presupuesto_organo, use_container_width=True)
 
         grafico_fila_1a, grafico_fila_1b = st.columns(2)
         with grafico_fila_1a:
@@ -1784,26 +1753,6 @@ else:
             with st.container(border=True):
                 st.markdown("#### Próximos vencimientos")
                 st.altair_chart(grafico_vencimientos, use_container_width=True)
-
-        grafico_fila_3a, grafico_fila_3b = st.columns(2)
-        with grafico_fila_3a:
-            with st.container(border=True):
-                st.markdown("#### Licitaciones por comunidad autónoma")
-                st.altair_chart(grafico_comunidades, use_container_width=True)
-        with grafico_fila_3b:
-            with st.container(border=True):
-                st.markdown("#### Presupuesto por órgano de contratación")
-                st.altair_chart(grafico_presupuesto_organo, use_container_width=True)
-
-        with st.container(border=True):
-            st.markdown("#### Licitaciones anunciadas por día")
-            st.caption(f"Número de licitaciones agrupadas según {descripcion_fecha_publicacion}.")
-            st.altair_chart(grafico_licitaciones_diarias, use_container_width=True)
-
-        with st.container(border=True):
-            st.markdown("#### Presupuesto publicado por día")
-            st.caption(f"Suma diaria del presupuesto base de licitación sin IVA según {descripcion_fecha_publicacion}.")
-            st.altair_chart(grafico_presupuesto_diario, use_container_width=True)
 
     elif vista_principal == "🗺️ Mapa":
         st.subheader("📍 Ubicación de las licitaciones")
