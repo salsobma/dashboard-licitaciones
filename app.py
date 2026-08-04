@@ -1,4 +1,5 @@
 import html
+# Revisión de despliegue: filtro del Radar protegido ante resultados vacíos.
 import streamlit as st
 import streamlit.components.v1 as components
 import altair as alt
@@ -407,8 +408,7 @@ def cargar_feed_reciente():
                         "nombre": _texto_xml(doc, "cbc:ID") or tipo_doc,
                         "url": uri,
                     })
-        for doc in status.findall("cac:AdditionalDocumentReference", NAMESPACES_ATOM):
-            uri = _texto_xml(doc, "cac:Attach…14508 tokens truncated…_publicacion")
+        for doc in status.findall("cac:AdditionalDocu…14528 tokens truncated…_publicacion")
         )
         licitaciones_diarias = (
             datos_publicacion_diaria.groupby("fecha_publicacion", as_index=False)
