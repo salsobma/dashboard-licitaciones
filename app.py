@@ -15,7 +15,7 @@ import time
 import unicodedata
 from datetime import date
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from google import genai
 from google.genai import types
 
@@ -261,7 +261,8 @@ MAPA_ESTADOS = {
     'EV':  ('En Evaluación', 'badge-ev'),
     'ADJ': ('Adjudicada', 'badge-adj'),
     'RES': ('Resuelta / Formalizada', 'badge-res'),
-    'ANUL': ('Anulada', 'badge-res')
+    'ANUL': ('Anulada', 'badge-res'),
+    'CERR': ('Cerrada / Archivada', 'badge-res'),
 }
 
 MAPA_TIPOS = {
@@ -290,12 +291,12 @@ def formato_eur(valor):
 
 def formato_fecha(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
-    return "No especificada" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
+    return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
 
 def texto_dias_restantes(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     if pd.isna(fecha):
-        return "Plazo no disponible"
+        return "Fecha límite no disponible en la plataforma"
     dias = (fecha.date() - date.today()).days
     if dias > 1:
         return f"Faltan {dias} días"
@@ -317,6 +318,31 @@ def texto_antiguedad(valor):
         return "Hace 1 día"
     return f"Hace {dias} días"
 
+def normalizar_estado_vigente(tabla):
+    """Conserva el estado ATOM y calcula el estado operativo por fecha límite."""
+    resultado = tabla.copy()
+    if resultado.empty or not {"estado", "fecha_limite"}.issubset(resultado.columns):
+        return resultado
+
+    resultado["estado_fuente"] = resultado["estado"]
+    texto_limite = resultado["fecha_limite"].fillna("").astype(str).str.strip()
+    limite_local = pd.to_datetime(texto_limite.str.slice(0, 19), errors="coerce")
+
+    # Si la fuente sólo facilita una fecha, el plazo vence al terminar ese día.
+    solo_fecha = texto_limite.str.fullmatch(r"\d{4}-\d{2}-\d{2}")
+    limite_local = limite_local.where(
+        ~solo_fecha,
+        limite_local + pd.Timedelta(days=1) - pd.Timedelta(seconds=1),
+    )
+    ahora_local = pd.Timestamp.now(tz="Europe/Madrid").tz_localize(None)
+    plazo_vencido = (
+        resultado["estado"].eq("PUB")
+        & limite_local.notna()
+        & limite_local.lt(ahora_local)
+    )
+    resultado.loc[plazo_vencido, "estado"] = "EV"
+    return resultado
+
 FEED_RECIENTE_URLS = (
     (
         "https://contrataciondelsectorpublico.gob.es/sindicacion/"
@@ -327,6 +353,10 @@ FEED_RECIENTE_URLS = (
         "sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom"
     ),
 )
+
+# La portada del feed es sólo la página más reciente. Se agregan también las
+# tres páginas enlazadas siguientes para no perder cambios cuando rota la portada.
+FEED_MAX_PAGINAS = 4
 
 FEED_RECIENTE_HEADERS = {
     "User-Agent": (
@@ -342,6 +372,7 @@ FEED_RECIENTE_HEADERS = {
 
 NAMESPACES_ATOM = {
     "atom": "http://www.w3.org/2005/Atom",
+    "at": "http://purl.org/atompub/tombstones/1.0",
     "cbc": "urn:dgpe:names:draft:codice:schema:xsd:CommonBasicComponents-2",
     "cac": "urn:dgpe:names:draft:codice:schema:xsd:CommonAggregateComponents-2",
     "cac-place-ext": "urn:dgpe:names:draft:codice-place-ext:schema:xsd:CommonAggregateComponents-2",
@@ -355,7 +386,7 @@ def _texto_xml(elemento, ruta):
     return nodo.text.strip() if nodo is not None and nodo.text else None
 
 @st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
-def cargar_feed_reciente():
+def _cargar_feed_reciente_portada_legacy():
     respuesta = None
     errores = []
     for ronda in range(2):
@@ -512,6 +543,249 @@ def cargar_feed_reciente():
         )
     return radar, actualizado_feed
 
+def _variantes_url_feed(url_feed):
+    variantes = [url_feed]
+    dominios = (
+        "contrataciondelsectorpublico.gob.es",
+        "contrataciondelestado.es",
+    )
+    for origen in dominios:
+        if origen in url_feed:
+            for destino in dominios:
+                candidata = url_feed.replace(origen, destino)
+                if candidata not in variantes:
+                    variantes.append(candidata)
+    return variantes
+
+def _descargar_pagina_feed(url_feed):
+    errores = []
+    for ronda in range(2):
+        for candidata_url in _variantes_url_feed(url_feed):
+            try:
+                respuesta = requests.get(
+                    candidata_url,
+                    headers=FEED_RECIENTE_HEADERS,
+                    timeout=45,
+                )
+                respuesta.raise_for_status()
+                inicio = respuesta.content[:4096]
+                if b"Web Application Firewall" in inicio:
+                    raise RuntimeError(
+                        "el cortafuegos de la plataforma rechazó temporalmente la consulta"
+                    )
+                if b"<feed" not in inicio and b"<?xml" not in inicio:
+                    tipo = respuesta.headers.get("content-type", "desconocido")
+                    raise RuntimeError(
+                        f"la plataforma no devolvió un feed XML ({tipo})"
+                    )
+                raiz = ET.fromstring(respuesta.content)
+                if raiz.tag != f"{{{NAMESPACES_ATOM['atom']}}}feed":
+                    raise RuntimeError("la respuesta no contiene un feed ATOM válido")
+                return raiz, candidata_url
+            except Exception as error:
+                errores.append(f"{candidata_url}: {error}")
+        if ronda == 0:
+            time.sleep(2)
+    detalle = errores[-1] if errores else "error desconocido"
+    raise RuntimeError(
+        "El feed oficial no está disponible temporalmente. "
+        f"Último intento: {detalle}"
+    )
+
+def _fila_desde_entrada_feed(entrada):
+    lic_id = _texto_xml(entrada, "atom:id")
+    enlace = entrada.find("atom:link", NAMESPACES_ATOM)
+    status = entrada.find("cac-place-ext:ContractFolderStatus", NAMESPACES_ATOM)
+    if status is None:
+        return None
+
+    party = status.find(
+        "cac-place-ext:LocatedContractingParty/cac:Party", NAMESPACES_ATOM
+    )
+    proyecto = status.find("cac:ProcurementProject", NAMESPACES_ATOM)
+    if proyecto is None:
+        return None
+
+    def numero(ruta):
+        valor = _texto_xml(proyecto, ruta)
+        try:
+            return float(valor) if valor else None
+        except (TypeError, ValueError):
+            return None
+
+    codigo_postal = _texto_xml(
+        proyecto, "cac:RealizedLocation/cac:Address/cbc:PostalZone"
+    )
+    municipio = _texto_xml(
+        proyecto, "cac:RealizedLocation/cac:Address/cbc:CityName"
+    )
+    if not codigo_postal:
+        codigo_postal = _texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
+    if not municipio:
+        municipio = _texto_xml(party, "cac:PostalAddress/cbc:CityName")
+
+    cpvs = [
+        nodo.text.strip()
+        for nodo in proyecto.findall(
+            "cac:RequiredCommodityClassification/cbc:ItemClassificationCode",
+            NAMESPACES_ATOM,
+        )
+        if nodo.text
+    ]
+    fecha_limite = _texto_xml(
+        status,
+        "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndDate",
+    )
+    hora_limite = _texto_xml(
+        status,
+        "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndTime",
+    )
+    if fecha_limite and hora_limite:
+        fecha_limite = f"{fecha_limite} {hora_limite}"
+
+    documentos = []
+    referencias = (
+        ("PPT", "cac:TechnicalDocumentReference"),
+        ("PCAP", "cac:LegalDocumentReference"),
+    )
+    for tipo_doc, etiqueta in referencias:
+        doc = status.find(etiqueta, NAMESPACES_ATOM)
+        if doc is not None:
+            uri = _texto_xml(doc, "cac:Attachment/cac:ExternalReference/cbc:URI")
+            if uri:
+                documentos.append({
+                    "tipo": tipo_doc,
+                    "nombre": _texto_xml(doc, "cbc:ID") or tipo_doc,
+                    "url": uri,
+                })
+    for doc in status.findall("cac:AdditionalDocumentReference", NAMESPACES_ATOM):
+        uri = _texto_xml(doc, "cac:Attachment/cac:ExternalReference/cbc:URI")
+        if uri:
+            documentos.append({
+                "tipo": "ANEXO",
+                "nombre": _texto_xml(doc, "cbc:ID") or "Anexo adicional",
+                "url": uri,
+            })
+
+    return {
+        "id": lic_id,
+        "id_licitacion_corta": lic_id.split("/")[-1] if lic_id else None,
+        "expediente": _texto_xml(status, "cbc:ContractFolderID"),
+        "titulo": _texto_xml(proyecto, "cbc:Name"),
+        "organo_contratante": _texto_xml(party, "cac:PartyName/cbc:Name"),
+        "tipo_contrato": _texto_xml(proyecto, "cbc:TypeCode"),
+        "estado": _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode"),
+        "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
+        "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
+        "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
+        "cpv": ",".join(cpvs),
+        "codigo_postal": codigo_postal,
+        "municipio": municipio,
+        "provincia": _texto_xml(
+            proyecto, "cac:RealizedLocation/cbc:CountrySubentity"
+        ),
+        "comunidad_autonoma": None,
+        "latitud": None,
+        "longitud": None,
+        "fecha_limite": fecha_limite,
+        "fecha_actualizacion": _texto_xml(entrada, "atom:updated"),
+        "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
+        "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
+        "resumen_ia": None,
+    }
+
+def _bajas_desde_pagina_feed(raiz):
+    bajas = []
+    for eliminada in raiz.findall("at:deleted-entry", NAMESPACES_ATOM):
+        lic_id = eliminada.attrib.get("ref")
+        fecha = eliminada.attrib.get("when")
+        comentario = " ".join(
+            texto.strip()
+            for texto in eliminada.itertext()
+            if texto and texto.strip()
+        )
+        tipo = eliminada.attrib.get("type", "")
+        detalle = f"{tipo} {comentario}".upper()
+        estado = "ANUL" if "ANUL" in detalle else "CERR"
+        bajas.append({
+            "id": lic_id,
+            "fecha_actualizacion": fecha,
+            "estado": estado,
+        })
+    return bajas
+
+@st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
+def cargar_feed_reciente():
+    filas = []
+    bajas = []
+    visitadas = set()
+    siguiente = FEED_RECIENTE_URLS[0]
+    actualizado_feed = None
+    paginas_leidas = 0
+    parcial = False
+
+    while siguiente and paginas_leidas < FEED_MAX_PAGINAS:
+        if siguiente in visitadas:
+            break
+        visitadas.add(siguiente)
+        try:
+            raiz, url_real = _descargar_pagina_feed(siguiente)
+        except Exception:
+            if paginas_leidas == 0:
+                raise
+            parcial = True
+            break
+
+        paginas_leidas += 1
+        if actualizado_feed is None:
+            actualizado_feed = _texto_xml(raiz, "atom:updated")
+
+        for entrada in raiz.findall("atom:entry", NAMESPACES_ATOM):
+            fila = _fila_desde_entrada_feed(entrada)
+            if fila:
+                filas.append(fila)
+        bajas.extend(_bajas_desde_pagina_feed(raiz))
+
+        enlace_siguiente = raiz.find("atom:link[@rel='next']", NAMESPACES_ATOM)
+        href = enlace_siguiente.attrib.get("href") if enlace_siguiente is not None else None
+        siguiente = urljoin(url_real, href) if href else None
+
+    radar = pd.DataFrame(filas)
+    if not radar.empty:
+        radar["fecha_limite_dt"] = pd.to_datetime(
+            radar["fecha_limite"].astype(str).str.slice(0, 10),
+            errors="coerce",
+            utc=True,
+        )
+        radar["fecha_act_dt"] = pd.to_datetime(
+            radar["fecha_actualizacion"], errors="coerce", utc=True
+        )
+        radar = (
+            radar.sort_values("fecha_act_dt", ascending=False, na_position="last")
+            .drop_duplicates(subset=["id"], keep="first")
+        )
+        radar["tipo_contrato_desc"] = (
+            radar["tipo_contrato"].map(MAPA_TIPOS).fillna("Otros")
+        )
+        radar = normalizar_estado_vigente(radar)
+
+    bajas_df = pd.DataFrame(bajas)
+    if not bajas_df.empty:
+        bajas_df["fecha_act_dt"] = pd.to_datetime(
+            bajas_df["fecha_actualizacion"], errors="coerce", utc=True
+        )
+        bajas_df = (
+            bajas_df.sort_values("fecha_act_dt", ascending=False, na_position="last")
+            .drop_duplicates(subset=["id"], keep="first")
+        )
+
+    metadata = {
+        "paginas": paginas_leidas,
+        "bajas": len(bajas_df),
+        "parcial": parcial,
+    }
+    return radar, actualizado_feed, bajas_df, metadata
+
 def _clave_ubicacion(valor):
     if valor is None or pd.isna(valor):
         return ""
@@ -587,6 +861,46 @@ def completar_ubicaciones_feed(df_feed):
             enriquecido.at[indice, "origen_coordenadas"] = origen
     return enriquecido
 
+def incorporar_bajas_feed(df_feed, bajas_feed, historico):
+    if bajas_feed.empty:
+        return df_feed
+
+    fuentes = pd.concat([df_feed, historico], ignore_index=True, sort=False)
+    fuentes = fuentes.dropna(subset=["id"]).drop_duplicates(subset=["id"], keep="first")
+    por_id = fuentes.set_index(fuentes["id"].astype(str), drop=False)
+    filas = []
+
+    for _, baja in bajas_feed.iterrows():
+        lic_id = str(baja.get("id") or "").strip()
+        if not lic_id:
+            continue
+        if lic_id in por_id.index:
+            fila = por_id.loc[lic_id].copy()
+            if isinstance(fila, pd.DataFrame):
+                fila = fila.iloc[0].copy()
+        else:
+            fila = pd.Series({columna: None for columna in fuentes.columns})
+            fila["id"] = lic_id
+            fila["id_licitacion_corta"] = lic_id.split("/")[-1]
+            fila["titulo"] = "Expediente retirado de la plataforma"
+            fila["documentos_adjuntos"] = "[]"
+            fila["tipo_contrato_desc"] = "Otros"
+
+        fila["estado_fuente"] = baja["estado"]
+        fila["estado"] = baja["estado"]
+        fila["fecha_actualizacion"] = baja["fecha_actualizacion"]
+        fila["fecha_act_dt"] = baja["fecha_act_dt"]
+        fila["movimiento"] = "Actualizada"
+        filas.append(fila.to_dict())
+
+    if not filas:
+        return df_feed
+    resultado = pd.concat([df_feed, pd.DataFrame(filas)], ignore_index=True, sort=False)
+    return (
+        resultado.sort_values("fecha_act_dt", ascending=False, na_position="last")
+        .drop_duplicates(subset=["id"], keep="first")
+    )
+
 @st.cache_data(ttl=300, show_spinner="Cargando licitaciones…")
 def cargar_datos(db_mtime):
     del db_mtime
@@ -594,10 +908,10 @@ def cargar_datos(db_mtime):
     with sqlite3.connect(uri, uri=True, timeout=10) as conn:
         df = pd.read_sql_query("SELECT * FROM licitaciones", conn)
 
-    df['fecha_limite_dt'] = pd.to_datetime(df['fecha_limite'].str.slice(0, 10), errors='coerce', utc=True)
+    df['fecha_limite_dt'] = pd.to_datetime(df['fecha_limite'].astype(str).str.slice(0, 10), errors='coerce', utc=True)
     df['fecha_act_dt'] = pd.to_datetime(df['fecha_actualizacion'], errors='coerce', utc=True)
     df['tipo_contrato_desc'] = df['tipo_contrato'].map(MAPA_TIPOS).fillna('Otros')
-    return df
+    return normalizar_estado_vigente(df)
 
 try:
     df = cargar_datos(os.path.getmtime(DB_PATH))
@@ -606,12 +920,21 @@ except Exception as e:
     st.stop()
 
 try:
-    df_radar_catalogo, fecha_feed_catalogo = cargar_feed_reciente()
+    (
+        df_radar_catalogo,
+        fecha_feed_catalogo,
+        df_bajas_catalogo,
+        metadata_feed_catalogo,
+    ) = cargar_feed_reciente()
     df_radar_catalogo = completar_ubicaciones_feed(df_radar_catalogo)
+    df_radar_catalogo = incorporar_bajas_feed(
+        df_radar_catalogo, df_bajas_catalogo, df
+    )
     error_feed_catalogo = None
 except Exception as error_feed_inicial:
     df_radar_catalogo = pd.DataFrame(columns=df.columns)
     fecha_feed_catalogo = None
+    metadata_feed_catalogo = {"paginas": 0, "bajas": 0, "parcial": False}
     error_feed_catalogo = str(error_feed_inicial)
 
 df_catalogo_filtros = pd.concat(
@@ -634,6 +957,8 @@ if "f_pbl_max" not in st.session_state:
     st.session_state["f_pbl_max"] = 200000.0
 if "f_fecha" not in st.session_state:
     st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
+if "f_sin_fecha" not in st.session_state:
+    st.session_state["f_sin_fecha"] = True
 
 st.sidebar.title("🎛️ Filtros Avanzados")
 
@@ -648,6 +973,7 @@ if st.sidebar.button("🗑️ Quitar filtros", use_container_width=True):
     st.session_state["f_pbl_min"] = 0.0
     st.session_state["f_pbl_max"] = max_pbl_db
     st.session_state["f_fecha"] = (f_min_db, f_max_db)
+    st.session_state["f_sin_fecha"] = True
     st.session_state["f_organo"] = []
     st.rerun()
 
@@ -662,6 +988,7 @@ if st.sidebar.button("↩️ Filtros iniciales", use_container_width=True):
     st.session_state["f_pbl_min"] = 0.0
     st.session_state["f_pbl_max"] = 200000.0
     st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
+    st.session_state["f_sin_fecha"] = True
     st.session_state["f_organo"] = []
     st.rerun()
 
@@ -693,6 +1020,10 @@ if not fechas_validas.empty:
     fecha_rango = st.sidebar.date_input("📅 Fecha Límite Presentación:", min_value=f_min_db, max_value=f_max_db, key="f_fecha")
 else:
     fecha_rango = None
+incluir_sin_fecha = st.sidebar.checkbox(
+    "Mostrar también las que no indican fecha límite",
+    key="f_sin_fecha",
+)
 
 organos = sorted([x for x in df_catalogo_filtros['organo_contratante'].dropna().unique() if x])
 organo_sel = st.sidebar.multiselect("🏛️ Órgano de Contratación:", organos, key="f_organo")
@@ -708,7 +1039,13 @@ if tipo_sel: df_f = df_f[df_f['tipo_contrato_desc'].isin(tipo_sel)]
 df_f = df_f[(df_f['pbl_sin_iva'] >= pbl_min_val) & (df_f['pbl_sin_iva'] <= pbl_max_val)]
 
 if fecha_rango and len(fecha_rango) == 2:
-    df_f = df_f[(df_f['fecha_limite_dt'].dt.date >= fecha_rango[0]) & (df_f['fecha_limite_dt'].dt.date <= fecha_rango[1])]
+    dentro_del_rango = (
+        (df_f['fecha_limite_dt'].dt.date >= fecha_rango[0])
+        & (df_f['fecha_limite_dt'].dt.date <= fecha_rango[1])
+    )
+    if incluir_sin_fecha:
+        dentro_del_rango = dentro_del_rango | df_f['fecha_limite_dt'].isna()
+    df_f = df_f[dentro_del_rango]
 
 if ccaa_sel: df_f = df_f[df_f['comunidad_autonoma'].isin(ccaa_sel)]
 if prov_sel: df_f = df_f[df_f['provincia'].isin(prov_sel)]
@@ -724,10 +1061,14 @@ def aplicar_filtros_al_feed(df_entrada):
     if filtrado.empty:
         return filtrado
     historico_ids = set(df["id"].dropna().astype(str))
-    filtrado["movimiento"] = filtrado["id"].astype(str).apply(
-        lambda valor: (
-            "Nueva licitación" if valor not in historico_ids else "Actualizada"
-        )
+    filtrado["movimiento"] = filtrado.apply(
+        lambda fila: (
+            "Actualizada"
+            if fila.get("estado") in {"ANUL", "CERR"}
+            or str(fila.get("id")) in historico_ids
+            else "Nueva licitación"
+        ),
+        axis=1,
     )
     if busqueda_texto.strip():
         consulta = busqueda_texto.lower().strip()
@@ -751,10 +1092,13 @@ def aplicar_filtros_al_feed(df_entrada):
         & (filtrado["pbl_sin_iva"].fillna(0) <= pbl_max_val)
     ]
     if fecha_rango and len(fecha_rango) == 2:
-        filtrado = filtrado[
+        dentro_del_rango = (
             (filtrado["fecha_limite_dt"].dt.date >= fecha_rango[0])
             & (filtrado["fecha_limite_dt"].dt.date <= fecha_rango[1])
-        ]
+        )
+        if incluir_sin_fecha:
+            dentro_del_rango = dentro_del_rango | filtrado["fecha_limite_dt"].isna()
+        filtrado = filtrado[dentro_del_rango]
     if ccaa_sel:
         filtrado = filtrado[
             filtrado["comunidad_autonoma"].isin(ccaa_sel)
@@ -923,6 +1267,8 @@ if pbl_min_val > 0 or pbl_max_val < max_pbl_db:
     filtros_activos.append(f'Presupuesto: {formato_eur(pbl_min_val)} – {formato_eur(pbl_max_val)}')
 if fecha_rango and len(fecha_rango) == 2:
     filtros_activos.append(f'Fecha límite: {fecha_rango[0].strftime("%d/%m/%Y")} – {fecha_rango[1].strftime("%d/%m/%Y")}')
+if not incluir_sin_fecha:
+    filtros_activos.append('Sin fecha límite: excluidas')
 if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
 
 resumen_filtros = ' · '.join(filtros_activos) if filtros_activos else 'Ninguno'
@@ -1056,7 +1402,8 @@ else:
         st.subheader("⚡ Radar de actualizaciones")
         st.caption(
             "Cambios publicados recientemente en el feed oficial de la Plataforma de "
-            "Contratación del Sector Público. Se actualiza en la nube cada 15 minutos."
+            "Contratación del Sector Público. Se consulta al abrir el dashboard y la "
+            "consulta se renueva como máximo cada 15 minutos."
         )
         try:
             if error_feed_catalogo:
@@ -1071,8 +1418,15 @@ else:
                 st.markdown(
                     f"**{len(df_radar)} resultados con los filtros actuales** · "
                     f"🟢 {nuevas} nuevas · 🔵 {actualizadas} actualizadas · "
+                    f"{metadata_feed_catalogo['paginas']} páginas oficiales · "
+                    f"{metadata_feed_catalogo['bajas']} cierres/anulaciones · "
                     f"Feed oficial: {fecha_feed_fmt}"
                 )
+                if metadata_feed_catalogo["parcial"]:
+                    st.warning(
+                        "La portada del feed está disponible, pero alguna página anterior "
+                        "no respondió. Se muestran los cambios que sí pudieron recuperarse."
+                    )
 
                 if df_radar.empty:
                     st.info(
@@ -1080,9 +1434,42 @@ else:
                         "reciente coincide con los filtros actuales."
                     )
                 else:
-                    df_radar = df_radar.sort_values(
-                        "fecha_act_dt", ascending=False, na_position="last"
+                    criterio_radar = st.selectbox(
+                        "🔃 Ordenar tarjetas por:",
+                        [
+                            "Actualización (Más reciente)",
+                            "Actualización (Más antigua)",
+                            "Fecha límite (Más cercana)",
+                            "Fecha límite (Más lejana)",
+                            "Presupuesto (Mayor a menor)",
+                            "Presupuesto (Menor a mayor)",
+                        ],
+                        key="select_orden_radar",
                     )
+                    if criterio_radar == "Actualización (Más antigua)":
+                        df_radar = df_radar.sort_values(
+                            "fecha_act_dt", ascending=True, na_position="last"
+                        )
+                    elif criterio_radar == "Fecha límite (Más cercana)":
+                        df_radar = df_radar.sort_values(
+                            "fecha_limite_dt", ascending=True, na_position="last"
+                        )
+                    elif criterio_radar == "Fecha límite (Más lejana)":
+                        df_radar = df_radar.sort_values(
+                            "fecha_limite_dt", ascending=False, na_position="last"
+                        )
+                    elif criterio_radar == "Presupuesto (Mayor a menor)":
+                        df_radar = df_radar.sort_values(
+                            "pbl_sin_iva", ascending=False, na_position="last"
+                        )
+                    elif criterio_radar == "Presupuesto (Menor a mayor)":
+                        df_radar = df_radar.sort_values(
+                            "pbl_sin_iva", ascending=True, na_position="last"
+                        )
+                    else:
+                        df_radar = df_radar.sort_values(
+                            "fecha_act_dt", ascending=False, na_position="last"
+                        )
                     items_radar = 12
                     total_radar = len(df_radar_filtrado)
                     paginas_radar = max(
@@ -1123,7 +1510,7 @@ else:
                     ) * items_radar
                     fin_radar = inicio_radar + items_radar
                     render_grid_tarjetas(
-                        df_radar_filtrado.iloc[inicio_radar:fin_radar],
+                        df_radar.iloc[inicio_radar:fin_radar],
                         "radar",
                     )
             else:
@@ -1498,7 +1885,6 @@ else:
                 "html": "<b>{titulo}</b><br/>"
                         "🏛️ <b>Órgano de contratación:</b> {organo_contratante}<br/>"
                         "📍 <b>Ubicación:</b> {municipio_clean} ({provincia_clean}, {ccaa_clean})<br/>"
-                        "🧭 <b>Origen de ubicación:</b> {origen_coordenadas}<br/>"
                         "💶 <b>PBL sin IVA:</b> {pbl_fmt}<br/>"
                         "📅 <b>Fecha presentación oferta:</b> {fecha_limite_fmt}<br/>"
                         "📁 <b>Código expediente:</b> {expediente_clean}",
@@ -1511,6 +1897,11 @@ else:
             st.info("No hay licitaciones con coordenadas geográficas disponibles para mostrar en el mapa.")
 
     elif vista_principal == "🗂️ Histórico":
+        st.subheader("🗂️ Histórico de licitaciones")
+        st.caption(
+            "Base histórica consolidada mediante los conjuntos de datos abiertos de la "
+            "Plataforma de Contratación del Sector Público. Se actualiza diariamente."
+        )
         col_ord1, col_ord2 = st.columns([2, 3])
         with col_ord1:
             criterio_orden = st.selectbox(
