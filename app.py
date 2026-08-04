@@ -33,7 +33,7 @@ components.html("""
     const hostDocument = window.top.document;
     const assetBase = new URL("app/static/", window.top.location.origin + "/").toString();
     const ensureLink = (rel, href, extras = {}) => {
-        let element = hostDocument.querySelector(`link[data-landai="${rel}"]`);
+        let element = rel === "manifest"\n            ? hostDocument.querySelector('link[rel="manifest"]')\n            : hostDocument.querySelector(`link[data-landai="${rel}"]`);
         if (!element) { element = hostDocument.createElement("link"); element.dataset.landai = rel; hostDocument.head.appendChild(element); }
         element.rel = rel; element.href = href;
         Object.entries(extras).forEach(([key, value]) => element.setAttribute(key, value));
