@@ -11,6 +11,7 @@ import pydeck as pdk
 import numpy as np
 import os
 import requests
+import time
 import unicodedata
 from datetime import date
 from bs4 import BeautifulSoup
@@ -316,10 +317,28 @@ def texto_antiguedad(valor):
         return "Hace 1 día"
     return f"Hace {dias} días"
 
-FEED_RECIENTE_URL = (
-    "https://contrataciondelsectorpublico.gob.es/sindicacion/"
-    "sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom"
+FEED_RECIENTE_URLS = (
+    (
+        "https://contrataciondelsectorpublico.gob.es/sindicacion/"
+        "sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom"
+    ),
+    (
+        "https://contrataciondelestado.es/sindicacion/"
+        "sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom"
+    ),
 )
+
+FEED_RECIENTE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/138.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/atom+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+    "Referer": "https://contrataciondelsectorpublico.gob.es/datosabiertos",
+    "Cache-Control": "no-cache",
+}
 
 NAMESPACES_ATOM = {
     "atom": "http://www.w3.org/2005/Atom",
@@ -337,13 +356,46 @@ def _texto_xml(elemento, ruta):
 
 @st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
 def cargar_feed_reciente():
-    respuesta = requests.get(
-        FEED_RECIENTE_URL,
-        headers={"User-Agent": "LandAI-Licitaciones/1.0"},
-        timeout=45,
-    )
-    respuesta.raise_for_status()
+    respuesta = None
+    errores = []
+    for ronda in range(2):
+        for url_feed in FEED_RECIENTE_URLS:
+            try:
+                candidata = requests.get(
+                    url_feed,
+                    headers=FEED_RECIENTE_HEADERS,
+                    timeout=45,
+                )
+                candidata.raise_for_status()
+                inicio = candidata.content[:4096]
+                if b"Web Application Firewall" in inicio:
+                    raise RuntimeError(
+                        "el cortafuegos de la plataforma rechazó temporalmente la consulta"
+                    )
+                if b"<feed" not in inicio and b"<?xml" not in inicio:
+                    tipo = candidata.headers.get("content-type", "desconocido")
+                    raise RuntimeError(
+                        f"la plataforma no devolvió un feed XML ({tipo})"
+                    )
+                respuesta = candidata
+                break
+            except Exception as error:
+                errores.append(f"{url_feed}: {error}")
+        if respuesta is not None:
+            break
+        if ronda == 0:
+            time.sleep(2)
+
+    if respuesta is None:
+        detalle = errores[-1] if errores else "error desconocido"
+        raise RuntimeError(
+            "El feed oficial no está disponible temporalmente. "
+            f"Último intento: {detalle}"
+        )
+
     raiz = ET.fromstring(respuesta.content)
+    if raiz.tag != f"{{{NAMESPACES_ATOM['atom']}}}feed":
+        raise RuntimeError("La respuesta oficial no contiene un feed ATOM válido.")
     actualizado_feed = _texto_xml(raiz, "atom:updated")
     filas = []
 
