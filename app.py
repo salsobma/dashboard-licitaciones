@@ -32,7 +32,7 @@ components.html("""
     const parentDocument = window.parent.document;
     const assetBase = new URL("app/static/", window.parent.location.origin + "/").toString();
     const ensureLink = (rel, href, extras = {}) => {
-        let element = parentDocument.querySelector(`link[data-landai-${rel}]`);
+        let element = parentDocument.querySelector(`link[data-landai="${rel}"]`);
         if (!element) { element = parentDocument.createElement("link"); element.dataset.landai = rel; parentDocument.head.appendChild(element); }
         element.rel = rel; element.href = href;
         Object.entries(extras).forEach(([key, value]) => element.setAttribute(key, value));
