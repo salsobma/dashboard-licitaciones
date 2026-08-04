@@ -256,7 +256,7 @@ st.markdown("""
 MAPA_ESTADOS = {
     'PUB': ('En plazo / Publicada', 'badge-pub'),
     'PRE': ('Preanuncio', 'badge-res'),
-    'EV':  ('En EvaluaciÃ³n', 'badge-ev'),
+    'EV':  ('En Evaluación', 'badge-ev'),
     'ADJ': ('Adjudicada', 'badge-adj'),
     'RES': ('Resuelta / Formalizada', 'badge-res'),
     'ANUL': ('Anulada', 'badge-res')
