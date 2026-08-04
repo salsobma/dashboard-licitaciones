@@ -954,6 +954,8 @@ if "f_cpv" not in st.session_state:
     st.session_state["f_cpv"] = "71"
 if "f_estado" not in st.session_state:
     st.session_state["f_estado"] = ["PUB"]
+if "f_ccaa" not in st.session_state:
+    st.session_state["f_ccaa"] = ["Comunitat Valenciana"]
 if "f_pbl_max" not in st.session_state:
     st.session_state["f_pbl_max"] = 200000.0
 if "f_fecha" not in st.session_state:
@@ -983,7 +985,7 @@ if st.sidebar.button("↩️ Filtros iniciales", use_container_width=True):
     st.session_state["f_tipo"] = []
     st.session_state["f_cpv"] = "71"
     st.session_state["f_estado"] = ["PUB"]
-    st.session_state["f_ccaa"] = []
+    st.session_state["f_ccaa"] = ["Comunitat Valenciana"]
     st.session_state["f_prov"] = []
     st.session_state["f_muni"] = []
     st.session_state["f_pbl_min"] = 0.0
@@ -1191,7 +1193,7 @@ elif vista_principal == "🗂️ Histórico":
     etiqueta_actualizacion = "Última actualización BD"
 elif vista_principal == "📊 Gráficos":
     fuente_indicadores = st.session_state.get(
-        "fuente_graficos", "Histórico"
+        "fuente_graficos", "Últimas actualizaciones"
     )
     if fuente_indicadores == "Últimas actualizaciones":
         df_indicadores = df_radar_filtrado
@@ -1202,7 +1204,9 @@ elif vista_principal == "📊 Gráficos":
     etiqueta_cantidad = "Licitaciones filtradas"
     etiqueta_actualizacion = "Última actualización"
 else:
-    fuente_indicadores = st.session_state.get("fuente_mapa", "Histórico")
+    fuente_indicadores = st.session_state.get(
+        "fuente_mapa", "Últimas actualizaciones"
+    )
     if fuente_indicadores == "Últimas actualizaciones":
         df_indicadores = df_radar_filtrado
     elif fuente_indicadores == "Combinado":
@@ -1528,7 +1532,7 @@ else:
         st.caption("Los gráficos se actualizan automáticamente con los filtros aplicados.")
         fuente_graficos = st.radio(
             "Datos que quieres analizar:",
-            ["Histórico", "Últimas actualizaciones", "Combinado"],
+            ["Últimas actualizaciones", "Histórico", "Combinado"],
             horizontal=True,
             key="fuente_graficos",
         )
@@ -1548,54 +1552,127 @@ else:
         if df_graficos.empty:
             st.info("No hay datos de esta fuente que coincidan con los filtros actuales.")
             df_graficos = df_f.iloc[0:0].copy()
-        df_graficos["provincia_grafico"] = df_graficos["provincia"].fillna("No especificada")
-        df_graficos["comunidad_grafico"] = df_graficos["comunidad_autonoma"].fillna("No especificada")
-        df_graficos["organo_grafico"] = df_graficos["organo_contratante"].fillna("No especificado")
-        df_graficos["pbl_sin_iva"] = pd.to_numeric(df_graficos["pbl_sin_iva"], errors="coerce").fillna(0)
+        campos_graficos = {
+            "comunidad": ("comunidad_autonoma", "No especificada"),
+            "provincia": ("provincia", "No especificada"),
+            "municipio": ("municipio", "No especificado"),
+            "organo": ("organo_contratante", "No especificado"),
+        }
+        for clave, (columna, fallback) in campos_graficos.items():
+            df_graficos[f"{clave}_grafico"] = df_graficos[columna].fillna(
+                fallback
+            )
+        df_graficos["pbl_sin_iva"] = pd.to_numeric(
+            df_graficos["pbl_sin_iva"], errors="coerce"
+        ).fillna(0)
 
         color_azul = "#2563eb"
         color_verde = "#0f9d6e"
         color_naranja = "#f59e0b"
         color_rojo = "#ef4444"
 
-        por_provincia = (
-            df_graficos.groupby("provincia_grafico", as_index=False)
-            .size()
-            .rename(columns={"size": "licitaciones"})
-            .sort_values("licitaciones", ascending=False)
-            .head(12)
-        )
-        presupuesto_provincia = (
-            df_graficos.groupby("provincia_grafico", as_index=False)["pbl_sin_iva"]
-            .sum()
-            .sort_values("pbl_sin_iva", ascending=False)
-            .head(12)
-        )
-        por_comunidad = (
-            df_graficos.groupby("comunidad_grafico", as_index=False)
-            .size()
-            .rename(columns={"size": "licitaciones"})
-            .sort_values("licitaciones", ascending=False)
-            .head(15)
-        )
-        presupuesto_organo = (
-            df_graficos.groupby("organo_grafico", as_index=False)["pbl_sin_iva"]
-            .sum()
-            .sort_values("pbl_sin_iva", ascending=False)
-            .head(15)
-        )
-        presupuesto_organo["organo_etiqueta"] = presupuesto_organo[
-            "organo_grafico"
-        ].map(
-            lambda valor: "|".join(
-                textwrap.wrap(
-                    str(valor),
-                    width=72,
-                    break_long_words=False,
-                    break_on_hyphens=False,
+        def agrupar_presupuesto(campo):
+            return (
+                df_graficos.groupby(campo, as_index=False)["pbl_sin_iva"]
+                .sum()
+                .sort_values("pbl_sin_iva", ascending=False)
+                .head(15)
+            )
+
+        def agrupar_licitaciones(campo):
+            tabla = (
+                df_graficos.groupby(campo, as_index=False)
+                .size()
+                .rename(columns={"size": "licitaciones"})
+                .sort_values("licitaciones", ascending=False)
+                .head(15)
+            )
+            tabla["licitaciones"] = tabla["licitaciones"].astype(int)
+            return tabla
+
+        def incluir_etiqueta_envuelta(tabla, campo, ancho):
+            resultado = tabla.copy()
+            resultado["etiqueta_grafico"] = resultado[campo].map(
+                lambda valor: "|".join(
+                    textwrap.wrap(
+                        str(valor),
+                        width=ancho,
+                        break_long_words=False,
+                        break_on_hyphens=False,
+                    )
                 )
             )
-        )
+            return resultado
+
+        def grafico_horizontal(
+            tabla,
+            campo_nombre,
+            campo_valor,
+            titulo_nombre,
+            titulo_valor,
+            color,
+            es_cantidad=False,
+            ancho_etiqueta=72,
+        ):
+            datos = incluir_etiqueta_envuelta(
+                tabla, campo_nombre, ancho_etiqueta
+            )
+            max_lineas = (
+                int(datos["etiqueta_grafico"].str.count(r"\|").max()) + 1
+                if not datos.empty
+                else 1
+            )
+            alto_por_fila = max(38, max_lineas * 16)
+            altura = max(300, len(datos) * alto_por_fila)
+            formato = "d" if es_cantidad else ",.2f"
+            eje_x = (
+                alt.Axis(format="d", tickMinStep=1)
+                if es_cantidad
+                else alt.Axis(format=",.2f")
+            )
+            return (
+                alt.Chart(datos)
+                .mark_bar(color=color, cornerRadiusEnd=4)
+                .encode(
+                    x=alt.X(
+                        f"{campo_valor}:Q",
+                        title=titulo_valor,
+                        axis=eje_x,
+                    ),
+                    y=alt.Y(
+                        "etiqueta_grafico:N",
+                        title=None,
+                        sort="-x",
+                        axis=alt.Axis(
+                            labelExpr="split(datum.label, '|')",
+                            labelLimit=520,
+                            labelLineHeight=14,
+                            labelOverlap=False,
+                            labelPadding=8,
+                        ),
+                    ),
+                    tooltip=[
+                        alt.Tooltip(
+                            f"{campo_nombre}:N", title=titulo_nombre
+                        ),
+                        alt.Tooltip(
+                            f"{campo_valor}:Q",
+                            title=titulo_valor,
+                            format=formato,
+                        ),
+                    ],
+                )
+                .properties(height=altura)
+            )
+
+        presupuesto_comunidad = agrupar_presupuesto("comunidad_grafico")
+        presupuesto_provincia = agrupar_presupuesto("provincia_grafico")
+        presupuesto_municipio = agrupar_presupuesto("municipio_grafico")
+        presupuesto_organo = agrupar_presupuesto("organo_grafico")
+        por_comunidad = agrupar_licitaciones("comunidad_grafico")
+        por_provincia = agrupar_licitaciones("provincia_grafico")
+        por_municipio = agrupar_licitaciones("municipio_grafico")
+        por_organo = agrupar_licitaciones("organo_grafico")
         tramos_presupuesto = [
             "Menos de 25.000 €",
             "25.000–50.000 €",
@@ -1639,51 +1716,89 @@ else:
             .reset_index()
         )
 
-        grafico_provincias = (
-            alt.Chart(por_provincia)
-            .mark_bar(color=color_azul, cornerRadiusEnd=4)
-            .encode(
-                x=alt.X("licitaciones:Q", title="Número de licitaciones"),
-                y=alt.Y(
-                    "provincia_grafico:N",
-                    title=None,
-                    sort="-x",
-                    axis=alt.Axis(labelLimit=300, labelPadding=8),
-                ),
-                tooltip=[
-                    alt.Tooltip("provincia_grafico:N", title="Provincia"),
-                    alt.Tooltip("licitaciones:Q", title="Licitaciones")
-                ]
-            )
-            .properties(height=300)
+        grafico_presupuesto_comunidad = grafico_horizontal(
+            presupuesto_comunidad,
+            "comunidad_grafico",
+            "pbl_sin_iva",
+            "Comunidad autónoma",
+            "Presupuesto total sin IVA (€)",
+            "#0f9d6e",
         )
-        grafico_presupuesto_provincia = (
-            alt.Chart(presupuesto_provincia)
-            .mark_bar(color=color_verde, cornerRadiusEnd=4)
-            .encode(
-                x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
-                y=alt.Y(
-                    "provincia_grafico:N",
-                    title=None,
-                    sort="-x",
-                    axis=alt.Axis(labelLimit=300, labelPadding=8),
-                ),
-                tooltip=[
-                    alt.Tooltip("provincia_grafico:N", title="Provincia"),
-                    alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
-                ]
-            )
-            .properties(height=300)
+        grafico_presupuesto_provincia = grafico_horizontal(
+            presupuesto_provincia,
+            "provincia_grafico",
+            "pbl_sin_iva",
+            "Provincia",
+            "Presupuesto total sin IVA (€)",
+            "#14b8a6",
+        )
+        grafico_presupuesto_municipio = grafico_horizontal(
+            presupuesto_municipio,
+            "municipio_grafico",
+            "pbl_sin_iva",
+            "Municipio",
+            "Presupuesto total sin IVA (€)",
+            "#22c55e",
+        )
+        grafico_presupuesto_organo = grafico_horizontal(
+            presupuesto_organo,
+            "organo_grafico",
+            "pbl_sin_iva",
+            "Órgano de contratación",
+            "Presupuesto total sin IVA (€)",
+            "#0891b2",
+        )
+        grafico_comunidades = grafico_horizontal(
+            por_comunidad,
+            "comunidad_grafico",
+            "licitaciones",
+            "Comunidad autónoma",
+            "Número de licitaciones",
+            "#7c3aed",
+            es_cantidad=True,
+        )
+        grafico_provincias = grafico_horizontal(
+            por_provincia,
+            "provincia_grafico",
+            "licitaciones",
+            "Provincia",
+            "Número de licitaciones",
+            color_azul,
+            es_cantidad=True,
+        )
+        grafico_municipios = grafico_horizontal(
+            por_municipio,
+            "municipio_grafico",
+            "licitaciones",
+            "Municipio",
+            "Número de licitaciones",
+            "#4f46e5",
+            es_cantidad=True,
+        )
+        grafico_organos = grafico_horizontal(
+            por_organo,
+            "organo_grafico",
+            "licitaciones",
+            "Órgano de contratación",
+            "Número de licitaciones",
+            "#0284c7",
+            es_cantidad=True,
         )
         grafico_tramos = (
             alt.Chart(por_tramo)
             .mark_bar(color=color_naranja, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
             .encode(
                 x=alt.X("tramo_presupuesto:N", title=None, sort=tramos_presupuesto, axis=alt.Axis(labelAngle=-25)),
-                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
+                y=alt.Y(
+                    "licitaciones:Q",
+                    title="Número de licitaciones",
+                    axis=alt.Axis(format="d", tickMinStep=1),
+                ),
                 tooltip=[
                     alt.Tooltip("tramo_presupuesto:N", title="Tramo"),
-                    alt.Tooltip("licitaciones:Q", title="Licitaciones")
+                    alt.Tooltip(
+                        "licitaciones:Q", title="Licitaciones", format="d"
+                    )
                 ]
             )
             .properties(height=300)
@@ -1693,85 +1808,43 @@ else:
             .mark_bar(color=color_rojo, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
             .encode(
                 x=alt.X("plazo:N", title=None, sort=orden_vencimientos, axis=alt.Axis(labelAngle=-20)),
-                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
+                y=alt.Y(
+                    "licitaciones:Q",
+                    title="Número de licitaciones",
+                    axis=alt.Axis(format="d", tickMinStep=1),
+                ),
                 tooltip=[
                     alt.Tooltip("plazo:N", title="Vencimiento"),
-                    alt.Tooltip("licitaciones:Q", title="Licitaciones")
+                    alt.Tooltip(
+                        "licitaciones:Q", title="Licitaciones", format="d"
+                    )
                 ]
             )
             .properties(height=300)
         )
 
-        grafico_comunidades = (
-            alt.Chart(por_comunidad)
-            .mark_bar(color="#7c3aed", cornerRadiusEnd=4)
-            .encode(
-                x=alt.X("licitaciones:Q", title="Número de licitaciones"),
-                y=alt.Y(
-                    "comunidad_grafico:N",
-                    title=None,
-                    sort="-x",
-                    axis=alt.Axis(labelLimit=420, labelPadding=8),
-                ),
-                tooltip=[
-                    alt.Tooltip("comunidad_grafico:N", title="Comunidad autónoma"),
-                    alt.Tooltip("licitaciones:Q", title="Licitaciones")
-                ]
-            )
-            .properties(height=600)
-        )
-        grafico_presupuesto_organo = (
-            alt.Chart(presupuesto_organo)
-            .mark_bar(color="#0891b2", cornerRadiusEnd=4)
-            .encode(
-                x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
-                y=alt.Y(
-                    "organo_etiqueta:N",
-                    title=None,
-                    sort="-x",
-                    axis=alt.Axis(
-                        labelExpr="split(datum.label, '|')",
-                        labelLimit=480,
-                        labelLineHeight=14,
-                        labelOverlap=False,
-                        labelPadding=8,
-                    ),
-                ),
-                tooltip=[
-                    alt.Tooltip("organo_grafico:N", title="Órgano de contratación"),
-                    alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
-                ]
-            )
-            .properties(height=600)
-        )
-
-        with st.container(border=True):
-            st.markdown("#### Licitaciones por comunidad autónoma")
-            st.altair_chart(grafico_comunidades, use_container_width=True)
-
-        with st.container(border=True):
-            st.markdown("#### Presupuesto por órgano de contratación")
-            st.altair_chart(grafico_presupuesto_organo, use_container_width=True)
-
-        grafico_fila_1a, grafico_fila_1b = st.columns(2)
-        with grafico_fila_1a:
+        graficos_ordenados = [
+            (
+                "Presupuesto por comunidad autónoma",
+                grafico_presupuesto_comunidad,
+            ),
+            ("Presupuesto por provincia", grafico_presupuesto_provincia),
+            ("Presupuesto por municipio", grafico_presupuesto_municipio),
+            (
+                "Presupuesto por órgano de contratación",
+                grafico_presupuesto_organo,
+            ),
+            ("Licitaciones por comunidad autónoma", grafico_comunidades),
+            ("Licitaciones por provincia", grafico_provincias),
+            ("Licitaciones por municipio", grafico_municipios),
+            ("Licitaciones por órgano de contratación", grafico_organos),
+            ("Distribución de presupuesto", grafico_tramos),
+            ("Próximos vencimientos", grafico_vencimientos),
+        ]
+        for titulo_grafico, grafico in graficos_ordenados:
             with st.container(border=True):
-                st.markdown("#### Licitaciones por provincia")
-                st.altair_chart(grafico_provincias, use_container_width=True)
-        with grafico_fila_1b:
-            with st.container(border=True):
-                st.markdown("#### Presupuesto por provincia")
-                st.altair_chart(grafico_presupuesto_provincia, use_container_width=True)
-
-        grafico_fila_2a, grafico_fila_2b = st.columns(2)
-        with grafico_fila_2a:
-            with st.container(border=True):
-                st.markdown("#### Distribución por presupuesto")
-                st.altair_chart(grafico_tramos, use_container_width=True)
-        with grafico_fila_2b:
-            with st.container(border=True):
-                st.markdown("#### Próximos vencimientos")
-                st.altair_chart(grafico_vencimientos, use_container_width=True)
+                st.markdown(f"#### {titulo_grafico}")
+                st.altair_chart(grafico, use_container_width=True)
 
     elif vista_principal == "🗺️ Mapa":
         st.subheader("📍 Ubicación de las licitaciones")
@@ -1781,7 +1854,7 @@ else:
         )
         fuente_mapa = st.radio(
             "Datos que quieres mostrar:",
-            ["Histórico", "Últimas actualizaciones", "Combinado"],
+            ["Últimas actualizaciones", "Histórico", "Combinado"],
             horizontal=True,
             key="fuente_mapa",
         )
