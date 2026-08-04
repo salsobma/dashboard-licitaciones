@@ -867,11 +867,21 @@ else:
     etiqueta_cantidad = "Licitaciones filtradas"
     etiqueta_actualizacion = "Última actualización"
 
-ultima_act = (
-    df_indicadores["fecha_act_dt"].max()
-    if not df_indicadores.empty and "fecha_act_dt" in df_indicadores.columns
-    else pd.NaT
+indicadores_usan_feed = (
+    vista_principal == "⚡ Últimas actualizaciones"
+    or (
+        vista_principal in {"📊 Gráficos", "🗺️ Mapa"}
+        and fuente_indicadores == "Últimas actualizaciones"
+    )
 )
+if indicadores_usan_feed and fecha_feed_catalogo:
+    ultima_act = pd.to_datetime(fecha_feed_catalogo, errors="coerce", utc=True)
+else:
+    ultima_act = (
+        df_indicadores["fecha_act_dt"].max()
+        if not df_indicadores.empty and "fecha_act_dt" in df_indicadores.columns
+        else pd.NaT
+    )
 fecha_act_fmt = (
     ultima_act.strftime("%d/%m/%Y %H:%M")
     if pd.notnull(ultima_act) else "No disponible"
