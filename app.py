@@ -1,17 +1,22 @@
 import html
+# Revisión de despliegue: filtro del Radar protegido ante resultados vacíos.
 import streamlit as st
 import streamlit.components.v1 as components
 import altair as alt
 import sqlite3
+import xml.etree.ElementTree as ET
 import pandas as pd
 import json
 import pydeck as pdk
 import numpy as np
 import os
 import requests
+import textwrap
+import time
+import unicodedata
 from datetime import date
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from google import genai
 from google.genai import types
 
@@ -31,9 +36,7 @@ components.html("""
     const hostDocument = window.top.document;
     const assetBase = new URL("app/static/", window.top.location.origin + "/").toString();
     const ensureLink = (rel, href, extras = {}) => {
-        let element = rel === "manifest"
-            ? hostDocument.querySelector('link[rel="manifest"]')
-            : hostDocument.querySelector(`link[data-landai="${rel}"]`);
+        let element = rel === "manifest"\n            ? hostDocument.querySelector('link[rel="manifest"]')\n            : hostDocument.querySelector(`link[data-landai="${rel}"]`);
         if (!element) { element = hostDocument.createElement("link"); element.dataset.landai = rel; hostDocument.head.appendChild(element); }
         element.rel = rel; element.href = href;
         Object.entries(extras).forEach(([key, value]) => element.setAttribute(key, value));
@@ -259,7 +262,8 @@ MAPA_ESTADOS = {
     'EV':  ('En Evaluación', 'badge-ev'),
     'ADJ': ('Adjudicada', 'badge-adj'),
     'RES': ('Resuelta / Formalizada', 'badge-res'),
-    'ANUL': ('Anulada', 'badge-res')
+    'ANUL': ('Anulada', 'badge-res'),
+    'CERR': ('Cerrada / Archivada', 'badge-res'),
 }
 
 MAPA_TIPOS = {
@@ -288,12 +292,12 @@ def formato_eur(valor):
 
 def formato_fecha(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
-    return "No especificada" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
+    return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
 
 def texto_dias_restantes(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     if pd.isna(fecha):
-        return "Plazo no disponible"
+        return "Fecha límite no disponible en la plataforma"
     dias = (fecha.date() - date.today()).days
     if dias > 1:
         return f"Faltan {dias} días"
@@ -315,6 +319,589 @@ def texto_antiguedad(valor):
         return "Hace 1 día"
     return f"Hace {dias} días"
 
+def normalizar_estado_vigente(tabla):
+    """Conserva el estado ATOM y calcula el estado operativo por fecha límite."""
+    resultado = tabla.copy()
+    if resultado.empty or not {"estado", "fecha_limite"}.issubset(resultado.columns):
+        return resultado
+
+    resultado["estado_fuente"] = resultado["estado"]
+    texto_limite = resultado["fecha_limite"].fillna("").astype(str).str.strip()
+    limite_local = pd.to_datetime(texto_limite.str.slice(0, 19), errors="coerce")
+
+    # Si la fuente sólo facilita una fecha, el plazo vence al terminar ese día.
+    solo_fecha = texto_limite.str.fullmatch(r"\d{4}-\d{2}-\d{2}")
+    limite_local = limite_local.where(
+        ~solo_fecha,
+        limite_local + pd.Timedelta(days=1) - pd.Timedelta(seconds=1),
+    )
+    ahora_local = pd.Timestamp.now(tz="Europe/Madrid").tz_localize(None)
+    plazo_vencido = (
+        resultado["estado"].eq("PUB")
+        & limite_local.notna()
+        & limite_local.lt(ahora_local)
+    )
+    resultado.loc[plazo_vencido, "estado"] = "EV"
+    return resultado
+
+FEED_RECIENTE_URLS = (
+    (
+        "https://contrataciondelsectorpublico.gob.es/sindicacion/"
+        "sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom"
+    ),
+    (
+        "https://contrataciondelestado.es/sindicacion/"
+        "sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom"
+    ),
+)
+
+# La portada del feed es sólo la página más reciente. Se agregan también las
+# tres páginas enlazadas siguientes para no perder cambios cuando rota la portada.
+FEED_MAX_PAGINAS = 4
+
+FEED_RECIENTE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/138.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/atom+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+    "Referer": "https://contrataciondelsectorpublico.gob.es/datosabiertos",
+    "Cache-Control": "no-cache",
+}
+
+NAMESPACES_ATOM = {
+    "atom": "http://www.w3.org/2005/Atom",
+    "at": "http://purl.org/atompub/tombstones/1.0",
+    "cbc": "urn:dgpe:names:draft:codice:schema:xsd:CommonBasicComponents-2",
+    "cac": "urn:dgpe:names:draft:codice:schema:xsd:CommonAggregateComponents-2",
+    "cac-place-ext": "urn:dgpe:names:draft:codice-place-ext:schema:xsd:CommonAggregateComponents-2",
+    "cbc-place-ext": "urn:dgpe:names:draft:codice-place-ext:schema:xsd:CommonBasicComponents-2",
+}
+
+def _texto_xml(elemento, ruta):
+    if elemento is None:
+        return None
+    nodo = elemento.find(ruta, NAMESPACES_ATOM)
+    return nodo.text.strip() if nodo is not None and nodo.text else None
+
+@st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
+def _cargar_feed_reciente_portada_legacy():
+    respuesta = None
+    errores = []
+    for ronda in range(2):
+        for url_feed in FEED_RECIENTE_URLS:
+            try:
+                candidata = requests.get(
+                    url_feed,
+                    headers=FEED_RECIENTE_HEADERS,
+                    timeout=45,
+                )
+                candidata.raise_for_status()
+                inicio = candidata.content[:4096]
+                if b"Web Application Firewall" in inicio:
+                    raise RuntimeError(
+                        "el cortafuegos de la plataforma rechazó temporalmente la consulta"
+                    )
+                if b"<feed" not in inicio and b"<?xml" not in inicio:
+                    tipo = candidata.headers.get("content-type", "desconocido")
+                    raise RuntimeError(
+                        f"la plataforma no devolvió un feed XML ({tipo})"
+                    )
+                respuesta = candidata
+                break
+            except Exception as error:
+                errores.append(f"{url_feed}: {error}")
+        if respuesta is not None:
+            break
+        if ronda == 0:
+            time.sleep(2)
+
+    if respuesta is None:
+        detalle = errores[-1] if errores else "error desconocido"
+        raise RuntimeError(
+            "El feed oficial no está disponible temporalmente. "
+            f"Último intento: {detalle}"
+        )
+
+    raiz = ET.fromstring(respuesta.content)
+    if raiz.tag != f"{{{NAMESPACES_ATOM['atom']}}}feed":
+        raise RuntimeError("La respuesta oficial no contiene un feed ATOM válido.")
+    actualizado_feed = _texto_xml(raiz, "atom:updated")
+    filas = []
+
+    for entrada in raiz.findall("atom:entry", NAMESPACES_ATOM):
+        lic_id = _texto_xml(entrada, "atom:id")
+        enlace = entrada.find("atom:link", NAMESPACES_ATOM)
+        status = entrada.find("cac-place-ext:ContractFolderStatus", NAMESPACES_ATOM)
+        if status is None:
+            continue
+
+        party = status.find("cac-place-ext:LocatedContractingParty/cac:Party", NAMESPACES_ATOM)
+        proyecto = status.find("cac:ProcurementProject", NAMESPACES_ATOM)
+        if proyecto is None:
+            continue
+
+        def numero(ruta):
+            valor = _texto_xml(proyecto, ruta)
+            try:
+                return float(valor) if valor else None
+            except (TypeError, ValueError):
+                return None
+
+        codigo_postal = _texto_xml(proyecto, "cac:RealizedLocation/cac:Address/cbc:PostalZone")
+        municipio = _texto_xml(proyecto, "cac:RealizedLocation/cac:Address/cbc:CityName")
+        if not codigo_postal:
+            codigo_postal = _texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
+        if not municipio:
+            municipio = _texto_xml(party, "cac:PostalAddress/cbc:CityName")
+
+        cpvs = [
+            nodo.text.strip()
+            for nodo in proyecto.findall(
+                "cac:RequiredCommodityClassification/cbc:ItemClassificationCode",
+                NAMESPACES_ATOM,
+            )
+            if nodo.text
+        ]
+
+        fecha_limite = _texto_xml(
+            status,
+            "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndDate",
+        )
+        hora_limite = _texto_xml(
+            status,
+            "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndTime",
+        )
+        if fecha_limite and hora_limite:
+            fecha_limite = f"{fecha_limite} {hora_limite}"
+
+        documentos = []
+        referencias = [
+            ("PPT", "cac:TechnicalDocumentReference"),
+            ("PCAP", "cac:LegalDocumentReference"),
+        ]
+        for tipo_doc, etiqueta in referencias:
+            doc = status.find(etiqueta, NAMESPACES_ATOM)
+            if doc is not None:
+                uri = _texto_xml(doc, "cac:Attachment/cac:ExternalReference/cbc:URI")
+                if uri:
+                    documentos.append({
+                        "tipo": tipo_doc,
+                        "nombre": _texto_xml(doc, "cbc:ID") or tipo_doc,
+                        "url": uri,
+                    })
+        for doc in status.findall("cac:AdditionalDocumentReference", NAMESPACES_ATOM):
+            uri = _texto_xml(doc, "cac:Attachment/cac:ExternalReference/cbc:URI")
+            if uri:
+                documentos.append({
+                    "tipo": "ANEXO",
+                    "nombre": _texto_xml(doc, "cbc:ID") or "Anexo adicional",
+                    "url": uri,
+                })
+
+        filas.append({
+            "id": lic_id,
+            "id_licitacion_corta": lic_id.split("/")[-1] if lic_id else None,
+            "expediente": _texto_xml(status, "cbc:ContractFolderID"),
+            "titulo": _texto_xml(proyecto, "cbc:Name"),
+            "organo_contratante": _texto_xml(party, "cac:PartyName/cbc:Name"),
+            "tipo_contrato": _texto_xml(proyecto, "cbc:TypeCode"),
+            "estado": _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode"),
+            "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
+            "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
+            "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
+            "cpv": ",".join(cpvs),
+            "codigo_postal": codigo_postal,
+            "municipio": municipio,
+            "provincia": _texto_xml(
+                proyecto, "cac:RealizedLocation/cbc:CountrySubentity"
+            ),
+            "comunidad_autonoma": None,
+            "latitud": None,
+            "longitud": None,
+            "fecha_limite": fecha_limite,
+            "fecha_actualizacion": _texto_xml(entrada, "atom:updated"),
+            "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
+            "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
+            "resumen_ia": None,
+        })
+
+    radar = pd.DataFrame(filas)
+    if not radar.empty:
+        radar = radar.drop_duplicates(subset=["id"], keep="first")
+        radar["fecha_limite_dt"] = pd.to_datetime(
+            radar["fecha_limite"].astype(str).str.slice(0, 10),
+            errors="coerce",
+            utc=True,
+        )
+        radar["fecha_act_dt"] = pd.to_datetime(
+            radar["fecha_actualizacion"], errors="coerce", utc=True
+        )
+        radar["tipo_contrato_desc"] = (
+            radar["tipo_contrato"].map(MAPA_TIPOS).fillna("Otros")
+        )
+    return radar, actualizado_feed
+
+def _variantes_url_feed(url_feed):
+    variantes = [url_feed]
+    dominios = (
+        "contrataciondelsectorpublico.gob.es",
+        "contrataciondelestado.es",
+    )
+    for origen in dominios:
+        if origen in url_feed:
+            for destino in dominios:
+                candidata = url_feed.replace(origen, destino)
+                if candidata not in variantes:
+                    variantes.append(candidata)
+    return variantes
+
+def _descargar_pagina_feed(url_feed):
+    errores = []
+    for ronda in range(2):
+        for candidata_url in _variantes_url_feed(url_feed):
+            try:
+                respuesta = requests.get(
+                    candidata_url,
+                    headers=FEED_RECIENTE_HEADERS,
+                    timeout=45,
+                )
+                respuesta.raise_for_status()
+                inicio = respuesta.content[:4096]
+                if b"Web Application Firewall" in inicio:
+                    raise RuntimeError(
+                        "el cortafuegos de la plataforma rechazó temporalmente la consulta"
+                    )
+                if b"<feed" not in inicio and b"<?xml" not in inicio:
+                    tipo = respuesta.headers.get("content-type", "desconocido")
+                    raise RuntimeError(
+                        f"la plataforma no devolvió un feed XML ({tipo})"
+                    )
+                raiz = ET.fromstring(respuesta.content)
+                if raiz.tag != f"{{{NAMESPACES_ATOM['atom']}}}feed":
+                    raise RuntimeError("la respuesta no contiene un feed ATOM válido")
+                return raiz, candidata_url
+            except Exception as error:
+                errores.append(f"{candidata_url}: {error}")
+        if ronda == 0:
+            time.sleep(2)
+    detalle = errores[-1] if errores else "error desconocido"
+    raise RuntimeError(
+        "El feed oficial no está disponible temporalmente. "
+        f"Último intento: {detalle}"
+    )
+
+def _fila_desde_entrada_feed(entrada):
+    lic_id = _texto_xml(entrada, "atom:id")
+    enlace = entrada.find("atom:link", NAMESPACES_ATOM)
+    status = entrada.find("cac-place-ext:ContractFolderStatus", NAMESPACES_ATOM)
+    if status is None:
+        return None
+
+    party = status.find(
+        "cac-place-ext:LocatedContractingParty/cac:Party", NAMESPACES_ATOM
+    )
+    proyecto = status.find("cac:ProcurementProject", NAMESPACES_ATOM)
+    if proyecto is None:
+        return None
+
+    def numero(ruta):
+        valor = _texto_xml(proyecto, ruta)
+        try:
+            return float(valor) if valor else None
+        except (TypeError, ValueError):
+            return None
+
+    codigo_postal = _texto_xml(
+        proyecto, "cac:RealizedLocation/cac:Address/cbc:PostalZone"
+    )
+    municipio = _texto_xml(
+        proyecto, "cac:RealizedLocation/cac:Address/cbc:CityName"
+    )
+    if not codigo_postal:
+        codigo_postal = _texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
+    if not municipio:
+        municipio = _texto_xml(party, "cac:PostalAddress/cbc:CityName")
+
+    cpvs = [
+        nodo.text.strip()
+        for nodo in proyecto.findall(
+            "cac:RequiredCommodityClassification/cbc:ItemClassificationCode",
+            NAMESPACES_ATOM,
+        )
+        if nodo.text
+    ]
+    fecha_limite = _texto_xml(
+        status,
+        "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndDate",
+    )
+    hora_limite = _texto_xml(
+        status,
+        "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndTime",
+    )
+    if fecha_limite and hora_limite:
+        fecha_limite = f"{fecha_limite} {hora_limite}"
+
+    documentos = []
+    referencias = (
+        ("PPT", "cac:TechnicalDocumentReference"),
+        ("PCAP", "cac:LegalDocumentReference"),
+    )
+    for tipo_doc, etiqueta in referencias:
+        doc = status.find(etiqueta, NAMESPACES_ATOM)
+        if doc is not None:
+            uri = _texto_xml(doc, "cac:Attachment/cac:ExternalReference/cbc:URI")
+            if uri:
+                documentos.append({
+                    "tipo": tipo_doc,
+                    "nombre": _texto_xml(doc, "cbc:ID") or tipo_doc,
+                    "url": uri,
+                })
+    for doc in status.findall("cac:AdditionalDocumentReference", NAMESPACES_ATOM):
+        uri = _texto_xml(doc, "cac:Attachment/cac:ExternalReference/cbc:URI")
+        if uri:
+            documentos.append({
+                "tipo": "ANEXO",
+                "nombre": _texto_xml(doc, "cbc:ID") or "Anexo adicional",
+                "url": uri,
+            })
+
+    return {
+        "id": lic_id,
+        "id_licitacion_corta": lic_id.split("/")[-1] if lic_id else None,
+        "expediente": _texto_xml(status, "cbc:ContractFolderID"),
+        "titulo": _texto_xml(proyecto, "cbc:Name"),
+        "organo_contratante": _texto_xml(party, "cac:PartyName/cbc:Name"),
+        "tipo_contrato": _texto_xml(proyecto, "cbc:TypeCode"),
+        "estado": _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode"),
+        "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
+        "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
+        "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
+        "cpv": ",".join(cpvs),
+        "codigo_postal": codigo_postal,
+        "municipio": municipio,
+        "provincia": _texto_xml(
+            proyecto, "cac:RealizedLocation/cbc:CountrySubentity"
+        ),
+        "comunidad_autonoma": None,
+        "latitud": None,
+        "longitud": None,
+        "fecha_limite": fecha_limite,
+        "fecha_actualizacion": _texto_xml(entrada, "atom:updated"),
+        "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
+        "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
+        "resumen_ia": None,
+    }
+
+def _bajas_desde_pagina_feed(raiz):
+    bajas = []
+    for eliminada in raiz.findall("at:deleted-entry", NAMESPACES_ATOM):
+        lic_id = eliminada.attrib.get("ref")
+        fecha = eliminada.attrib.get("when")
+        comentario = " ".join(
+            texto.strip()
+            for texto in eliminada.itertext()
+            if texto and texto.strip()
+        )
+        tipo = eliminada.attrib.get("type", "")
+        detalle = f"{tipo} {comentario}".upper()
+        estado = "ANUL" if "ANUL" in detalle else "CERR"
+        bajas.append({
+            "id": lic_id,
+            "fecha_actualizacion": fecha,
+            "estado": estado,
+        })
+    return bajas
+
+@st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
+def cargar_feed_reciente():
+    filas = []
+    bajas = []
+    visitadas = set()
+    siguiente = FEED_RECIENTE_URLS[0]
+    actualizado_feed = None
+    paginas_leidas = 0
+    parcial = False
+
+    while siguiente and paginas_leidas < FEED_MAX_PAGINAS:
+        if siguiente in visitadas:
+            break
+        visitadas.add(siguiente)
+        try:
+            raiz, url_real = _descargar_pagina_feed(siguiente)
+        except Exception:
+            if paginas_leidas == 0:
+                raise
+            parcial = True
+            break
+
+        paginas_leidas += 1
+        if actualizado_feed is None:
+            actualizado_feed = _texto_xml(raiz, "atom:updated")
+
+        for entrada in raiz.findall("atom:entry", NAMESPACES_ATOM):
+            fila = _fila_desde_entrada_feed(entrada)
+            if fila:
+                filas.append(fila)
+        bajas.extend(_bajas_desde_pagina_feed(raiz))
+
+        enlace_siguiente = raiz.find("atom:link[@rel='next']", NAMESPACES_ATOM)
+        href = enlace_siguiente.attrib.get("href") if enlace_siguiente is not None else None
+        siguiente = urljoin(url_real, href) if href else None
+
+    radar = pd.DataFrame(filas)
+    if not radar.empty:
+        radar["fecha_limite_dt"] = pd.to_datetime(
+            radar["fecha_limite"].astype(str).str.slice(0, 10),
+            errors="coerce",
+            utc=True,
+        )
+        radar["fecha_act_dt"] = pd.to_datetime(
+            radar["fecha_actualizacion"], errors="coerce", utc=True
+        )
+        radar = (
+            radar.sort_values("fecha_act_dt", ascending=False, na_position="last")
+            .drop_duplicates(subset=["id"], keep="first")
+        )
+        radar["tipo_contrato_desc"] = (
+            radar["tipo_contrato"].map(MAPA_TIPOS).fillna("Otros")
+        )
+        radar = normalizar_estado_vigente(radar)
+
+    bajas_df = pd.DataFrame(bajas)
+    if not bajas_df.empty:
+        bajas_df["fecha_act_dt"] = pd.to_datetime(
+            bajas_df["fecha_actualizacion"], errors="coerce", utc=True
+        )
+        bajas_df = (
+            bajas_df.sort_values("fecha_act_dt", ascending=False, na_position="last")
+            .drop_duplicates(subset=["id"], keep="first")
+        )
+
+    metadata = {
+        "paginas": paginas_leidas,
+        "bajas": len(bajas_df),
+        "parcial": parcial,
+    }
+    return radar, actualizado_feed, bajas_df, metadata
+
+def _clave_ubicacion(valor):
+    if valor is None or pd.isna(valor):
+        return ""
+    texto = unicodedata.normalize("NFKD", str(valor))
+    return "".join(
+        caracter for caracter in texto if not unicodedata.combining(caracter)
+    ).strip().lower()
+
+def _codigo_postal_normalizado(valor):
+    if valor is None or pd.isna(valor):
+        return ""
+    texto = str(valor).strip().split(".")[0]
+    digitos = "".join(caracter for caracter in texto if caracter.isdigit())
+    return digitos.zfill(5) if digitos else ""
+
+@st.cache_data(ttl=3600)
+def cargar_maestro_ubicaciones():
+    maestro = pd.read_excel(
+        "provincias.xlsx",
+        sheet_name="municipios datos",
+        dtype={"codigo_postal": str},
+    )
+    maestro["cp_clave"] = maestro["codigo_postal"].apply(
+        _codigo_postal_normalizado
+    )
+    maestro["municipio_clave"] = maestro["nucleo_nombre"].apply(
+        _clave_ubicacion
+    )
+    maestro = maestro.dropna(subset=["Latitud", "Longitud"])
+    por_cp = (
+        maestro.drop_duplicates(subset=["cp_clave"])
+        .set_index("cp_clave")
+    )
+    municipios_unicos = maestro[
+        ~maestro["municipio_clave"].duplicated(keep=False)
+    ]
+    por_municipio = municipios_unicos.set_index("municipio_clave")
+    return por_cp, por_municipio
+
+def completar_ubicaciones_feed(df_feed):
+    if df_feed.empty:
+        return df_feed
+    enriquecido = df_feed.copy()
+    enriquecido["origen_coordenadas"] = None
+    try:
+        por_cp, por_municipio = cargar_maestro_ubicaciones()
+    except Exception:
+        return enriquecido
+
+    correspondencias = {
+        "municipio": "nucleo_nombre",
+        "provincia": "PROVINCIA",
+        "comunidad_autonoma": "COMUNIDAD",
+        "latitud": "Latitud",
+        "longitud": "Longitud",
+    }
+    for indice, fila in enriquecido.iterrows():
+        cp = _codigo_postal_normalizado(fila.get("codigo_postal"))
+        referencia = None
+        origen = None
+        if cp and cp in por_cp.index:
+            referencia = por_cp.loc[cp]
+            origen = "Código postal"
+        else:
+            municipio = _clave_ubicacion(fila.get("municipio"))
+            if municipio and municipio in por_municipio.index:
+                referencia = por_municipio.loc[municipio]
+                origen = "Municipio"
+
+        if referencia is not None:
+            for destino, fuente in correspondencias.items():
+                enriquecido.at[indice, destino] = referencia[fuente]
+            enriquecido.at[indice, "origen_coordenadas"] = origen
+    return enriquecido
+
+def incorporar_bajas_feed(df_feed, bajas_feed, historico):
+    if bajas_feed.empty:
+        return df_feed
+
+    fuentes = pd.concat([df_feed, historico], ignore_index=True, sort=False)
+    fuentes = fuentes.dropna(subset=["id"]).drop_duplicates(subset=["id"], keep="first")
+    por_id = fuentes.set_index(fuentes["id"].astype(str), drop=False)
+    filas = []
+
+    for _, baja in bajas_feed.iterrows():
+        lic_id = str(baja.get("id") or "").strip()
+        if not lic_id:
+            continue
+        if lic_id in por_id.index:
+            fila = por_id.loc[lic_id].copy()
+            if isinstance(fila, pd.DataFrame):
+                fila = fila.iloc[0].copy()
+        else:
+            fila = pd.Series({columna: None for columna in fuentes.columns})
+            fila["id"] = lic_id
+            fila["id_licitacion_corta"] = lic_id.split("/")[-1]
+            fila["titulo"] = "Expediente retirado de la plataforma"
+            fila["documentos_adjuntos"] = "[]"
+            fila["tipo_contrato_desc"] = "Otros"
+
+        fila["estado_fuente"] = baja["estado"]
+        fila["estado"] = baja["estado"]
+        fila["fecha_actualizacion"] = baja["fecha_actualizacion"]
+        fila["fecha_act_dt"] = baja["fecha_act_dt"]
+        fila["movimiento"] = "Actualizada"
+        filas.append(fila.to_dict())
+
+    if not filas:
+        return df_feed
+    resultado = pd.concat([df_feed, pd.DataFrame(filas)], ignore_index=True, sort=False)
+    return (
+        resultado.sort_values("fecha_act_dt", ascending=False, na_position="last")
+        .drop_duplicates(subset=["id"], keep="first")
+    )
+
 @st.cache_data(ttl=300, show_spinner="Cargando licitaciones…")
 def cargar_datos(db_mtime):
     del db_mtime
@@ -322,10 +909,10 @@ def cargar_datos(db_mtime):
     with sqlite3.connect(uri, uri=True, timeout=10) as conn:
         df = pd.read_sql_query("SELECT * FROM licitaciones", conn)
 
-    df['fecha_limite_dt'] = pd.to_datetime(df['fecha_limite'].str.slice(0, 10), errors='coerce', utc=True)
+    df['fecha_limite_dt'] = pd.to_datetime(df['fecha_limite'].astype(str).str.slice(0, 10), errors='coerce', utc=True)
     df['fecha_act_dt'] = pd.to_datetime(df['fecha_actualizacion'], errors='coerce', utc=True)
     df['tipo_contrato_desc'] = df['tipo_contrato'].map(MAPA_TIPOS).fillna('Otros')
-    return df
+    return normalizar_estado_vigente(df)
 
 try:
     df = cargar_datos(os.path.getmtime(DB_PATH))
@@ -333,10 +920,31 @@ except Exception as e:
     st.error(f"❌ No se pudo conectar a la base de datos en {DB_PATH}. Error: {e}")
     st.stop()
 
-max_pbl_value = df['pbl_sin_iva'].max()
+try:
+    (
+        df_radar_catalogo,
+        fecha_feed_catalogo,
+        df_bajas_catalogo,
+        metadata_feed_catalogo,
+    ) = cargar_feed_reciente()
+    df_radar_catalogo = completar_ubicaciones_feed(df_radar_catalogo)
+    df_radar_catalogo = incorporar_bajas_feed(
+        df_radar_catalogo, df_bajas_catalogo, df
+    )
+    error_feed_catalogo = None
+except Exception as error_feed_inicial:
+    df_radar_catalogo = pd.DataFrame(columns=df.columns)
+    fecha_feed_catalogo = None
+    metadata_feed_catalogo = {"paginas": 0, "bajas": 0, "parcial": False}
+    error_feed_catalogo = str(error_feed_inicial)
+
+df_catalogo_filtros = pd.concat(
+    [df, df_radar_catalogo], ignore_index=True, sort=False
+)
+max_pbl_value = df_catalogo_filtros['pbl_sin_iva'].max()
 max_pbl_db = float(max_pbl_value) if pd.notnull(max_pbl_value) and max_pbl_value > 0 else 200000.0
 
-fechas_validas = df['fecha_limite_dt'].dropna()
+fechas_validas = df_catalogo_filtros['fecha_limite_dt'].dropna()
 f_min_db = fechas_validas.min().date() if not fechas_validas.empty else date.today()
 f_max_db = fechas_validas.max().date() if not fechas_validas.empty else date.today()
 hoy = date.today()
@@ -350,6 +958,8 @@ if "f_pbl_max" not in st.session_state:
     st.session_state["f_pbl_max"] = 200000.0
 if "f_fecha" not in st.session_state:
     st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
+if "f_sin_fecha" not in st.session_state:
+    st.session_state["f_sin_fecha"] = True
 
 st.sidebar.title("🎛️ Filtros Avanzados")
 
@@ -364,6 +974,7 @@ if st.sidebar.button("🗑️ Quitar filtros", use_container_width=True):
     st.session_state["f_pbl_min"] = 0.0
     st.session_state["f_pbl_max"] = max_pbl_db
     st.session_state["f_fecha"] = (f_min_db, f_max_db)
+    st.session_state["f_sin_fecha"] = True
     st.session_state["f_organo"] = []
     st.rerun()
 
@@ -378,27 +989,28 @@ if st.sidebar.button("↩️ Filtros iniciales", use_container_width=True):
     st.session_state["f_pbl_min"] = 0.0
     st.session_state["f_pbl_max"] = 200000.0
     st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
+    st.session_state["f_sin_fecha"] = True
     st.session_state["f_organo"] = []
     st.rerun()
 
 st.sidebar.divider()
 
 busqueda_texto = st.sidebar.text_input("🔍 Palabras clave (título, expediente...):", key="f_texto")
-tipos_list = sorted([x for x in df['tipo_contrato_desc'].unique() if x])
+tipos_list = sorted([x for x in df_catalogo_filtros['tipo_contrato_desc'].dropna().unique() if x])
 tipo_sel = st.sidebar.multiselect("📦 Tipo de Contrato:", tipos_list, key="f_tipo")
 cpv_2dig = st.sidebar.text_input("🏷️ CPV (2 dígitos):", max_chars=2, key="f_cpv")
 
-estados_unicos = df['estado'].dropna().unique().tolist()
+estados_unicos = df_catalogo_filtros['estado'].dropna().unique().tolist()
 opciones_estado = {c: MAPA_ESTADOS.get(c, (c, ''))[0] for c in estados_unicos}
 estados_sel = st.sidebar.multiselect("📌 Estado:", list(opciones_estado.keys()), format_func=lambda x: opciones_estado[x], key="f_estado")
 
-ccaa_list = sorted([x for x in df['comunidad_autonoma'].dropna().unique() if x])
+ccaa_list = sorted([x for x in df_catalogo_filtros['comunidad_autonoma'].dropna().unique() if x])
 ccaa_sel = st.sidebar.multiselect("🗺️ Comunidad Autónoma:", ccaa_list, key="f_ccaa")
 
-prov_list = sorted([x for x in df[df['comunidad_autonoma'].isin(ccaa_sel)]['provincia'].dropna().unique() if x]) if ccaa_sel else sorted([x for x in df['provincia'].dropna().unique() if x])
+prov_list = sorted([x for x in df_catalogo_filtros[df_catalogo_filtros['comunidad_autonoma'].isin(ccaa_sel)]['provincia'].dropna().unique() if x]) if ccaa_sel else sorted([x for x in df_catalogo_filtros['provincia'].dropna().unique() if x])
 prov_sel = st.sidebar.multiselect("📍 Provincia:", prov_list, key="f_prov")
 
-muni_list = sorted([x for x in df[df['provincia'].isin(prov_sel)]['municipio'].dropna().unique() if x]) if prov_sel else sorted([x for x in df['municipio'].dropna().unique() if x])
+muni_list = sorted([x for x in df_catalogo_filtros[df_catalogo_filtros['provincia'].isin(prov_sel)]['municipio'].dropna().unique() if x]) if prov_sel else sorted([x for x in df_catalogo_filtros['municipio'].dropna().unique() if x])
 muni_sel = st.sidebar.multiselect("🏙️ Municipio:", muni_list, key="f_muni")
 
 st.sidebar.markdown("💶 **Presupuesto Base sin IVA (€):**")
@@ -409,8 +1021,12 @@ if not fechas_validas.empty:
     fecha_rango = st.sidebar.date_input("📅 Fecha Límite Presentación:", min_value=f_min_db, max_value=f_max_db, key="f_fecha")
 else:
     fecha_rango = None
+incluir_sin_fecha = st.sidebar.checkbox(
+    "Mostrar también las que no indican fecha límite",
+    key="f_sin_fecha",
+)
 
-organos = sorted([x for x in df['organo_contratante'].dropna().unique() if x])
+organos = sorted([x for x in df_catalogo_filtros['organo_contratante'].dropna().unique() if x])
 organo_sel = st.sidebar.multiselect("🏛️ Órgano de Contratación:", organos, key="f_organo")
 
 df_f = df.copy()
@@ -424,7 +1040,13 @@ if tipo_sel: df_f = df_f[df_f['tipo_contrato_desc'].isin(tipo_sel)]
 df_f = df_f[(df_f['pbl_sin_iva'] >= pbl_min_val) & (df_f['pbl_sin_iva'] <= pbl_max_val)]
 
 if fecha_rango and len(fecha_rango) == 2:
-    df_f = df_f[(df_f['fecha_limite_dt'].dt.date >= fecha_rango[0]) & (df_f['fecha_limite_dt'].dt.date <= fecha_rango[1])]
+    dentro_del_rango = (
+        (df_f['fecha_limite_dt'].dt.date >= fecha_rango[0])
+        & (df_f['fecha_limite_dt'].dt.date <= fecha_rango[1])
+    )
+    if incluir_sin_fecha:
+        dentro_del_rango = dentro_del_rango | df_f['fecha_limite_dt'].isna()
+    df_f = df_f[dentro_del_rango]
 
 if ccaa_sel: df_f = df_f[df_f['comunidad_autonoma'].isin(ccaa_sel)]
 if prov_sel: df_f = df_f[df_f['provincia'].isin(prov_sel)]
@@ -434,6 +1056,84 @@ if organo_sel: df_f = df_f[df_f['organo_contratante'].isin(organo_sel)]
 if cpv_2dig.strip():
     prefijo = cpv_2dig.strip()
     df_f = df_f[df_f['cpv'].apply(lambda x: any(c.strip().startswith(prefijo) for c in str(x).split(',')) if x else False)]
+
+def aplicar_filtros_al_feed(df_entrada):
+    filtrado = df_entrada.copy()
+    if filtrado.empty:
+        return filtrado
+    historico_ids = set(df["id"].dropna().astype(str))
+    filtrado["movimiento"] = filtrado.apply(
+        lambda fila: (
+            "Actualizada"
+            if fila.get("estado") in {"ANUL", "CERR"}
+            or str(fila.get("id")) in historico_ids
+            else "Nueva licitación"
+        ),
+        axis=1,
+    )
+    if busqueda_texto.strip():
+        consulta = busqueda_texto.lower().strip()
+        filtrado = filtrado[
+            filtrado["titulo"].str.lower().str.contains(
+                consulta, na=False, regex=False
+            )
+            | filtrado["expediente"].str.lower().str.contains(
+                consulta, na=False, regex=False
+            )
+            | filtrado["organo_contratante"].str.lower().str.contains(
+                consulta, na=False, regex=False
+            )
+        ]
+    if estados_sel:
+        filtrado = filtrado[filtrado["estado"].isin(estados_sel)]
+    if tipo_sel:
+        filtrado = filtrado[filtrado["tipo_contrato_desc"].isin(tipo_sel)]
+    filtrado = filtrado[
+        (filtrado["pbl_sin_iva"].fillna(0) >= pbl_min_val)
+        & (filtrado["pbl_sin_iva"].fillna(0) <= pbl_max_val)
+    ]
+    if fecha_rango and len(fecha_rango) == 2:
+        dentro_del_rango = (
+            (filtrado["fecha_limite_dt"].dt.date >= fecha_rango[0])
+            & (filtrado["fecha_limite_dt"].dt.date <= fecha_rango[1])
+        )
+        if incluir_sin_fecha:
+            dentro_del_rango = dentro_del_rango | filtrado["fecha_limite_dt"].isna()
+        filtrado = filtrado[dentro_del_rango]
+    if ccaa_sel:
+        filtrado = filtrado[
+            filtrado["comunidad_autonoma"].isin(ccaa_sel)
+        ]
+    if prov_sel:
+        filtrado = filtrado[filtrado["provincia"].isin(prov_sel)]
+    if muni_sel:
+        filtrado = filtrado[filtrado["municipio"].isin(muni_sel)]
+    if organo_sel:
+        filtrado = filtrado[
+            filtrado["organo_contratante"].isin(organo_sel)
+        ]
+    if cpv_2dig.strip():
+        prefijo_feed = cpv_2dig.strip()
+        filtrado = filtrado[
+            filtrado["cpv"].apply(
+                lambda valor: any(
+                    codigo.strip().startswith(prefijo_feed)
+                    for codigo in str(valor).split(",")
+                ) if valor else False
+            )
+        ]
+    if filtrado.empty or "fecha_act_dt" not in filtrado.columns:
+        return filtrado
+    return filtrado.sort_values(
+        "fecha_act_dt", ascending=False, na_position="last"
+    )
+
+df_radar_filtrado = aplicar_filtros_al_feed(df_radar_catalogo)
+df_combinado = pd.concat(
+    [df_f, df_radar_filtrado], ignore_index=True, sort=False
+)
+if "id" in df_combinado.columns:
+    df_combinado = df_combinado.drop_duplicates(subset=["id"], keep="last")
 
 st.title("🏛️ LandAI Licitaciones")
 st.caption("Dashboard de oportunidades y análisis para proyectos de ingeniería civil.")
@@ -464,21 +1164,97 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-ultima_act = df['fecha_act_dt'].max()
-fecha_act_fmt = ultima_act.strftime("%d/%m/%Y %H:%M") if pd.notnull(ultima_act) else "No disponible"
-volumen_total = df_f['pbl_sin_iva'].sum() if not df_f.empty and 'pbl_sin_iva' in df_f.columns else 0.0
-presupuesto_medio = df_f['pbl_sin_iva'].mean() if not df_f.empty and len(df_f) > 0 and 'pbl_sin_iva' in df_f.columns else 0.0
+opciones_vista = [
+    "⚡ Últimas actualizaciones",
+    "🗂️ Histórico",
+    "📊 Gráficos",
+    "🗺️ Mapa",
+]
+vista_principal = st.segmented_control(
+    "Vista del dashboard",
+    opciones_vista,
+    default="⚡ Últimas actualizaciones",
+    selection_mode="single",
+    key="vista_principal",
+    label_visibility="collapsed",
+)
+if vista_principal is None:
+    vista_principal = "⚡ Últimas actualizaciones"
+
+if vista_principal == "⚡ Últimas actualizaciones":
+    df_indicadores = df_radar_filtrado
+    etiqueta_cantidad = "Actualizaciones filtradas"
+    etiqueta_actualizacion = "Última actualización feed"
+elif vista_principal == "🗂️ Histórico":
+    df_indicadores = df_f
+    etiqueta_cantidad = "Licitaciones filtradas"
+    etiqueta_actualizacion = "Última actualización BD"
+elif vista_principal == "📊 Gráficos":
+    fuente_indicadores = st.session_state.get(
+        "fuente_graficos", "Histórico"
+    )
+    if fuente_indicadores == "Últimas actualizaciones":
+        df_indicadores = df_radar_filtrado
+    elif fuente_indicadores == "Combinado":
+        df_indicadores = df_combinado
+    else:
+        df_indicadores = df_f
+    etiqueta_cantidad = "Licitaciones filtradas"
+    etiqueta_actualizacion = "Última actualización"
+else:
+    fuente_indicadores = st.session_state.get("fuente_mapa", "Histórico")
+    if fuente_indicadores == "Últimas actualizaciones":
+        df_indicadores = df_radar_filtrado
+    elif fuente_indicadores == "Combinado":
+        df_indicadores = df_combinado
+    else:
+        df_indicadores = df_f
+    etiqueta_cantidad = "Licitaciones filtradas"
+    etiqueta_actualizacion = "Última actualización"
+
+indicadores_usan_feed = (
+    vista_principal == "⚡ Últimas actualizaciones"
+    or (
+        vista_principal in {"📊 Gráficos", "🗺️ Mapa"}
+        and fuente_indicadores == "Últimas actualizaciones"
+    )
+)
+if indicadores_usan_feed and fecha_feed_catalogo:
+    ultima_act = pd.to_datetime(fecha_feed_catalogo, errors="coerce", utc=True)
+    if pd.notnull(ultima_act):
+        ultima_act = ultima_act.tz_convert("Europe/Madrid")
+else:
+    ultima_act = (
+        df_indicadores["fecha_act_dt"].max()
+        if not df_indicadores.empty and "fecha_act_dt" in df_indicadores.columns
+        else pd.NaT
+    )
+fecha_act_fmt = (
+    ultima_act.strftime("%d/%m/%Y %H:%M")
+    if pd.notnull(ultima_act) else "No disponible"
+)
+volumen_total = (
+    pd.to_numeric(df_indicadores["pbl_sin_iva"], errors="coerce").fillna(0).sum()
+    if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
+    else 0.0
+)
+presupuesto_medio = (
+    pd.to_numeric(
+        df_indicadores["pbl_sin_iva"], errors="coerce"
+    ).dropna().mean()
+    if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
+    else 0.0
+)
 
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-
 with kpi1:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{len(df_f)}</div><div class="metric-lbl-grid">Licitaciones Filtradas</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{len(df_indicadores)}</div><div class="metric-lbl-grid">{etiqueta_cantidad}</div></div>', unsafe_allow_html=True)
 with kpi2:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(volumen_total)}</div><div class="metric-lbl-grid">Volumen Total (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi3:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_medio)}</div><div class="metric-lbl-grid">Presupuesto Medio (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi4:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">Última Actualización BD</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_antiguedad(ultima_act)}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">{etiqueta_actualizacion}</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_antiguedad(ultima_act)}</div></div>', unsafe_allow_html=True)
 
 filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
@@ -492,6 +1268,8 @@ if pbl_min_val > 0 or pbl_max_val < max_pbl_db:
     filtros_activos.append(f'Presupuesto: {formato_eur(pbl_min_val)} – {formato_eur(pbl_max_val)}')
 if fecha_rango and len(fecha_rango) == 2:
     filtros_activos.append(f'Fecha límite: {fecha_rango[0].strftime("%d/%m/%Y")} – {fecha_rango[1].strftime("%d/%m/%Y")}')
+if not incluir_sin_fecha:
+    filtros_activos.append('Sin fecha límite: excluidas')
 if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
 
 resumen_filtros = ' · '.join(filtros_activos) if filtros_activos else 'Ninguno'
@@ -512,6 +1290,13 @@ def render_grid_tarjetas(df_vista, key_prefix):
             st_txt = texto_seguro(st_txt, "Estado desconocido")
             url_oficial = url_externa_segura(r.get("url_licitacion"))
             link_html = f'<a href="{html.escape(url_oficial, quote=True)}" target="_blank" rel="noopener noreferrer" class="external-link-btn" title="Ver ficha en la Plataforma">🔗</a>' if url_oficial else ''
+            movimiento = r.get("movimiento")
+            if movimiento == "Nueva licitación":
+                movimiento_html = '<span title="Nueva licitación" aria-label="Nueva licitación" style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#22c55e;border:2px solid #dcfce7;margin:auto 4px;"></span>'
+            elif movimiento == "Actualizada":
+                movimiento_html = '<span title="Licitación actualizada" aria-label="Licitación actualizada" style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#3b82f6;border:2px solid #dbeafe;margin:auto 4px;"></span>'
+            else:
+                movimiento_html = ""
 
             muni = r.get('municipio')
             prov = r.get('provincia')
@@ -531,7 +1316,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                     st.markdown(f"""
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                         <span class="{badge_cls}">{st_txt}</span>
-                        <div style="display: flex; gap: 4px;">{link_html} {maps_html}</div>
+                        <div style="display: flex; align-items:center; gap: 4px;">{movimiento_html} {link_html} {maps_html}</div>
                     </div>
                     <h5 style="margin: 10px 0 6px 0; color: #1a252c; line-height: 1.35; font-size: 0.95rem; min-height: 2.7em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
                         {titulo_safe}
@@ -609,21 +1394,160 @@ def render_grid_tarjetas(df_vista, key_prefix):
 
 
 
-if df_f.empty:
+if df_f.empty and df_radar_catalogo.empty:
     st.warning("⚠️ No se ha encontrado ninguna licitación que coincida con los filtros aplicados. Prueba a relajar los criterios de búsqueda.")
 else:
     st.write("")
-    tab_tarjetas, tab_graficos, tab_mapa = st.tabs([
-        "🗂️ Vista Tarjetas",
-        "📊 Gráficos",
-        "🗺️ Mapa"
-    ])
 
-    with tab_graficos:
+    if vista_principal == "⚡ Últimas actualizaciones":
+        st.subheader("⚡ Radar de actualizaciones")
+        st.caption(
+            "Cambios publicados recientemente en el feed oficial de la Plataforma de "
+            "Contratación del Sector Público. Se consulta al abrir el dashboard y la "
+            "consulta se renueva como máximo cada 15 minutos."
+        )
+        try:
+            if error_feed_catalogo:
+                raise RuntimeError(error_feed_catalogo)
+            df_radar = df_radar_filtrado.copy()
+            fecha_feed = fecha_feed_catalogo
+
+            if not df_radar_catalogo.empty:
+                fecha_feed_fmt = formato_fecha(fecha_feed)
+                nuevas = int((df_radar["movimiento"] == "Nueva licitación").sum())
+                actualizadas = int((df_radar["movimiento"] == "Actualizada").sum())
+                st.markdown(
+                    f"**{len(df_radar)} resultados con los filtros actuales** · "
+                    f"🟢 {nuevas} nuevas · 🔵 {actualizadas} actualizadas · "
+                    f"{metadata_feed_catalogo['paginas']} páginas oficiales · "
+                    f"{metadata_feed_catalogo['bajas']} cierres/anulaciones · "
+                    f"Feed oficial: {fecha_feed_fmt}"
+                )
+                if metadata_feed_catalogo["parcial"]:
+                    st.warning(
+                        "La portada del feed está disponible, pero alguna página anterior "
+                        "no respondió. Se muestran los cambios que sí pudieron recuperarse."
+                    )
+
+                if df_radar.empty:
+                    st.info(
+                        "El feed funciona correctamente, pero ninguna actualización "
+                        "reciente coincide con los filtros actuales."
+                    )
+                else:
+                    criterio_radar = st.selectbox(
+                        "🔃 Ordenar tarjetas por:",
+                        [
+                            "Actualización (Más reciente)",
+                            "Actualización (Más antigua)",
+                            "Fecha límite (Más cercana)",
+                            "Fecha límite (Más lejana)",
+                            "Presupuesto (Mayor a menor)",
+                            "Presupuesto (Menor a mayor)",
+                        ],
+                        key="select_orden_radar",
+                    )
+                    if criterio_radar == "Actualización (Más antigua)":
+                        df_radar = df_radar.sort_values(
+                            "fecha_act_dt", ascending=True, na_position="last"
+                        )
+                    elif criterio_radar == "Fecha límite (Más cercana)":
+                        df_radar = df_radar.sort_values(
+                            "fecha_limite_dt", ascending=True, na_position="last"
+                        )
+                    elif criterio_radar == "Fecha límite (Más lejana)":
+                        df_radar = df_radar.sort_values(
+                            "fecha_limite_dt", ascending=False, na_position="last"
+                        )
+                    elif criterio_radar == "Presupuesto (Mayor a menor)":
+                        df_radar = df_radar.sort_values(
+                            "pbl_sin_iva", ascending=False, na_position="last"
+                        )
+                    elif criterio_radar == "Presupuesto (Menor a mayor)":
+                        df_radar = df_radar.sort_values(
+                            "pbl_sin_iva", ascending=True, na_position="last"
+                        )
+                    else:
+                        df_radar = df_radar.sort_values(
+                            "fecha_act_dt", ascending=False, na_position="last"
+                        )
+                    items_radar = 12
+                    total_radar = len(df_radar_filtrado)
+                    paginas_radar = max(
+                        1, (total_radar + items_radar - 1) // items_radar
+                    )
+                    if "pagina_radar" not in st.session_state:
+                        st.session_state.pagina_radar = 1
+                    if st.session_state.pagina_radar > paginas_radar:
+                        st.session_state.pagina_radar = paginas_radar
+
+                    rad_ant, rad_info, rad_sig = st.columns([1, 2, 1])
+                    with rad_ant:
+                        if st.button(
+                            "⬅️ Anterior", key="radar_anterior",
+                            use_container_width=True,
+                            disabled=st.session_state.pagina_radar <= 1,
+                        ):
+                            st.session_state.pagina_radar -= 1
+                            st.rerun()
+                    with rad_info:
+                        st.markdown(
+                            f"<p style='text-align:center;font-weight:600;margin-top:6px;'>"
+                            f"Página {st.session_state.pagina_radar} de {paginas_radar} "
+                            f"(Total: {total_radar} actualizaciones)</p>",
+                            unsafe_allow_html=True,
+                        )
+                    with rad_sig:
+                        if st.button(
+                            "Siguiente ➡️", key="radar_siguiente",
+                            use_container_width=True,
+                            disabled=st.session_state.pagina_radar >= paginas_radar,
+                        ):
+                            st.session_state.pagina_radar += 1
+                            st.rerun()
+
+                    inicio_radar = (
+                        st.session_state.pagina_radar - 1
+                    ) * items_radar
+                    fin_radar = inicio_radar + items_radar
+                    render_grid_tarjetas(
+                        df_radar.iloc[inicio_radar:fin_radar],
+                        "radar",
+                    )
+            else:
+                st.info("El feed oficial no contiene actualizaciones en este momento.")
+        except Exception as error_feed:
+            st.warning(
+                "Ahora mismo no ha sido posible consultar el feed oficial. "
+                "El histórico del dashboard sigue disponible con normalidad."
+            )
+            st.caption(f"Detalle técnico: {error_feed}")
+
+    elif vista_principal == "📊 Gráficos":
         st.subheader("📊 Análisis de las licitaciones")
         st.caption("Los gráficos se actualizan automáticamente con los filtros aplicados.")
+        fuente_graficos = st.radio(
+            "Datos que quieres analizar:",
+            ["Histórico", "Últimas actualizaciones", "Combinado"],
+            horizontal=True,
+            key="fuente_graficos",
+        )
+        if fuente_graficos == "Últimas actualizaciones":
+            df_graficos = df_radar_filtrado.copy()
+        elif fuente_graficos == "Combinado":
+            df_graficos = pd.concat(
+                [df_f, df_radar_filtrado], ignore_index=True, sort=False
+            )
+            if "id" in df_graficos.columns:
+                df_graficos = df_graficos.drop_duplicates(
+                    subset=["id"], keep="last"
+                )
+        else:
+            df_graficos = df_f.copy()
 
-        df_graficos = df_f.copy()
+        if df_graficos.empty:
+            st.info("No hay datos de esta fuente que coincidan con los filtros actuales.")
+            df_graficos = df_f.iloc[0:0].copy()
         df_graficos["provincia_grafico"] = df_graficos["provincia"].fillna("No especificada")
         df_graficos["comunidad_grafico"] = df_graficos["comunidad_autonoma"].fillna("No especificada")
         df_graficos["organo_grafico"] = df_graficos["organo_contratante"].fillna("No especificado")
@@ -660,31 +1584,18 @@ else:
             .sort_values("pbl_sin_iva", ascending=False)
             .head(15)
         )
-        if "fecha_publicacion" in df_graficos.columns and df_graficos["fecha_publicacion"].notna().any():
-            campo_fecha_publicacion = "fecha_publicacion"
-            descripcion_fecha_publicacion = "la fecha real de publicación"
-        else:
-            campo_fecha_publicacion = "fecha_actualizacion"
-            descripcion_fecha_publicacion = "la fecha de actualización (base anterior sin fecha de publicación)"
-        fechas_publicacion = pd.to_datetime(
-            df_graficos[campo_fecha_publicacion], errors="coerce", utc=True
-        ).dt.tz_convert(None)
-        datos_publicacion_diaria = (
-            df_graficos.assign(fecha_publicacion=fechas_publicacion.dt.normalize())
-            .dropna(subset=["fecha_publicacion"])
+        presupuesto_organo["organo_etiqueta"] = presupuesto_organo[
+            "organo_grafico"
+        ].map(
+            lambda valor: "|".join(
+                textwrap.wrap(
+                    str(valor),
+                    width=72,
+                    break_long_words=False,
+                    break_on_hyphens=False,
+                )
+            )
         )
-        presupuesto_diario = (
-            datos_publicacion_diaria.groupby("fecha_publicacion", as_index=False)["pbl_sin_iva"]
-            .sum()
-            .sort_values("fecha_publicacion")
-        )
-        licitaciones_diarias = (
-            datos_publicacion_diaria.groupby("fecha_publicacion", as_index=False)
-            .size()
-            .rename(columns={"size": "licitaciones"})
-            .sort_values("fecha_publicacion")
-        )
-
         tramos_presupuesto = [
             "Menos de 25.000 €",
             "25.000–50.000 €",
@@ -733,7 +1644,12 @@ else:
             .mark_bar(color=color_azul, cornerRadiusEnd=4)
             .encode(
                 x=alt.X("licitaciones:Q", title="Número de licitaciones"),
-                y=alt.Y("provincia_grafico:N", title=None, sort="-x"),
+                y=alt.Y(
+                    "provincia_grafico:N",
+                    title=None,
+                    sort="-x",
+                    axis=alt.Axis(labelLimit=300, labelPadding=8),
+                ),
                 tooltip=[
                     alt.Tooltip("provincia_grafico:N", title="Provincia"),
                     alt.Tooltip("licitaciones:Q", title="Licitaciones")
@@ -746,7 +1662,12 @@ else:
             .mark_bar(color=color_verde, cornerRadiusEnd=4)
             .encode(
                 x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
-                y=alt.Y("provincia_grafico:N", title=None, sort="-x"),
+                y=alt.Y(
+                    "provincia_grafico:N",
+                    title=None,
+                    sort="-x",
+                    axis=alt.Axis(labelLimit=300, labelPadding=8),
+                ),
                 tooltip=[
                     alt.Tooltip("provincia_grafico:N", title="Provincia"),
                     alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
@@ -786,53 +1707,51 @@ else:
             .mark_bar(color="#7c3aed", cornerRadiusEnd=4)
             .encode(
                 x=alt.X("licitaciones:Q", title="Número de licitaciones"),
-                y=alt.Y("comunidad_grafico:N", title=None, sort="-x"),
+                y=alt.Y(
+                    "comunidad_grafico:N",
+                    title=None,
+                    sort="-x",
+                    axis=alt.Axis(labelLimit=420, labelPadding=8),
+                ),
                 tooltip=[
                     alt.Tooltip("comunidad_grafico:N", title="Comunidad autónoma"),
                     alt.Tooltip("licitaciones:Q", title="Licitaciones")
                 ]
             )
-            .properties(height=420)
+            .properties(height=600)
         )
         grafico_presupuesto_organo = (
             alt.Chart(presupuesto_organo)
             .mark_bar(color="#0891b2", cornerRadiusEnd=4)
             .encode(
                 x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
-                y=alt.Y("organo_grafico:N", title=None, sort="-x", axis=alt.Axis(labelLimit=260)),
+                y=alt.Y(
+                    "organo_etiqueta:N",
+                    title=None,
+                    sort="-x",
+                    axis=alt.Axis(
+                        labelExpr="split(datum.label, '|')",
+                        labelLimit=480,
+                        labelLineHeight=14,
+                        labelOverlap=False,
+                        labelPadding=8,
+                    ),
+                ),
                 tooltip=[
                     alt.Tooltip("organo_grafico:N", title="Órgano de contratación"),
                     alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
                 ]
             )
-            .properties(height=420)
+            .properties(height=600)
         )
-        grafico_licitaciones_diarias = (
-            alt.Chart(licitaciones_diarias)
-            .mark_line(color=color_naranja, point=alt.OverlayMarkDef(color=color_naranja, size=45), strokeWidth=3)
-            .encode(
-                x=alt.X("fecha_publicacion:T", title="Fecha de publicación", axis=alt.Axis(format="%d/%m/%Y")),
-                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
-                tooltip=[
-                    alt.Tooltip("fecha_publicacion:T", title="Fecha", format="%d/%m/%Y"),
-                    alt.Tooltip("licitaciones:Q", title="Licitaciones anunciadas")
-                ]
-            )
-            .properties(height=340)
-        )
-        grafico_presupuesto_diario = (
-            alt.Chart(presupuesto_diario)
-            .mark_line(color=color_azul, point=alt.OverlayMarkDef(color=color_azul, size=45), strokeWidth=3)
-            .encode(
-                x=alt.X("fecha_publicacion:T", title="Fecha de publicación / actualización", axis=alt.Axis(format="%d/%m/%Y")),
-                y=alt.Y("pbl_sin_iva:Q", title="PBL total sin IVA (€)"),
-                tooltip=[
-                    alt.Tooltip("fecha_publicacion:T", title="Fecha", format="%d/%m/%Y"),
-                    alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto total", format=",.2f")
-                ]
-            )
-            .properties(height=360)
-        )
+
+        with st.container(border=True):
+            st.markdown("#### Licitaciones por comunidad autónoma")
+            st.altair_chart(grafico_comunidades, use_container_width=True)
+
+        with st.container(border=True):
+            st.markdown("#### Presupuesto por órgano de contratación")
+            st.altair_chart(grafico_presupuesto_organo, use_container_width=True)
 
         grafico_fila_1a, grafico_fila_1b = st.columns(2)
         with grafico_fila_1a:
@@ -854,29 +1773,33 @@ else:
                 st.markdown("#### Próximos vencimientos")
                 st.altair_chart(grafico_vencimientos, use_container_width=True)
 
-        grafico_fila_3a, grafico_fila_3b = st.columns(2)
-        with grafico_fila_3a:
-            with st.container(border=True):
-                st.markdown("#### Licitaciones por comunidad autónoma")
-                st.altair_chart(grafico_comunidades, use_container_width=True)
-        with grafico_fila_3b:
-            with st.container(border=True):
-                st.markdown("#### Presupuesto por órgano de contratación")
-                st.altair_chart(grafico_presupuesto_organo, use_container_width=True)
-
-        with st.container(border=True):
-            st.markdown("#### Licitaciones anunciadas por día")
-            st.caption(f"Número de licitaciones agrupadas según {descripcion_fecha_publicacion}.")
-            st.altair_chart(grafico_licitaciones_diarias, use_container_width=True)
-
-        with st.container(border=True):
-            st.markdown("#### Presupuesto publicado por día")
-            st.caption(f"Suma diaria del presupuesto base de licitación sin IVA según {descripcion_fecha_publicacion}.")
-            st.altair_chart(grafico_presupuesto_diario, use_container_width=True)
-
-    with tab_mapa:
+    elif vista_principal == "🗺️ Mapa":
         st.subheader("📍 Ubicación de las licitaciones")
-        df_mapa = df_f.dropna(subset=['latitud', 'longitud']).copy()
+        st.caption(
+            "Las ubicaciones del feed son aproximadas: se calculan mediante el "
+            "código postal o, si no está disponible, mediante un municipio inequívoco."
+        )
+        fuente_mapa = st.radio(
+            "Datos que quieres mostrar:",
+            ["Histórico", "Últimas actualizaciones", "Combinado"],
+            horizontal=True,
+            key="fuente_mapa",
+        )
+        if fuente_mapa == "Últimas actualizaciones":
+            df_base_mapa = df_radar_filtrado.copy()
+        elif fuente_mapa == "Combinado":
+            df_base_mapa = pd.concat(
+                [df_f, df_radar_filtrado], ignore_index=True, sort=False
+            )
+            if "id" in df_base_mapa.columns:
+                df_base_mapa = df_base_mapa.drop_duplicates(
+                    subset=["id"], keep="last"
+                )
+        else:
+            df_base_mapa = df_f.copy()
+        if df_base_mapa.empty and not set(["latitud", "longitud"]).issubset(df_base_mapa.columns):
+            df_base_mapa = df_f.iloc[0:0].copy()
+        df_mapa = df_base_mapa.dropna(subset=['latitud', 'longitud']).copy()
         
         if not df_mapa.empty:
             df_mapa['pbl_fmt'] = df_mapa['pbl_sin_iva'].apply(lambda x: formato_eur(x))
@@ -885,6 +1808,11 @@ else:
             df_mapa['provincia_clean'] = df_mapa['provincia'].fillna('No especificada')
             df_mapa['ccaa_clean'] = df_mapa['comunidad_autonoma'].fillna('No especificada')
             df_mapa['expediente_clean'] = df_mapa['expediente'].fillna('N/A')
+            if "origen_coordenadas" not in df_mapa.columns:
+                df_mapa["origen_coordenadas"] = "Histórico"
+            df_mapa["origen_coordenadas"] = df_mapa[
+                "origen_coordenadas"
+            ].fillna("Histórico")
             
             np.random.seed(42)
             df_mapa['lat_j'] = df_mapa['latitud'] + np.random.normal(0, 0.00008, size=len(df_mapa))
@@ -936,7 +1864,12 @@ else:
         else:
             st.info("No hay licitaciones con coordenadas geográficas disponibles para mostrar en el mapa.")
 
-    with tab_tarjetas:
+    elif vista_principal == "🗂️ Histórico":
+        st.subheader("🗂️ Histórico de licitaciones")
+        st.caption(
+            "Base histórica consolidada mediante los conjuntos de datos abiertos de la "
+            "Plataforma de Contratación del Sector Público. Se actualiza diariamente."
+        )
         col_ord1, col_ord2 = st.columns([2, 3])
         with col_ord1:
             criterio_orden = st.selectbox(
@@ -1015,7 +1948,7 @@ components.html("""
     const parentWindow = window.parent;
     const parentDocument = parentWindow.document;
     const storageKey = "dashboard_licitaciones_scroll";
-    const scrollContainer = parentDocument.querySelector('[data-testid="stMain"]');
+    const scrollContainer = hostDocument.querySelector('[data-testid="stMain"]');
 
     const savedScroll = parentWindow.sessionStorage.getItem(storageKey);
 
@@ -1024,7 +1957,7 @@ components.html("""
         const saved = savedScroll;
 
         if (saved === "tarjetas") {
-            const pageIndicator = Array.from(parentDocument.querySelectorAll("p"))
+            const pageIndicator = Array.from(hostDocument.querySelectorAll("p"))
                 .find((element) => /^Página \d+ de \d+/.test((element.textContent || "").trim()));
             const target = pageIndicator?.closest('[data-testid="stHorizontalBlock"]') || pageIndicator;
             if (target) {
@@ -1040,7 +1973,7 @@ components.html("""
     };
 
     const bindButtons = () => {
-        parentDocument.querySelectorAll("button").forEach((button) => {
+        hostDocument.querySelectorAll("button").forEach((button) => {
             if (button.dataset.licitacionesScrollBound === "1") return;
             const label = (button.innerText || button.textContent || "").trim();
 
