@@ -16,7 +16,38 @@ from google import genai
 from google.genai import types
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Licitaciones | Dashboard", layout="wide", page_icon="🏛️", initial_sidebar_state="collapsed")
+st.set_page_config(
+    page_title="LandAI Licitaciones",
+    layout="wide",
+    page_icon="static/icons/icon-192.png",
+    initial_sidebar_state="collapsed",
+)
+
+# Metadatos de instalación: Chrome/Android usa este manifiesto al crear el acceso directo.
+components.html("""
+<script>
+(() => {
+    // El componente vive dentro de un iframe; el manifiesto debe estar en el documento superior.
+    const hostDocument = window.top.document;
+    const assetBase = new URL("app/static/", window.top.location.origin + "/").toString();
+    const ensureLink = (rel, href, extras = {}) => {
+        let element = rel === "manifest"
+            ? hostDocument.querySelector('link[rel="manifest"]')
+            : hostDocument.querySelector(`link[data-landai="${rel}"]`);
+        if (!element) { element = hostDocument.createElement("link"); element.dataset.landai = rel; hostDocument.head.appendChild(element); }
+        element.rel = rel; element.href = href;
+        Object.entries(extras).forEach(([key, value]) => element.setAttribute(key, value));
+    };
+    ensureLink("manifest", assetBase + "manifest.json");
+    ensureLink("icon", assetBase + "icons/icon-192.png", { sizes: "192x192", type: "image/png" });
+    ensureLink("apple-touch-icon", assetBase + "icons/icon-192.png", { sizes: "192x192" });
+    let theme = hostDocument.querySelector('meta[name="theme-color"][data-landai-theme]');
+    if (!theme) { theme = hostDocument.createElement("meta"); theme.name = "theme-color"; theme.dataset.landaiTheme = "true"; hostDocument.head.appendChild(theme); }
+    theme.content = "#3d3739";
+})();
+</script>
+""", height=0)
+
 
 # --- RUTA DE LA BASE DE DATOS ADAPTADA (LOCAL Y NUBE) ---
 DB_PATH = os.getenv("LICITACIONES_DB_PATH", "licitaciones.db")
