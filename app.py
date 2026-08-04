@@ -29,19 +29,20 @@ st.set_page_config(
 components.html("""
 <script>
 (() => {
-    const parentDocument = window.parent.document;
-    const assetBase = new URL("app/static/", window.parent.location.origin + "/").toString();
+    // El componente vive dentro de un iframe; el manifiesto debe estar en el documento superior.
+    const hostDocument = window.top.document;
+    const assetBase = new URL("app/static/", window.top.location.origin + "/").toString();
     const ensureLink = (rel, href, extras = {}) => {
-        let element = parentDocument.querySelector(`link[data-landai="${rel}"]`);
-        if (!element) { element = parentDocument.createElement("link"); element.dataset.landai = rel; parentDocument.head.appendChild(element); }
+        let element = hostDocument.querySelector(`link[data-landai="${rel}"]`);
+        if (!element) { element = hostDocument.createElement("link"); element.dataset.landai = rel; hostDocument.head.appendChild(element); }
         element.rel = rel; element.href = href;
         Object.entries(extras).forEach(([key, value]) => element.setAttribute(key, value));
     };
     ensureLink("manifest", assetBase + "manifest.json");
     ensureLink("icon", assetBase + "icons/icon-192.png", { sizes: "192x192", type: "image/png" });
     ensureLink("apple-touch-icon", assetBase + "icons/icon-192.png", { sizes: "192x192" });
-    let theme = parentDocument.querySelector('meta[name="theme-color"][data-landai-theme]');
-    if (!theme) { theme = parentDocument.createElement("meta"); theme.name = "theme-color"; theme.dataset.landaiTheme = "true"; parentDocument.head.appendChild(theme); }
+    let theme = hostDocument.querySelector('meta[name="theme-color"][data-landai-theme]');
+    if (!theme) { theme = hostDocument.createElement("meta"); theme.name = "theme-color"; theme.dataset.landaiTheme = "true"; hostDocument.head.appendChild(theme); }
     theme.content = "#3d3739";
 })();
 </script>
@@ -1519,7 +1520,7 @@ components.html("""
     const parentWindow = window.parent;
     const parentDocument = parentWindow.document;
     const storageKey = "dashboard_licitaciones_scroll";
-    const scrollContainer = parentDocument.querySelector('[data-testid="stMain"]');
+    const scrollContainer = hostDocument.querySelector('[data-testid="stMain"]');
 
     const savedScroll = parentWindow.sessionStorage.getItem(storageKey);
 
@@ -1528,7 +1529,7 @@ components.html("""
         const saved = savedScroll;
 
         if (saved === "tarjetas") {
-            const pageIndicator = Array.from(parentDocument.querySelectorAll("p"))
+            const pageIndicator = Array.from(hostDocument.querySelectorAll("p"))
                 .find((element) => /^Página \d+ de \d+/.test((element.textContent || "").trim()));
             const target = pageIndicator?.closest('[data-testid="stHorizontalBlock"]') || pageIndicator;
             if (target) {
@@ -1544,7 +1545,7 @@ components.html("""
     };
 
     const bindButtons = () => {
-        parentDocument.querySelectorAll("button").forEach((button) => {
+        hostDocument.querySelectorAll("button").forEach((button) => {
             if (button.dataset.licitacionesScrollBound === "1") return;
             const label = (button.innerText || button.textContent || "").trim();
 
