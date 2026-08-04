@@ -11,6 +11,7 @@ import pydeck as pdk
 import numpy as np
 import os
 import requests
+import textwrap
 import time
 import unicodedata
 from datetime import date
@@ -1583,6 +1584,18 @@ else:
             .sort_values("pbl_sin_iva", ascending=False)
             .head(15)
         )
+        presupuesto_organo["organo_etiqueta"] = presupuesto_organo[
+            "organo_grafico"
+        ].map(
+            lambda valor: "|".join(
+                textwrap.wrap(
+                    str(valor),
+                    width=72,
+                    break_long_words=False,
+                    break_on_hyphens=False,
+                )
+            )
+        )
         tramos_presupuesto = [
             "Menos de 25.000 €",
             "25.000–50.000 €",
@@ -1705,7 +1718,7 @@ else:
                     alt.Tooltip("licitaciones:Q", title="Licitaciones")
                 ]
             )
-            .properties(height=460)
+            .properties(height=500)
         )
         grafico_presupuesto_organo = (
             alt.Chart(presupuesto_organo)
@@ -1713,17 +1726,22 @@ else:
             .encode(
                 x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
                 y=alt.Y(
-                    "organo_grafico:N",
+                    "organo_etiqueta:N",
                     title=None,
                     sort="-x",
-                    axis=alt.Axis(labelLimit=600, labelPadding=8),
+                    axis=alt.Axis(
+                        labelExpr="split(datum.label, '|')",
+                        labelLimit=480,
+                        labelLineHeight=14,
+                        labelPadding=8,
+                    ),
                 ),
                 tooltip=[
                     alt.Tooltip("organo_grafico:N", title="Órgano de contratación"),
                     alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
                 ]
             )
-            .properties(height=460)
+            .properties(height=500)
         )
 
         with st.container(border=True):
