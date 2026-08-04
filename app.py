@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 from google import genai
 from google.genai import types
 
-# --- CONFIGURACIÃ“N DE PÃGINA ---
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
     page_title="LandAI Licitaciones",
     layout="wide",
@@ -25,7 +25,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# Metadatos de instalaciÃ³n: Chrome/Android usa este manifiesto al crear el acceso directo.
+# Metadatos de instalación: Chrome/Android usa este manifiesto al crear el acceso directo.
 components.html("""
 <script>
 (() => {
@@ -52,34 +52,34 @@ components.html("""
 # --- RUTA DE LA BASE DE DATOS ADAPTADA (LOCAL Y NUBE) ---
 DB_PATH = os.getenv("LICITACIONES_DB_PATH", "licitaciones.db")
 
-# --- CONFIGURACIÃ“N DE GEMINI ---
+# --- CONFIGURACIÓN DE GEMINI ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "TU_API_KEY_AQUI")
 
 PROMPT_ANALISIS = """
-Eres un director tÃ©cnico y perito especializado en licitaciones de ingenierÃ­a civil en EspaÃ±a. 
-Tu objetivo es entregar una ficha de decisiÃ³n rÃ¡pida, limpia y milimÃ©trica para el licitador. NO repitas presupuestos ni importes globales (ya figuran en la cabecera de la tarjeta). Ve directamente al grano.
+Eres un director técnico y perito especializado en licitaciones de ingeniería civil en España. 
+Tu objetivo es entregar una ficha de decisión rápida, limpia y milimétrica para el licitador. NO repitas presupuestos ni importes globales (ya figuran en la cabecera de la tarjeta). Ve directamente al grano.
 
-INSTRUCCIÃ“N ESTRICTA DE FORMATO:
-- **OBLIGATORIO**: Utiliza viÃ±etas (â€¢) y negritas para estructurar la informaciÃ³n en CADA uno de los campos del JSON. Cero pÃ¡rrafos seguidos o densos. Cada idea debe ir en una lÃ­nea separada con bullet.
+INSTRUCCIÓN ESTRICTA DE FORMATO:
+- **OBLIGATORIO**: Utiliza viñetas (•) y negritas para estructurar la información en CADA uno de los campos del JSON. Cero párrafos seguidos o densos. Cada idea debe ir en una línea separada con bullet.
 
 Instrucciones de contenido:
-- **alcance_tecnico**: Detalla con viÃ±etas (â€¢) el objeto principal, el Ã¡mbito o ubicaciÃ³n exacta y las fases o documentos clave a redactar.
-- **criterios_puntuacion**: Con viÃ±etas (â€¢), detalla el total de puntos y desglosa los juicios de valor y las fÃ³rmulas u oferta econÃ³mica.
-- **solvencia_requerida**: Con viÃ±etas (â€¢), detalla solvencia econÃ³mica (volumen anual mÃ­nimo), solvencia tÃ©cnica (trabajos similares) y si exige clasificaciÃ³n.
-- **equipo_y_titulaciones**: Con viÃ±etas (â€¢), indica las titulaciones requeridas para el director del contrato y personal clave.
-- **seguro_rc**: Con viÃ±etas (â€¢), especifica la cobertura obligatoria y el importe mÃ­nimo exigido por siniestro.
-- **garantia**: Con viÃ±etas (â€¢), detalla la garantÃ­a provisional y la definitiva (5% del PBL).
-- **condicionantes_destacados**: Con viÃ±etas (â€¢), detalla el plazo de ejecuciÃ³n, penalizaciones diarias y aspectos crÃ­ticos.
+- **alcance_tecnico**: Detalla con viñetas (•) el objeto principal, el ámbito o ubicación exacta y las fases o documentos clave a redactar.
+- **criterios_puntuacion**: Con viñetas (•), detalla el total de puntos y desglosa los juicios de valor y las fórmulas u oferta económica.
+- **solvencia_requerida**: Con viñetas (•), detalla solvencia económica (volumen anual mínimo), solvencia técnica (trabajos similares) y si exige clasificación.
+- **equipo_y_titulaciones**: Con viñetas (•), indica las titulaciones requeridas para el director del contrato y personal clave.
+- **seguro_rc**: Con viñetas (•), especifica la cobertura obligatoria y el importe mínimo exigido por siniestro.
+- **garantia**: Con viñetas (•), detalla la garantía provisional y la definitiva (5% del PBL).
+- **condicionantes_destacados**: Con viñetas (•), detalla el plazo de ejecución, penalizaciones diarias y aspectos críticos.
 
-Devuelve ÃšNICAMENTE un objeto JSON vÃ¡lido con esta estructura exacta y formato Markdown interno:
+Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta y formato Markdown interno:
 {
-  "alcance_tecnico": "<Usa viÃ±etas â€¢>",
-  "criterios_puntuacion": "<Usa viÃ±etas â€¢>",
-  "solvencia_requerida": "<Usa viÃ±etas â€¢>",
-  "equipo_y_titulaciones": "<Usa viÃ±etas â€¢>",
-  "seguro_rc": "<Usa viÃ±etas â€¢>",
-  "garantia": "<Usa viÃ±etas â€¢>",
-  "condicionantes_destacados": "<Usa viÃ±etas â€¢>"
+  "alcance_tecnico": "<Usa viñetas •>",
+  "criterios_puntuacion": "<Usa viñetas •>",
+  "solvencia_requerida": "<Usa viñetas •>",
+  "equipo_y_titulaciones": "<Usa viñetas •>",
+  "seguro_rc": "<Usa viñetas •>",
+  "garantia": "<Usa viñetas •>",
+  "condicionantes_destacados": "<Usa viñetas •>"
 }
 """
 
@@ -115,7 +115,7 @@ def extraer_texto_de_enlaces(documentos_json, url_ficha_principal):
 def analizar_licitacion_directo(licitacion_dict):
     api_key_a_usar = GEMINI_API_KEY
     if not api_key_a_usar or api_key_a_usar == "TU_API_KEY_AQUI":
-        return None, "âš ï¸ Falta configurar la API Key de Gemini."
+        return None, "⚠️ Falta configurar la API Key de Gemini."
 
     try:
         client = genai.Client(api_key=api_key_a_usar)
@@ -126,11 +126,11 @@ def analizar_licitacion_directo(licitacion_dict):
         )
 
         contenido_input = f"""
-TÃ­tulo: {licitacion_dict.get('titulo', 'No especificado')}
+Título: {licitacion_dict.get('titulo', 'No especificado')}
 Organismo: {licitacion_dict.get('organo_contratante', 'No especificado')}
 Tipo: {licitacion_dict.get('tipo_contrato', 'No especificado')} | CPV: {licitacion_dict.get('cpv', 'No especificado')}
-PBL sin IVA: {licitacion_dict.get('pbl_sin_iva', 0)} â‚¬
-UbicaciÃ³n: {licitacion_dict.get('municipio', '')}, {licitacion_dict.get('provincia', '')}
+PBL sin IVA: {licitacion_dict.get('pbl_sin_iva', 0)} €
+Ubicación: {licitacion_dict.get('municipio', '')}, {licitacion_dict.get('provincia', '')}
 Enlace Oficial: {licitacion_dict.get('url_licitacion', 'No especificado')}
 
 TEXTO / ENLACES DISPONIBLES DE LA PLATAFORMA Y PLIEGOS:
@@ -146,7 +146,7 @@ TEXTO / ENLACES DISPONIBLES DE LA PLATAFORMA Y PLIEGOS:
         )
 
         if response is None or not response.text:
-            return None, "âš ï¸ Gemini devolviÃ³ una respuesta vacÃ­a."
+            return None, "⚠️ Gemini devolvió una respuesta vacía."
 
         texto_limpio = response.text.strip()
         marcas_cif = chr(96) * 3
@@ -161,12 +161,12 @@ TEXTO / ENLACES DISPONIBLES DE LA PLATAFORMA Y PLIEGOS:
         except json.JSONDecodeError:
             res_json = {
                 "alcance_tecnico": response.text,
-                "criterios_puntuacion": "â€¢ No se pudo estructurar automÃ¡ticamente (error de sintaxis en origen).",
-                "solvencia_requerida": "â€¢ Ver pliego original.",
-                "equipo_y_titulaciones": "â€¢ No especificado",
-                "seguro_rc": "â€¢ No especificado",
-                "garantia": "â€¢ No especificado",
-                "condicionantes_destacados": "â€¢ No especificado"
+                "criterios_puntuacion": "• No se pudo estructurar automáticamente (error de sintaxis en origen).",
+                "solvencia_requerida": "• Ver pliego original.",
+                "equipo_y_titulaciones": "• No especificado",
+                "seguro_rc": "• No especificado",
+                "garantia": "• No especificado",
+                "condicionantes_destacados": "• No especificado"
             }
 
         campos_esperados = [
@@ -176,7 +176,7 @@ TEXTO / ENLACES DISPONIBLES DE LA PLATAFORMA Y PLIEGOS:
 
         for campo in campos_esperados:
             if not res_json.get(campo):
-                res_json[campo] = "â€¢ No especificado / Consultar pliego original"
+                res_json[campo] = "• No especificado / Consultar pliego original"
 
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
@@ -192,14 +192,14 @@ TEXTO / ENLACES DISPONIBLES DE LA PLATAFORMA Y PLIEGOS:
 
             if cursor.rowcount != 1:
                 conn.rollback()
-                return None, f"âŒ No se encontrÃ³ la licitaciÃ³n ID {licitacion_dict['id']} en SQLite."
+                return None, f"❌ No se encontró la licitación ID {licitacion_dict['id']} en SQLite."
 
             conn.commit()
 
         return res_json, None
 
     except Exception as exc:
-        return None, f"âŒ Error: {str(exc)}"
+        return None, f"❌ Error: {str(exc)}"
 
 # --- ESTILOS CSS ---
 st.markdown("""
@@ -264,7 +264,7 @@ MAPA_ESTADOS = {
 
 MAPA_TIPOS = {
     '1': 'Suministros', '2': 'Servicios', '3': 'Obras',
-    '21': 'ConcesiÃ³n de Servicios', '31': 'ConcesiÃ³n de Obras'
+    '21': 'Concesión de Servicios', '31': 'Concesión de Obras'
 }
 
 def texto_seguro(valor, fallback="N/A"):
@@ -284,11 +284,11 @@ def url_externa_segura(valor):
 def formato_eur(valor):
     if pd.isna(valor):
         return "No especificado"
-    return f"{float(valor):,.2f}".translate(str.maketrans({",": ".", ".": ","})) + " â‚¬"
+    return f"{float(valor):,.2f}".translate(str.maketrans({",": ".", ".": ","})) + " €"
 
 def formato_fecha(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
-    return "No especificada" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y Â· %H:%M")
+    return "No especificada" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
 
 def texto_dias_restantes(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
@@ -296,24 +296,24 @@ def texto_dias_restantes(valor):
         return "Plazo no disponible"
     dias = (fecha.date() - date.today()).days
     if dias > 1:
-        return f"Faltan {dias} dÃ­as"
+        return f"Faltan {dias} días"
     if dias == 1:
-        return "Falta 1 dÃ­a"
+        return "Falta 1 día"
     if dias == 0:
         return "Finaliza hoy"
     if dias == -1:
-        return "FinalizÃ³ hace 1 dÃ­a"
-    return f"FinalizÃ³ hace {abs(dias)} dÃ­as"
+        return "Finalizó hace 1 día"
+    return f"Finalizó hace {abs(dias)} días"
 
 def texto_antiguedad(valor):
     if pd.isna(valor):
-        return "ActualizaciÃ³n no disponible"
+        return "Actualización no disponible"
     dias = max(0, (date.today() - valor.date()).days)
     if dias == 0:
         return "Actualizada hoy"
     if dias == 1:
-        return "Hace 1 dÃ­a"
-    return f"Hace {dias} dÃ­as"
+        return "Hace 1 día"
+    return f"Hace {dias} días"
 
 FEED_RECIENTE_URL = (
     "https://contrataciondelsectorpublico.gob.es/sindicacion/"
@@ -334,7 +334,7 @@ def _texto_xml(elemento, ruta):
     nodo = elemento.find(ruta, NAMESPACES_ATOM)
     return nodo.text.strip() if nodo is not None and nodo.text else None
 
-@st.cache_data(ttl=900, show_spinner="Consultando las Ãºltimas actualizaciones oficialesâ€¦")
+@st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
 def cargar_feed_reciente():
     respuesta = requests.get(
         FEED_RECIENTE_URL,
@@ -404,15 +404,25 @@ def cargar_feed_reciente():
                 if uri:
                     documentos.append({
                         "tipo": tipo_doc,
-               …14752 tokens truncated…")
+                        "nombre": _texto_xml(doc, "cbc:ID") or tipo_doc,
+                        "url": uri,
+                    })
+        for doc in status.findall("cac:AdditionalDocumentReference", NAMESPACES_ATOM):
+            uri = _texto_xml(doc, "cac:Attach…14508 tokens truncated…_publicacion")
+        )
+        licitaciones_diarias = (
+            datos_publicacion_diaria.groupby("fecha_publicacion", as_index=False)
+            .size()
+            .rename(columns={"size": "licitaciones"})
+            .sort_values("fecha_publicacion")
         )
 
         tramos_presupuesto = [
-            "Menos de 25.000 â‚¬",
-            "25.000â€“50.000 â‚¬",
-            "50.000â€“100.000 â‚¬",
-            "100.000â€“200.000 â‚¬",
-            "MÃ¡s de 200.000 â‚¬"
+            "Menos de 25.000 €",
+            "25.000–50.000 €",
+            "50.000–100.000 €",
+            "100.000–200.000 €",
+            "Más de 200.000 €"
         ]
         df_graficos["tramo_presupuesto"] = pd.cut(
             df_graficos["pbl_sin_iva"],
@@ -430,7 +440,7 @@ def cargar_feed_reciente():
 
         fechas_limite_grafico = pd.to_datetime(df_graficos["fecha_limite_dt"], errors="coerce", utc=True).dt.tz_convert(None)
         dias_restantes = (fechas_limite_grafico.dt.normalize() - pd.Timestamp.today().normalize()).dt.days
-        orden_vencimientos = ["Finalizan hoy", "PrÃ³ximos 3 dÃ­as", "Entre 4 y 7 dÃ­as", "MÃ¡s de 7 dÃ­as"]
+        orden_vencimientos = ["Finalizan hoy", "Próximos 3 días", "Entre 4 y 7 días", "Más de 7 días"]
         df_vencimientos = pd.DataFrame({"dias": dias_restantes}).dropna()
         df_vencimientos = df_vencimientos[df_vencimientos["dias"] >= 0]
         df_vencimientos["plazo"] = np.select(
@@ -454,7 +464,7 @@ def cargar_feed_reciente():
             alt.Chart(por_provincia)
             .mark_bar(color=color_azul, cornerRadiusEnd=4)
             .encode(
-                x=alt.X("licitaciones:Q", title="NÃºmero de licitaciones"),
+                x=alt.X("licitaciones:Q", title="Número de licitaciones"),
                 y=alt.Y("provincia_grafico:N", title=None, sort="-x"),
                 tooltip=[
                     alt.Tooltip("provincia_grafico:N", title="Provincia"),
@@ -467,7 +477,7 @@ def cargar_feed_reciente():
             alt.Chart(presupuesto_provincia)
             .mark_bar(color=color_verde, cornerRadiusEnd=4)
             .encode(
-                x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (â‚¬)"),
+                x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
                 y=alt.Y("provincia_grafico:N", title=None, sort="-x"),
                 tooltip=[
                     alt.Tooltip("provincia_grafico:N", title="Provincia"),
@@ -481,7 +491,7 @@ def cargar_feed_reciente():
             .mark_bar(color=color_naranja, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
             .encode(
                 x=alt.X("tramo_presupuesto:N", title=None, sort=tramos_presupuesto, axis=alt.Axis(labelAngle=-25)),
-                y=alt.Y("licitaciones:Q", title="NÃºmero de licitaciones"),
+                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
                 tooltip=[
                     alt.Tooltip("tramo_presupuesto:N", title="Tramo"),
                     alt.Tooltip("licitaciones:Q", title="Licitaciones")
@@ -494,7 +504,7 @@ def cargar_feed_reciente():
             .mark_bar(color=color_rojo, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
             .encode(
                 x=alt.X("plazo:N", title=None, sort=orden_vencimientos, axis=alt.Axis(labelAngle=-20)),
-                y=alt.Y("licitaciones:Q", title="NÃºmero de licitaciones"),
+                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
                 tooltip=[
                     alt.Tooltip("plazo:N", title="Vencimiento"),
                     alt.Tooltip("licitaciones:Q", title="Licitaciones")
@@ -507,10 +517,10 @@ def cargar_feed_reciente():
             alt.Chart(por_comunidad)
             .mark_bar(color="#7c3aed", cornerRadiusEnd=4)
             .encode(
-                x=alt.X("licitaciones:Q", title="NÃºmero de licitaciones"),
+                x=alt.X("licitaciones:Q", title="Número de licitaciones"),
                 y=alt.Y("comunidad_grafico:N", title=None, sort="-x"),
                 tooltip=[
-                    alt.Tooltip("comunidad_grafico:N", title="Comunidad autÃ³noma"),
+                    alt.Tooltip("comunidad_grafico:N", title="Comunidad autónoma"),
                     alt.Tooltip("licitaciones:Q", title="Licitaciones")
                 ]
             )
@@ -520,10 +530,10 @@ def cargar_feed_reciente():
             alt.Chart(presupuesto_organo)
             .mark_bar(color="#0891b2", cornerRadiusEnd=4)
             .encode(
-                x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (â‚¬)"),
+                x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
                 y=alt.Y("organo_grafico:N", title=None, sort="-x", axis=alt.Axis(labelLimit=260)),
                 tooltip=[
-                    alt.Tooltip("organo_grafico:N", title="Ã“rgano de contrataciÃ³n"),
+                    alt.Tooltip("organo_grafico:N", title="Órgano de contratación"),
                     alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
                 ]
             )
@@ -533,8 +543,8 @@ def cargar_feed_reciente():
             alt.Chart(licitaciones_diarias)
             .mark_line(color=color_naranja, point=alt.OverlayMarkDef(color=color_naranja, size=45), strokeWidth=3)
             .encode(
-                x=alt.X("fecha_publicacion:T", title="Fecha de publicaciÃ³n", axis=alt.Axis(format="%d/%m/%Y")),
-                y=alt.Y("licitaciones:Q", title="NÃºmero de licitaciones"),
+                x=alt.X("fecha_publicacion:T", title="Fecha de publicación", axis=alt.Axis(format="%d/%m/%Y")),
+                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
                 tooltip=[
                     alt.Tooltip("fecha_publicacion:T", title="Fecha", format="%d/%m/%Y"),
                     alt.Tooltip("licitaciones:Q", title="Licitaciones anunciadas")
@@ -546,8 +556,8 @@ def cargar_feed_reciente():
             alt.Chart(presupuesto_diario)
             .mark_line(color=color_azul, point=alt.OverlayMarkDef(color=color_azul, size=45), strokeWidth=3)
             .encode(
-                x=alt.X("fecha_publicacion:T", title="Fecha de publicaciÃ³n / actualizaciÃ³n", axis=alt.Axis(format="%d/%m/%Y")),
-                y=alt.Y("pbl_sin_iva:Q", title="PBL total sin IVA (â‚¬)"),
+                x=alt.X("fecha_publicacion:T", title="Fecha de publicación / actualización", axis=alt.Axis(format="%d/%m/%Y")),
+                y=alt.Y("pbl_sin_iva:Q", title="PBL total sin IVA (€)"),
                 tooltip=[
                     alt.Tooltip("fecha_publicacion:T", title="Fecha", format="%d/%m/%Y"),
                     alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto total", format=",.2f")
@@ -569,46 +579,46 @@ def cargar_feed_reciente():
         grafico_fila_2a, grafico_fila_2b = st.columns(2)
         with grafico_fila_2a:
             with st.container(border=True):
-                st.markdown("#### DistribuciÃ³n por presupuesto")
+                st.markdown("#### Distribución por presupuesto")
                 st.altair_chart(grafico_tramos, use_container_width=True)
         with grafico_fila_2b:
             with st.container(border=True):
-                st.markdown("#### PrÃ³ximos vencimientos")
+                st.markdown("#### Próximos vencimientos")
                 st.altair_chart(grafico_vencimientos, use_container_width=True)
 
         grafico_fila_3a, grafico_fila_3b = st.columns(2)
         with grafico_fila_3a:
             with st.container(border=True):
-                st.markdown("#### Licitaciones por comunidad autÃ³noma")
+                st.markdown("#### Licitaciones por comunidad autónoma")
                 st.altair_chart(grafico_comunidades, use_container_width=True)
         with grafico_fila_3b:
             with st.container(border=True):
-                st.markdown("#### Presupuesto por Ã³rgano de contrataciÃ³n")
+                st.markdown("#### Presupuesto por órgano de contratación")
                 st.altair_chart(grafico_presupuesto_organo, use_container_width=True)
 
         with st.container(border=True):
-            st.markdown("#### Licitaciones anunciadas por dÃ­a")
-            st.caption(f"NÃºmero de licitaciones agrupadas segÃºn {descripcion_fecha_publicacion}.")
+            st.markdown("#### Licitaciones anunciadas por día")
+            st.caption(f"Número de licitaciones agrupadas según {descripcion_fecha_publicacion}.")
             st.altair_chart(grafico_licitaciones_diarias, use_container_width=True)
 
         with st.container(border=True):
-            st.markdown("#### Presupuesto publicado por dÃ­a")
-            st.caption(f"Suma diaria del presupuesto base de licitaciÃ³n sin IVA segÃºn {descripcion_fecha_publicacion}.")
+            st.markdown("#### Presupuesto publicado por día")
+            st.caption(f"Suma diaria del presupuesto base de licitación sin IVA según {descripcion_fecha_publicacion}.")
             st.altair_chart(grafico_presupuesto_diario, use_container_width=True)
 
-    elif vista_principal == "ðŸ—ºï¸ Mapa":
-        st.subheader("ðŸ“ UbicaciÃ³n de las licitaciones")
+    elif vista_principal == "🗺️ Mapa":
+        st.subheader("📍 Ubicación de las licitaciones")
         st.caption(
             "Las ubicaciones del feed son aproximadas: se calculan mediante el "
-            "cÃ³digo postal o, si no estÃ¡ disponible, mediante un municipio inequÃ­voco."
+            "código postal o, si no está disponible, mediante un municipio inequívoco."
         )
         fuente_mapa = st.radio(
             "Datos que quieres mostrar:",
-            ["HistÃ³rico", "Ãšltimas actualizaciones", "Combinado"],
+            ["Histórico", "Últimas actualizaciones", "Combinado"],
             horizontal=True,
             key="fuente_mapa",
         )
-        if fuente_mapa == "Ãšltimas actualizaciones":
+        if fuente_mapa == "Últimas actualizaciones":
             df_base_mapa = df_radar_filtrado.copy()
         elif fuente_mapa == "Combinado":
             df_base_mapa = pd.concat(
@@ -632,10 +642,10 @@ def cargar_feed_reciente():
             df_mapa['ccaa_clean'] = df_mapa['comunidad_autonoma'].fillna('No especificada')
             df_mapa['expediente_clean'] = df_mapa['expediente'].fillna('N/A')
             if "origen_coordenadas" not in df_mapa.columns:
-                df_mapa["origen_coordenadas"] = "HistÃ³rico"
+                df_mapa["origen_coordenadas"] = "Histórico"
             df_mapa["origen_coordenadas"] = df_mapa[
                 "origen_coordenadas"
-            ].fillna("HistÃ³rico")
+            ].fillna("Histórico")
             
             np.random.seed(42)
             df_mapa['lat_j'] = df_mapa['latitud'] + np.random.normal(0, 0.00008, size=len(df_mapa))
@@ -674,32 +684,32 @@ def cargar_feed_reciente():
             
             tooltip = {
                 "html": "<b>{titulo}</b><br/>"
-                        "ðŸ›ï¸ <b>Ã“rgano de contrataciÃ³n:</b> {organo_contratante}<br/>"
-                        "ðŸ“ <b>UbicaciÃ³n:</b> {municipio_clean} ({provincia_clean}, {ccaa_clean})<br/>"
-                        "ðŸ§­ <b>Origen de ubicaciÃ³n:</b> {origen_coordenadas}<br/>"
-                        "ðŸ’¶ <b>PBL sin IVA:</b> {pbl_fmt}<br/>"
-                        "ðŸ“… <b>Fecha presentaciÃ³n oferta:</b> {fecha_limite_fmt}<br/>"
-                        "ðŸ“ <b>CÃ³digo expediente:</b> {expediente_clean}",
+                        "🏛️ <b>Órgano de contratación:</b> {organo_contratante}<br/>"
+                        "📍 <b>Ubicación:</b> {municipio_clean} ({provincia_clean}, {ccaa_clean})<br/>"
+                        "🧭 <b>Origen de ubicación:</b> {origen_coordenadas}<br/>"
+                        "💶 <b>PBL sin IVA:</b> {pbl_fmt}<br/>"
+                        "📅 <b>Fecha presentación oferta:</b> {fecha_limite_fmt}<br/>"
+                        "📁 <b>Código expediente:</b> {expediente_clean}",
                 "style": {"backgroundColor": "#1a252c", "color": "white", "fontSize": "12px", "padding": "10px", "borderRadius": "6px", "maxWidth": "340px"}
             }
             
             r = pdk.Deck(layers=[layer], initial_view_state=view_state, tooltip=tooltip, map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json")
             st.pydeck_chart(r)
         else:
-            st.info("No hay licitaciones con coordenadas geogrÃ¡ficas disponibles para mostrar en el mapa.")
+            st.info("No hay licitaciones con coordenadas geográficas disponibles para mostrar en el mapa.")
 
-    elif vista_principal == "ðŸ—‚ï¸ HistÃ³rico":
+    elif vista_principal == "🗂️ Histórico":
         col_ord1, col_ord2 = st.columns([2, 3])
         with col_ord1:
             criterio_orden = st.selectbox(
-                "ðŸ”ƒ Ordenar tarjetas por:",
-                ["Fecha lÃ­mite (MÃ¡s cercana)", "Fecha lÃ­mite (MÃ¡s lejana)", "Presupuesto (Mayor a menor)", "Presupuesto (Menor a mayor)"],
+                "🔃 Ordenar tarjetas por:",
+                ["Fecha límite (Más cercana)", "Fecha límite (Más lejana)", "Presupuesto (Mayor a menor)", "Presupuesto (Menor a mayor)"],
                 key="select_orden"
             )
         
-        if "Fecha lÃ­mite (MÃ¡s cercana)" in criterio_orden:
+        if "Fecha límite (Más cercana)" in criterio_orden:
             df_f = df_f.sort_values(by='fecha_limite_dt', ascending=True, na_position='last')
-        elif "Fecha lÃ­mite (MÃ¡s lejana)" in criterio_orden:
+        elif "Fecha límite (Más lejana)" in criterio_orden:
             df_f = df_f.sort_values(by='fecha_limite_dt', ascending=False, na_position='last')
         elif "Presupuesto (Mayor a menor)" in criterio_orden:
             df_f = df_f.sort_values(by='pbl_sin_iva', ascending=False, na_position='last')
@@ -720,13 +730,13 @@ def cargar_feed_reciente():
 
         col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
         with col_p1:
-            if st.button("â¬…ï¸ Anterior", key="btn_ant_sup", use_container_width=True, disabled=(st.session_state.pagina_actual <= 1)):
+            if st.button("⬅️ Anterior", key="btn_ant_sup", use_container_width=True, disabled=(st.session_state.pagina_actual <= 1)):
                 st.session_state.pagina_actual -= 1
                 st.rerun()
         with col_p2:
-            st.markdown(f"<p style='text-align:center; font-weight:600; margin-top: 6px;'>PÃ¡gina {st.session_state.pagina_actual} de {total_paginas} (Total: {total_items} licitaciones)</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align:center; font-weight:600; margin-top: 6px;'>Página {st.session_state.pagina_actual} de {total_paginas} (Total: {total_items} licitaciones)</p>", unsafe_allow_html=True)
         with col_p3:
-            if st.button("Siguiente âž¡ï¸", key="btn_sig_sup", use_container_width=True, disabled=(st.session_state.pagina_actual >= total_paginas)):
+            if st.button("Siguiente ➡️", key="btn_sig_sup", use_container_width=True, disabled=(st.session_state.pagina_actual >= total_paginas)):
                 st.session_state.pagina_actual += 1
                 st.rerun()
 
@@ -742,25 +752,25 @@ def cargar_feed_reciente():
         st.divider()
         col_inf1, col_inf2, col_inf3 = st.columns([1, 2, 1])
         with col_inf1:
-            if st.button("â¬…ï¸ Anterior", key="btn_ant_inf", use_container_width=True, disabled=(st.session_state.pagina_actual <= 1)):
+            if st.button("⬅️ Anterior", key="btn_ant_inf", use_container_width=True, disabled=(st.session_state.pagina_actual <= 1)):
                 st.session_state.pagina_actual -= 1
                 st.rerun()
         with col_inf2:
-            st.markdown(f"<p style='text-align:center; font-weight:600; margin-top: 6px;'>PÃ¡gina {st.session_state.pagina_actual} de {total_paginas} (Total: {total_items} licitaciones)</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align:center; font-weight:600; margin-top: 6px;'>Página {st.session_state.pagina_actual} de {total_paginas} (Total: {total_items} licitaciones)</p>", unsafe_allow_html=True)
         with col_inf3:
-            if st.button("Siguiente âž¡ï¸", key="btn_sig_inf", use_container_width=True, disabled=(st.session_state.pagina_actual >= total_paginas)):
+            if st.button("Siguiente ➡️", key="btn_sig_inf", use_container_width=True, disabled=(st.session_state.pagina_actual >= total_paginas)):
                 st.session_state.pagina_actual += 1
                 st.rerun()
 
 st.markdown(
     '<div class="legal-note"><b>Aviso:</b> LandAI Licitaciones es una herramienta '
-    'independiente de consulta y anÃ¡lisis. No pertenece ni representa a la Plataforma de '
-    'ContrataciÃ³n del Sector PÃºblico. La informaciÃ³n oficial y vinculante es la publicada '
+    'independiente de consulta y análisis. No pertenece ni representa a la Plataforma de '
+    'Contratación del Sector Público. La información oficial y vinculante es la publicada '
     'en dicha plataforma.</div>',
     unsafe_allow_html=True,
 )
 
-# Mantiene una navegaciÃ³n vertical predecible tras los reruns de Streamlit.
+# Mantiene una navegación vertical predecible tras los reruns de Streamlit.
 components.html("""
 <script>
 (() => {
@@ -777,7 +787,7 @@ components.html("""
 
         if (saved === "tarjetas") {
             const pageIndicator = Array.from(hostDocument.querySelectorAll("p"))
-                .find((element) => /^PÃ¡gina \d+ de \d+/.test((element.textContent || "").trim()));
+                .find((element) => /^Página \d+ de \d+/.test((element.textContent || "").trim()));
             const target = pageIndicator?.closest('[data-testid="stHorizontalBlock"]') || pageIndicator;
             if (target) {
                 const targetTop = target.getBoundingClientRect().top
