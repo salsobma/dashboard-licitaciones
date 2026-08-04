@@ -1718,7 +1718,7 @@ else:
                     alt.Tooltip("licitaciones:Q", title="Licitaciones")
                 ]
             )
-            .properties(height=500)
+            .properties(height=600)
         )
         grafico_presupuesto_organo = (
             alt.Chart(presupuesto_organo)
@@ -1733,6 +1733,7 @@ else:
                         labelExpr="split(datum.label, '|')",
                         labelLimit=480,
                         labelLineHeight=14,
+                        labelOverlap=False,
                         labelPadding=8,
                     ),
                 ),
@@ -1741,7 +1742,7 @@ else:
                     alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
                 ]
             )
-            .properties(height=500)
+            .properties(height=600)
         )
 
         with st.container(border=True):
