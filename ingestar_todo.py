@@ -210,6 +210,13 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
                     latitud=excluded.latitud,
                     longitud=excluded.longitud,
                     documentos_adjuntos=excluded.documentos_adjuntos
+                WHERE
+                    excluded.fecha_actualizacion IS NOT NULL
+                    AND (
+                        licitaciones.fecha_actualizacion IS NULL
+                        OR julianday(excluded.fecha_actualizacion)
+                           >= julianday(licitaciones.fecha_actualizacion)
+                    )
                 """, (
                     lic_id, id_corta, expediente, titulo, organo, tipo_contrato, estado,
                     pbl_sin_iva, pbl_con_iva, valor_estimado, ",".join(cpvs),
