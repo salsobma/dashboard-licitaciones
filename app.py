@@ -1691,7 +1691,6 @@ else:
         color_azul = "#2563eb"
         color_verde = "#0f9d6e"
         color_naranja = "#f59e0b"
-        color_rojo = "#ef4444"
 
         def agrupar_presupuesto(campo):
             return (
@@ -1827,28 +1826,6 @@ else:
             .reset_index()
         )
 
-        fechas_limite_grafico = pd.to_datetime(df_graficos["fecha_limite_dt"], errors="coerce", utc=True).dt.tz_convert(None)
-        dias_restantes = (fechas_limite_grafico.dt.normalize() - pd.Timestamp.today().normalize()).dt.days
-        orden_vencimientos = ["Finalizan hoy", "Próximos 3 días", "Entre 4 y 7 días", "Más de 7 días"]
-        df_vencimientos = pd.DataFrame({"dias": dias_restantes}).dropna()
-        df_vencimientos = df_vencimientos[df_vencimientos["dias"] >= 0]
-        df_vencimientos["plazo"] = np.select(
-            [
-                df_vencimientos["dias"] == 0,
-                df_vencimientos["dias"].between(1, 3),
-                df_vencimientos["dias"].between(4, 7)
-            ],
-            orden_vencimientos[:3],
-            default=orden_vencimientos[3]
-        )
-        por_vencimiento = (
-            df_vencimientos.groupby("plazo")
-            .size()
-            .reindex(orden_vencimientos, fill_value=0)
-            .rename("licitaciones")
-            .reset_index()
-        )
-
         grafico_presupuesto_comunidad = grafico_horizontal(
             presupuesto_comunidad,
             "comunidad_grafico",
@@ -1944,26 +1921,6 @@ else:
             )
             .properties(height=300)
         )
-        grafico_vencimientos = (
-            alt.Chart(por_vencimiento)
-            .mark_bar(color=color_rojo, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
-            .encode(
-                x=alt.X("plazo:N", title=None, sort=orden_vencimientos, axis=alt.Axis(labelAngle=-20)),
-                y=alt.Y(
-                    "licitaciones:Q",
-                    title="Número de licitaciones",
-                    axis=alt.Axis(format="d", tickMinStep=1),
-                ),
-                tooltip=[
-                    alt.Tooltip("plazo:N", title="Vencimiento"),
-                    alt.Tooltip(
-                        "licitaciones:Q", title="Licitaciones", format="d"
-                    )
-                ]
-            )
-            .properties(height=300)
-        )
-
         graficos_ordenados = [
             (
                 "Presupuesto por comunidad autónoma",
@@ -1975,16 +1932,15 @@ else:
                 "Presupuesto por órgano de contratación",
                 grafico_presupuesto_organo,
             ),
-            (
-                "10 adjudicatarios con mayor importe adjudicado acumulado (IVA incluido)",
-                grafico_presupuesto_adjudicatario,
-            ),
             ("Licitaciones por comunidad autónoma", grafico_comunidades),
             ("Licitaciones por provincia", grafico_provincias),
             ("Licitaciones por municipio", grafico_municipios),
             ("Licitaciones por órgano de contratación", grafico_organos),
+            (
+                "Presupuesto por adjudicatario",
+                grafico_presupuesto_adjudicatario,
+            ),
             ("Distribución de presupuesto", grafico_tramos),
-            ("Próximos vencimientos", grafico_vencimientos),
         ]
         for titulo_grafico, grafico in graficos_ordenados:
             with st.container(border=True):
