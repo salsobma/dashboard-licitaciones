@@ -15,6 +15,7 @@ import textwrap
 import time
 import unicodedata
 from datetime import date
+from pathlib import Path
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from google import genai
@@ -358,6 +359,7 @@ FEED_RECIENTE_URLS = (
 # La portada del feed es sólo la página más reciente. Se agregan también las
 # tres páginas enlazadas siguientes para no perder cambios cuando rota la portada.
 FEED_MAX_PAGINAS = 4
+FEED_CACHE_DIR = Path(__file__).resolve().parent / "feed_cache"
 
 FEED_RECIENTE_HEADERS = {
     "User-Agent": (
@@ -715,15 +717,43 @@ def _bajas_desde_pagina_feed(raiz):
         })
     return bajas
 
-@st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
+def _cargar_paginas_feed_guardadas():
+    manifiesto_path = FEED_CACHE_DIR / "manifest.json"
+    if not manifiesto_path.is_file():
+        return None
+    manifiesto = json.loads(manifiesto_path.read_text(encoding="utf-8"))
+    if manifiesto.get("version") != 1:
+        raise RuntimeError("La versión del feed guardado no es compatible.")
+    paginas = manifiesto.get("paginas")
+    if not isinstance(paginas, list) or not paginas:
+        raise RuntimeError("El feed guardado no contiene páginas.")
+    snapshot = json.loads((FEED_CACHE_DIR / "feed.json").read_text(encoding="utf-8"))
+    filas = snapshot.get("filas")
+    bajas = snapshot.get("bajas")
+    if not isinstance(filas, list) or not isinstance(bajas, list):
+        raise RuntimeError("El contenido del feed guardado no es válido.")
+    return filas, bajas, manifiesto
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def cargar_feed_reciente():
     filas = []
     bajas = []
+    paginas_guardadas = _cargar_paginas_feed_guardadas()
+
+    if paginas_guardadas is not None:
+        filas, bajas, manifiesto_feed = paginas_guardadas
+        actualizado_feed = manifiesto_feed.get("fecha_feed")
+        paginas_leidas = len(manifiesto_feed["paginas"])
+        parcial = not bool(manifiesto_feed.get("completo"))
+        siguiente = None
+    else:
+        siguiente = FEED_RECIENTE_URLS[0]
+        actualizado_feed = None
+        paginas_leidas = 0
+        parcial = False
+
     visitadas = set()
-    siguiente = FEED_RECIENTE_URLS[0]
-    actualizado_feed = None
-    paginas_leidas = 0
-    parcial = False
 
     while siguiente and paginas_leidas < FEED_MAX_PAGINAS:
         if siguiente in visitadas:
