@@ -388,7 +388,7 @@ def _texto_xml(elemento, ruta):
     nodo = elemento.find(ruta, NAMESPACES_ATOM)
     return nodo.text.strip() if nodo is not None and nodo.text else None
 
-@st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
+@st.cache_data(ttl=900, show_spinner=False)
 def _cargar_feed_reciente_portada_legacy():
     respuesta = None
     errores = []
