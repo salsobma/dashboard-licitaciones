@@ -15,10 +15,12 @@ import textwrap
 import time
 import unicodedata
 from datetime import date
+from pathlib import Path
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from google import genai
 from google.genai import types
+from feed_parser import extraer_adjudicacion
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -290,9 +292,30 @@ def formato_eur(valor):
         return "No especificado"
     return f"{float(valor):,.2f}".translate(str.maketrans({",": ".", ".": ","})) + " €"
 
+def calcular_baja(pbl_con_iva, adjudicacion_con_iva):
+    try:
+        pbl = float(pbl_con_iva)
+        adjudicacion = float(adjudicacion_con_iva)
+    except (TypeError, ValueError):
+        return None, None
+    if (
+        pd.isna(pbl)
+        or pd.isna(adjudicacion)
+        or pbl <= 0
+        or adjudicacion < 0
+        or adjudicacion > pbl
+    ):
+        return None, None
+    diferencia = pbl - adjudicacion
+    return diferencia, diferencia * 100 / pbl
+
 def formato_fecha(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
+
+def formato_fecha_corta(valor):
+    fecha = pd.to_datetime(valor, errors="coerce")
+    return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y")
 
 def texto_dias_restantes(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
@@ -358,6 +381,7 @@ FEED_RECIENTE_URLS = (
 # La portada del feed es sólo la página más reciente. Se agregan también las
 # tres páginas enlazadas siguientes para no perder cambios cuando rota la portada.
 FEED_MAX_PAGINAS = 4
+FEED_CACHE_DIR = Path(__file__).resolve().parent / "feed_cache"
 
 FEED_RECIENTE_HEADERS = {
     "User-Agent": (
@@ -386,7 +410,7 @@ def _texto_xml(elemento, ruta):
     nodo = elemento.find(ruta, NAMESPACES_ATOM)
     return nodo.text.strip() if nodo is not None and nodo.text else None
 
-@st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
+@st.cache_data(ttl=900, show_spinner=False)
 def _cargar_feed_reciente_portada_legacy():
     respuesta = None
     errores = []
@@ -606,6 +630,7 @@ def _fila_desde_entrada_feed(entrada):
     proyecto = status.find("cac:ProcurementProject", NAMESPACES_ATOM)
     if proyecto is None:
         return None
+    adjudicatario, fecha_adjudicacion, importe_adjudicacion_con_iva = extraer_adjudicacion(status)
 
     def numero(ruta):
         valor = _texto_xml(proyecto, ruta)
@@ -690,6 +715,9 @@ def _fila_desde_entrada_feed(entrada):
         "longitud": None,
         "fecha_limite": fecha_limite,
         "fecha_actualizacion": _texto_xml(entrada, "atom:updated"),
+        "adjudicatario": adjudicatario,
+        "fecha_adjudicacion": fecha_adjudicacion,
+        "importe_adjudicacion_con_iva": importe_adjudicacion_con_iva,
         "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
         "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
         "resumen_ia": None,
@@ -715,15 +743,43 @@ def _bajas_desde_pagina_feed(raiz):
         })
     return bajas
 
-@st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
+def _cargar_paginas_feed_guardadas():
+    manifiesto_path = FEED_CACHE_DIR / "manifest.json"
+    if not manifiesto_path.is_file():
+        return None
+    manifiesto = json.loads(manifiesto_path.read_text(encoding="utf-8"))
+    if manifiesto.get("version") != 1:
+        raise RuntimeError("La versión del feed guardado no es compatible.")
+    paginas = manifiesto.get("paginas")
+    if not isinstance(paginas, list) or not paginas:
+        raise RuntimeError("El feed guardado no contiene páginas.")
+    snapshot = json.loads((FEED_CACHE_DIR / "feed.json").read_text(encoding="utf-8"))
+    filas = snapshot.get("filas")
+    bajas = snapshot.get("bajas")
+    if not isinstance(filas, list) or not isinstance(bajas, list):
+        raise RuntimeError("El contenido del feed guardado no es válido.")
+    return filas, bajas, manifiesto
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def cargar_feed_reciente():
     filas = []
     bajas = []
+    paginas_guardadas = _cargar_paginas_feed_guardadas()
+
+    if paginas_guardadas is not None:
+        filas, bajas, manifiesto_feed = paginas_guardadas
+        actualizado_feed = manifiesto_feed.get("fecha_feed")
+        paginas_leidas = len(manifiesto_feed["paginas"])
+        parcial = not bool(manifiesto_feed.get("completo"))
+        siguiente = None
+    else:
+        siguiente = FEED_RECIENTE_URLS[0]
+        actualizado_feed = None
+        paginas_leidas = 0
+        parcial = False
+
     visitadas = set()
-    siguiente = FEED_RECIENTE_URLS[0]
-    actualizado_feed = None
-    paginas_leidas = 0
-    parcial = False
 
     while siguiente and paginas_leidas < FEED_MAX_PAGINAS:
         if siguiente in visitadas:
@@ -1336,11 +1392,38 @@ def render_grid_tarjetas(df_vista, key_prefix):
                     </p>
                     """, unsafe_allow_html=True)
                     
-                    mc1, mc2 = st.columns(2)
-                    with mc1:
-                        st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.85rem;">{formato_eur(r["pbl_sin_iva"])}</div><div class="metric-lbl-grid">PBL SIN IVA</div></div>', unsafe_allow_html=True)
-                    with mc2:
-                        st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{formato_fecha(r["fecha_limite"])}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_dias_restantes(r["fecha_limite"])}</div></div>', unsafe_allow_html=True)
+                    if r.get("estado") in {"ADJ", "RES"}:
+                        importe_adjudicado = r.get("importe_adjudicacion_con_iva")
+                        baja_importe, baja_porcentaje = calcular_baja(
+                            r.get("pbl_con_iva"), importe_adjudicado
+                        )
+                        baja_valor = formato_eur(baja_importe) if baja_importe is not None else "No disponible"
+                        baja_detalle = (
+                            f"{baja_porcentaje:.2f} %".replace(".", ",")
+                            if baja_porcentaje is not None else "Sin datos suficientes"
+                        )
+                        adjudicatario_safe = texto_seguro(
+                            r.get("adjudicatario"), "No disponible"
+                        )
+                        ma1, ma2, ma3 = st.columns(3)
+                        with ma1:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{formato_eur(r.get("pbl_con_iva"))}</div><div class="metric-lbl-grid">PBL CON IVA</div></div>', unsafe_allow_html=True)
+                        with ma2:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{formato_eur(importe_adjudicado)}</div><div class="metric-lbl-grid">ADJUDICACIÓN CON IVA</div></div>', unsafe_allow_html=True)
+                        with ma3:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{baja_valor}</div><div class="metric-lbl-grid">BAJA</div><div style="margin-top:4px;font-size:0.72rem;font-weight:700;color:#198754;">{baja_detalle}</div></div>', unsafe_allow_html=True)
+
+                        mi1, mi2 = st.columns([2, 1])
+                        with mi1:
+                            st.markdown(f'<div class="metric-box-grid card-metric" title="{adjudicatario_safe}"><div class="metric-val-grid" style="font-size:0.78rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">{adjudicatario_safe}</div><div class="metric-lbl-grid">ADJUDICATARIO</div></div>', unsafe_allow_html=True)
+                        with mi2:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;color:#495057;">{formato_fecha_corta(r.get("fecha_adjudicacion"))}</div><div class="metric-lbl-grid">FECHA ADJUDICACIÓN</div></div>', unsafe_allow_html=True)
+                    else:
+                        mc1, mc2 = st.columns(2)
+                        with mc1:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.85rem;">{formato_eur(r.get("pbl_con_iva"))}</div><div class="metric-lbl-grid">PBL CON IVA</div></div>', unsafe_allow_html=True)
+                        with mc2:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{formato_fecha(r["fecha_limite"])}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_dias_restantes(r["fecha_limite"])}</div></div>', unsafe_allow_html=True)
 
                     with st.expander("📄 Ver documentación"):
                         docs = json.loads(r['documentos_adjuntos']) if r['documentos_adjuntos'] else []
@@ -1407,8 +1490,8 @@ else:
         st.subheader("⚡ Radar de actualizaciones")
         st.caption(
             "Cambios publicados recientemente en el feed oficial de la Plataforma de "
-            "Contratación del Sector Público. Se consulta al abrir el dashboard y la "
-            "consulta se renueva como máximo cada 15 minutos."
+            "Contratación del Sector Público. Actualización automática diaria a las "
+            "09:07, 13:07, 17:07 y 21:07 (hora de Madrid)."
         )
         try:
             if error_feed_catalogo:

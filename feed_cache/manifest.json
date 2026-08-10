@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "fecha_feed": "2026-08-09T20:03:15.159+02:00",
+  "paginas": [
+    {
+      "numero": 1,
+      "url": "https://contrataciondelsectorpublico.gob.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom",
+      "bytes": 888676
+    },
+    {
+      "numero": 2,
+      "url": "https://contrataciondelestado.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3_20260809_200315.atom",
+      "bytes": 15226488
+    },
+    {
+      "numero": 3,
+      "url": "https://contrataciondelestado.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3_20260807_201321.atom",
+      "bytes": 17239578
+    },
+    {
+      "numero": 4,
+      "url": "https://contrataciondelestado.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3_20260807_201321_1.atom",
+      "bytes": 14860297
+    }
+  ],
+  "completo": true,
+  "registros": 1513,
+  "bajas": 10
+}
