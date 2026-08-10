@@ -222,7 +222,7 @@ st.markdown("""
     .metric-box-grid { background-color: #ffffff; border-radius: 8px; padding: 12px 10px; text-align: center; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
     .metric-val-grid { font-size: 1.35rem; font-weight: 800; color: #0d6efd; letter-spacing: -0.5px; }
     .metric-lbl-grid { font-size: 0.72rem; color: #475569; text-transform: uppercase; font-weight: 700; margin-top: 4px; }
-    .card-metric { height: 100px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; box-sizing: border-box !important; }
+    .card-metric { height: 100px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 0.65rem !important; }
     .top-kpi { height: 112px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; box-sizing: border-box !important; }
     .company-card { margin-top: 0; margin-bottom: 1rem; padding: 1.4rem; border: 1px solid #dbe3ec; border-radius: 12px; background: #ffffff; box-shadow: 0 2px 8px rgba(15,23,42,0.06); }
     .company-heading { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 0.55rem; }
@@ -1034,6 +1034,7 @@ if st.sidebar.button("🗑️ Quitar filtros", use_container_width=True):
     st.session_state["f_fecha"] = (f_min_db, f_max_db)
     st.session_state["f_sin_fecha"] = True
     st.session_state["f_organo"] = []
+    st.session_state["f_adjudicatario"] = []
     st.rerun()
 
 if st.sidebar.button("↩️ Filtros iniciales", use_container_width=True):
@@ -1049,6 +1050,7 @@ if st.sidebar.button("↩️ Filtros iniciales", use_container_width=True):
     st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
     st.session_state["f_sin_fecha"] = True
     st.session_state["f_organo"] = []
+    st.session_state["f_adjudicatario"] = []
     st.rerun()
 
 st.sidebar.divider()
@@ -1087,6 +1089,14 @@ incluir_sin_fecha = st.sidebar.checkbox(
 organos = sorted([x for x in df_catalogo_filtros['organo_contratante'].dropna().unique() if x])
 organo_sel = st.sidebar.multiselect("🏛️ Órgano de Contratación:", organos, key="f_organo")
 
+adjudicatarios = sorted([
+    x for x in df_catalogo_filtros['adjudicatario'].dropna().unique()
+    if str(x).strip()
+])
+adjudicatario_sel = st.sidebar.multiselect(
+    "🏆 Adjudicatario:", adjudicatarios, key="f_adjudicatario"
+)
+
 df_f = df.copy()
 
 if busqueda_texto.strip():
@@ -1110,6 +1120,7 @@ if ccaa_sel: df_f = df_f[df_f['comunidad_autonoma'].isin(ccaa_sel)]
 if prov_sel: df_f = df_f[df_f['provincia'].isin(prov_sel)]
 if muni_sel: df_f = df_f[df_f['municipio'].isin(muni_sel)]
 if organo_sel: df_f = df_f[df_f['organo_contratante'].isin(organo_sel)]
+if adjudicatario_sel: df_f = df_f[df_f['adjudicatario'].isin(adjudicatario_sel)]
 
 if cpv_2dig.strip():
     prefijo = cpv_2dig.strip()
@@ -1169,6 +1180,10 @@ def aplicar_filtros_al_feed(df_entrada):
     if organo_sel:
         filtrado = filtrado[
             filtrado["organo_contratante"].isin(organo_sel)
+        ]
+    if adjudicatario_sel:
+        filtrado = filtrado[
+            filtrado["adjudicatario"].isin(adjudicatario_sel)
         ]
     if cpv_2dig.strip():
         prefijo_feed = cpv_2dig.strip()
@@ -1331,6 +1346,7 @@ if fecha_rango and len(fecha_rango) == 2:
 if not incluir_sin_fecha:
     filtros_activos.append('Sin fecha límite: excluidas')
 if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
+if adjudicatario_sel: filtros_activos.append('Adjudicatario: ' + ', '.join(adjudicatario_sel))
 
 resumen_filtros = ' · '.join(filtros_activos) if filtros_activos else 'Ninguno'
 st.markdown(
@@ -1529,6 +1545,8 @@ else:
                             "Actualización (Más antigua)",
                             "Fecha límite (Más cercana)",
                             "Fecha límite (Más lejana)",
+                            "Fecha de adjudicación (Más cercana)",
+                            "Fecha de adjudicación (Más lejana)",
                             "Presupuesto (Mayor a menor)",
                             "Presupuesto (Menor a mayor)",
                         ],
@@ -1545,6 +1563,24 @@ else:
                     elif criterio_radar == "Fecha límite (Más lejana)":
                         df_radar = df_radar.sort_values(
                             "fecha_limite_dt", ascending=False, na_position="last"
+                        )
+                    elif criterio_radar == "Fecha de adjudicación (Más cercana)":
+                        df_radar = df_radar.assign(
+                            fecha_adjudicacion_dt=pd.to_datetime(
+                                df_radar["fecha_adjudicacion"], errors="coerce"
+                            )
+                        ).sort_values(
+                            "fecha_adjudicacion_dt", ascending=False,
+                            na_position="last"
+                        )
+                    elif criterio_radar == "Fecha de adjudicación (Más lejana)":
+                        df_radar = df_radar.assign(
+                            fecha_adjudicacion_dt=pd.to_datetime(
+                                df_radar["fecha_adjudicacion"], errors="coerce"
+                            )
+                        ).sort_values(
+                            "fecha_adjudicacion_dt", ascending=True,
+                            na_position="last"
                         )
                     elif criterio_radar == "Presupuesto (Mayor a menor)":
                         df_radar = df_radar.sort_values(
@@ -1647,6 +1683,9 @@ else:
             )
         df_graficos["pbl_sin_iva"] = pd.to_numeric(
             df_graficos["pbl_sin_iva"], errors="coerce"
+        ).fillna(0)
+        df_graficos["importe_adjudicacion_con_iva"] = pd.to_numeric(
+            df_graficos["importe_adjudicacion_con_iva"], errors="coerce"
         ).fillna(0)
 
         color_azul = "#2563eb"
@@ -1752,6 +1791,17 @@ else:
         presupuesto_provincia = agrupar_presupuesto("provincia_grafico")
         presupuesto_municipio = agrupar_presupuesto("municipio_grafico")
         presupuesto_organo = agrupar_presupuesto("organo_grafico")
+        presupuesto_adjudicatario = (
+            df_graficos[
+                df_graficos["adjudicatario"].notna()
+                & df_graficos["adjudicatario"].astype(str).str.strip().ne("")
+                & (df_graficos["importe_adjudicacion_con_iva"] > 0)
+            ]
+            .groupby("adjudicatario", as_index=False)["importe_adjudicacion_con_iva"]
+            .sum()
+            .sort_values("importe_adjudicacion_con_iva", ascending=False)
+            .head(10)
+        )
         por_comunidad = agrupar_licitaciones("comunidad_grafico")
         por_provincia = agrupar_licitaciones("provincia_grafico")
         por_municipio = agrupar_licitaciones("municipio_grafico")
@@ -1830,6 +1880,14 @@ else:
             "Órgano de contratación",
             "Presupuesto total sin IVA (€)",
             "#0891b2",
+        )
+        grafico_presupuesto_adjudicatario = grafico_horizontal(
+            presupuesto_adjudicatario,
+            "adjudicatario",
+            "importe_adjudicacion_con_iva",
+            "Adjudicatario",
+            "Importe adjudicado acumulado con IVA (€)",
+            "#0d9488",
         )
         grafico_comunidades = grafico_horizontal(
             por_comunidad,
@@ -1916,6 +1974,10 @@ else:
             (
                 "Presupuesto por órgano de contratación",
                 grafico_presupuesto_organo,
+            ),
+            (
+                "10 adjudicatarios con mayor importe adjudicado acumulado (IVA incluido)",
+                grafico_presupuesto_adjudicatario,
             ),
             ("Licitaciones por comunidad autónoma", grafico_comunidades),
             ("Licitaciones por provincia", grafico_provincias),
@@ -2030,7 +2092,14 @@ else:
         with col_ord1:
             criterio_orden = st.selectbox(
                 "🔃 Ordenar tarjetas por:",
-                ["Fecha límite (Más cercana)", "Fecha límite (Más lejana)", "Presupuesto (Mayor a menor)", "Presupuesto (Menor a mayor)"],
+                [
+                    "Fecha límite (Más cercana)",
+                    "Fecha límite (Más lejana)",
+                    "Fecha de adjudicación (Más cercana)",
+                    "Fecha de adjudicación (Más lejana)",
+                    "Presupuesto (Mayor a menor)",
+                    "Presupuesto (Menor a mayor)",
+                ],
                 key="select_orden"
             )
         
@@ -2038,6 +2107,18 @@ else:
             df_f = df_f.sort_values(by='fecha_limite_dt', ascending=True, na_position='last')
         elif "Fecha límite (Más lejana)" in criterio_orden:
             df_f = df_f.sort_values(by='fecha_limite_dt', ascending=False, na_position='last')
+        elif "Fecha de adjudicación (Más cercana)" in criterio_orden:
+            df_f = df_f.assign(
+                fecha_adjudicacion_dt=pd.to_datetime(
+                    df_f['fecha_adjudicacion'], errors='coerce'
+                )
+            ).sort_values(by='fecha_adjudicacion_dt', ascending=False, na_position='last')
+        elif "Fecha de adjudicación (Más lejana)" in criterio_orden:
+            df_f = df_f.assign(
+                fecha_adjudicacion_dt=pd.to_datetime(
+                    df_f['fecha_adjudicacion'], errors='coerce'
+                )
+            ).sort_values(by='fecha_adjudicacion_dt', ascending=True, na_position='last')
         elif "Presupuesto (Mayor a menor)" in criterio_orden:
             df_f = df_f.sort_values(by='pbl_sin_iva', ascending=False, na_position='last')
         elif "Presupuesto (Menor a mayor)" in criterio_orden:
