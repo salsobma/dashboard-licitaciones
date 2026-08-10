@@ -269,10 +269,6 @@ MAPA_ESTADOS = {
     'CERR': ('Cerrada / Archivada', 'badge-res'),
 }
 
-ESTADOS_VERIFICADOS_PLATAFORMA = {
-    "38455/2021": "PARCIAL",
-}
-
 MAPA_TIPOS = {
     '1': 'Suministros', '2': 'Servicios', '3': 'Obras',
     '21': 'Concesión de Servicios', '31': 'Concesión de Obras'
@@ -392,13 +388,6 @@ def normalizar_estado_vigente(tabla):
         & limite_local.lt(ahora_local)
     )
     resultado.loc[plazo_vencido, "estado"] = "EV"
-    if "expediente" in resultado.columns:
-        estados_verificados = resultado["expediente"].map(
-            ESTADOS_VERIFICADOS_PLATAFORMA
-        )
-        resultado.loc[estados_verificados.notna(), "estado"] = (
-            estados_verificados.dropna()
-        )
     return resultado
 
 FEED_RECIENTE_URLS = (
