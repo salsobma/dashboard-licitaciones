@@ -2171,7 +2171,7 @@ components.html("""
 
         if (saved === "tarjetas") {
             const pageIndicator = Array.from(hostDocument.querySelectorAll("p"))
-                .find((element) => /^Página \d+ de \d+/.test((element.textContent || "").trim()));
+                .find((element) => /^Página \\d+ de \\d+/.test((element.textContent || "").trim()));
             const target = pageIndicator?.closest('[data-testid="stHorizontalBlock"]') || pageIndicator;
             if (target) {
                 const targetTop = target.getBoundingClientRect().top
