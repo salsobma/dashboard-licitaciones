@@ -1,22 +1,56 @@
 import html
+# Revisión de despliegue: filtro del Radar protegido ante resultados vacíos.
 import streamlit as st
 import streamlit.components.v1 as components
 import altair as alt
 import sqlite3
+import xml.etree.ElementTree as ET
 import pandas as pd
 import json
 import pydeck as pdk
 import numpy as np
 import os
 import requests
+import textwrap
+import time
+import unicodedata
 from datetime import date
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from google import genai
 from google.genai import types
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Licitaciones | Dashboard", layout="wide", page_icon="🏛️", initial_sidebar_state="collapsed")
+st.set_page_config(
+    page_title="LandAI Licitaciones",
+    layout="wide",
+    page_icon="static/icons/icon-192.png",
+    initial_sidebar_state="collapsed",
+)
+
+# Metadatos de instalación: Chrome/Android usa este manifiesto al crear el acceso directo.
+components.html("""
+<script>
+(() => {
+    // El componente vive dentro de un iframe; el manifiesto debe estar en el documento superior.
+    const hostDocument = window.top.document;
+    const assetBase = new URL("app/static/", window.top.location.origin + "/").toString();
+    const ensureLink = (rel, href, extras = {}) => {
+        let element = rel === "manifest"\n            ? hostDocument.querySelector('link[rel="manifest"]')\n            : hostDocument.querySelector(`link[data-landai="${rel}"]`);
+        if (!element) { element = hostDocument.createElement("link"); element.dataset.landai = rel; hostDocument.head.appendChild(element); }
+        element.rel = rel; element.href = href;
+        Object.entries(extras).forEach(([key, value]) => element.setAttribute(key, value));
+    };
+    ensureLink("manifest", assetBase + "manifest.json");
+    ensureLink("icon", assetBase + "icons/icon-192.png", { sizes: "192x192", type: "image/png" });
+    ensureLink("apple-touch-icon", assetBase + "icons/icon-192.png", { sizes: "192x192" });
+    let theme = hostDocument.querySelector('meta[name="theme-color"][data-landai-theme]');
+    if (!theme) { theme = hostDocument.createElement("meta"); theme.name = "theme-color"; theme.dataset.landaiTheme = "true"; hostDocument.head.appendChild(theme); }
+    theme.content = "#3d3739";
+})();
+</script>
+""", height=0)
+
 
 # --- RUTA DE LA BASE DE DATOS ADAPTADA (LOCAL Y NUBE) ---
 DB_PATH = os.getenv("LICITACIONES_DB_PATH", "licitaciones.db")
@@ -188,7 +222,7 @@ st.markdown("""
     .metric-lbl-grid { font-size: 0.72rem; color: #475569; text-transform: uppercase; font-weight: 700; margin-top: 4px; }
     .card-metric { height: 100px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; box-sizing: border-box !important; }
     .top-kpi { height: 112px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; box-sizing: border-box !important; }
-    .company-card { margin-top: 2rem; padding: 1.4rem; border: 1px solid #dbe3ec; border-radius: 12px; background: #ffffff; box-shadow: 0 2px 8px rgba(15,23,42,0.06); }
+    .company-card { margin-top: 0; margin-bottom: 1rem; padding: 1.4rem; border: 1px solid #dbe3ec; border-radius: 12px; background: #ffffff; box-shadow: 0 2px 8px rgba(15,23,42,0.06); }
     .company-heading { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 0.55rem; }
     .company-logo { width: 52px; height: 52px; flex: 0 0 52px; display: block; border-radius: 10px; object-fit: cover; }
     .company-name { margin: 0; color: #1e293b; font-size: 1.15rem; font-weight: 800; }
@@ -196,10 +230,10 @@ st.markdown("""
     .company-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; }
     .company-action { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 0.6rem 0.9rem; border: 1px solid #bfd2ea; border-radius: 8px; background: #f8fbff; color: #0b5ed7 !important; text-decoration: none !important; font-weight: 700; box-sizing: border-box; }
     .company-action:hover { background: #0d6efd; border-color: #0d6efd; color: white !important; }
-    .dashboard-top-header { display: grid; grid-template-columns: minmax(0, 1fr) minmax(460px, 0.95fr); align-items: center; gap: 1.5rem; margin-bottom: 1rem; }
-    .dashboard-top-header .company-card { margin-top: 0; padding: 1rem; }
-    .dashboard-top-header .company-copy { margin: 0.25rem 0 0.75rem; }
-    .dashboard-top-header .company-action { min-height: 38px; padding: 0.45rem 0.7rem; font-size: 0.82rem; }
+    .data-source { margin: -0.35rem 0 1rem; color: #64748b; font-size: 0.82rem; }
+    .data-source a { color: #0b5ed7 !important; font-weight: 700; text-decoration: none !important; }
+    .data-source a:hover { text-decoration: underline !important; }
+    .legal-note { margin-top: 1.5rem; padding: 0.9rem 1rem; border-top: 1px solid #dbe3ec; color: #64748b; font-size: 0.78rem; line-height: 1.45; }
 
     .row-widget.stHorizontal { align-items: stretch !important; }
     div[data-testid="stVerticalBlock"]:has(> div.stContainer) { height: 100%; }
@@ -216,7 +250,6 @@ st.markdown("""
         .company-card { padding: 1rem !important; }
         .company-actions { flex-direction: column !important; }
         .company-action { width: 100% !important; }
-        .dashboard-top-header { grid-template-columns: minmax(0, 1fr) !important; gap: 0.85rem !important; }
         div[data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; max-width: 100% !important; flex: 0 0 auto !important; }\n        div[data-testid="stHorizontalBlock"], .metric-box-grid, div[data-testid="stExpander"] { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
         h1 { font-size: 1.8rem !important; }
     }
@@ -225,9 +258,12 @@ st.markdown("""
 
 MAPA_ESTADOS = {
     'PUB': ('En plazo / Publicada', 'badge-pub'),
+    'PRE': ('Preanuncio', 'badge-res'),
     'EV':  ('En Evaluación', 'badge-ev'),
     'ADJ': ('Adjudicada', 'badge-adj'),
-    'RES': ('Resuelta / Formalizada', 'badge-res')
+    'RES': ('Resuelta / Formalizada', 'badge-res'),
+    'ANUL': ('Anulada', 'badge-res'),
+    'CERR': ('Cerrada / Archivada', 'badge-res'),
 }
 
 MAPA_TIPOS = {
@@ -256,12 +292,12 @@ def formato_eur(valor):
 
 def formato_fecha(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
-    return "No especificada" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
+    return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
 
 def texto_dias_restantes(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     if pd.isna(fecha):
-        return "Plazo no disponible"
+        return "Fecha límite no disponible en la plataforma"
     dias = (fecha.date() - date.today()).days
     if dias > 1:
         return f"Faltan {dias} días"
@@ -283,6 +319,589 @@ def texto_antiguedad(valor):
         return "Hace 1 día"
     return f"Hace {dias} días"
 
+def normalizar_estado_vigente(tabla):
+    """Conserva el estado ATOM y calcula el estado operativo por fecha límite."""
+    resultado = tabla.copy()
+    if resultado.empty or not {"estado", "fecha_limite"}.issubset(resultado.columns):
+        return resultado
+
+    resultado["estado_fuente"] = resultado["estado"]
+    texto_limite = resultado["fecha_limite"].fillna("").astype(str).str.strip()
+    limite_local = pd.to_datetime(texto_limite.str.slice(0, 19), errors="coerce")
+
+    # Si la fuente sólo facilita una fecha, el plazo vence al terminar ese día.
+    solo_fecha = texto_limite.str.fullmatch(r"\d{4}-\d{2}-\d{2}")
+    limite_local = limite_local.where(
+        ~solo_fecha,
+        limite_local + pd.Timedelta(days=1) - pd.Timedelta(seconds=1),
+    )
+    ahora_local = pd.Timestamp.now(tz="Europe/Madrid").tz_localize(None)
+    plazo_vencido = (
+        resultado["estado"].eq("PUB")
+        & limite_local.notna()
+        & limite_local.lt(ahora_local)
+    )
+    resultado.loc[plazo_vencido, "estado"] = "EV"
+    return resultado
+
+FEED_RECIENTE_URLS = (
+    (
+        "https://contrataciondelsectorpublico.gob.es/sindicacion/"
+        "sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom"
+    ),
+    (
+        "https://contrataciondelestado.es/sindicacion/"
+        "sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom"
+    ),
+)
+
+# La portada del feed es sólo la página más reciente. Se agregan también las
+# tres páginas enlazadas siguientes para no perder cambios cuando rota la portada.
+FEED_MAX_PAGINAS = 4
+
+FEED_RECIENTE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/138.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/atom+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+    "Referer": "https://contrataciondelsectorpublico.gob.es/datosabiertos",
+    "Cache-Control": "no-cache",
+}
+
+NAMESPACES_ATOM = {
+    "atom": "http://www.w3.org/2005/Atom",
+    "at": "http://purl.org/atompub/tombstones/1.0",
+    "cbc": "urn:dgpe:names:draft:codice:schema:xsd:CommonBasicComponents-2",
+    "cac": "urn:dgpe:names:draft:codice:schema:xsd:CommonAggregateComponents-2",
+    "cac-place-ext": "urn:dgpe:names:draft:codice-place-ext:schema:xsd:CommonAggregateComponents-2",
+    "cbc-place-ext": "urn:dgpe:names:draft:codice-place-ext:schema:xsd:CommonBasicComponents-2",
+}
+
+def _texto_xml(elemento, ruta):
+    if elemento is None:
+        return None
+    nodo = elemento.find(ruta, NAMESPACES_ATOM)
+    return nodo.text.strip() if nodo is not None and nodo.text else None
+
+@st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
+def _cargar_feed_reciente_portada_legacy():
+    respuesta = None
+    errores = []
+    for ronda in range(2):
+        for url_feed in FEED_RECIENTE_URLS:
+            try:
+                candidata = requests.get(
+                    url_feed,
+                    headers=FEED_RECIENTE_HEADERS,
+                    timeout=45,
+                )
+                candidata.raise_for_status()
+                inicio = candidata.content[:4096]
+                if b"Web Application Firewall" in inicio:
+                    raise RuntimeError(
+                        "el cortafuegos de la plataforma rechazó temporalmente la consulta"
+                    )
+                if b"<feed" not in inicio and b"<?xml" not in inicio:
+                    tipo = candidata.headers.get("content-type", "desconocido")
+                    raise RuntimeError(
+                        f"la plataforma no devolvió un feed XML ({tipo})"
+                    )
+                respuesta = candidata
+                break
+            except Exception as error:
+                errores.append(f"{url_feed}: {error}")
+        if respuesta is not None:
+            break
+        if ronda == 0:
+            time.sleep(2)
+
+    if respuesta is None:
+        detalle = errores[-1] if errores else "error desconocido"
+        raise RuntimeError(
+            "El feed oficial no está disponible temporalmente. "
+            f"Último intento: {detalle}"
+        )
+
+    raiz = ET.fromstring(respuesta.content)
+    if raiz.tag != f"{{{NAMESPACES_ATOM['atom']}}}feed":
+        raise RuntimeError("La respuesta oficial no contiene un feed ATOM válido.")
+    actualizado_feed = _texto_xml(raiz, "atom:updated")
+    filas = []
+
+    for entrada in raiz.findall("atom:entry", NAMESPACES_ATOM):
+        lic_id = _texto_xml(entrada, "atom:id")
+        enlace = entrada.find("atom:link", NAMESPACES_ATOM)
+        status = entrada.find("cac-place-ext:ContractFolderStatus", NAMESPACES_ATOM)
+        if status is None:
+            continue
+
+        party = status.find("cac-place-ext:LocatedContractingParty/cac:Party", NAMESPACES_ATOM)
+        proyecto = status.find("cac:ProcurementProject", NAMESPACES_ATOM)
+        if proyecto is None:
+            continue
+
+        def numero(ruta):
+            valor = _texto_xml(proyecto, ruta)
+            try:
+                return float(valor) if valor else None
+            except (TypeError, ValueError):
+                return None
+
+        codigo_postal = _texto_xml(proyecto, "cac:RealizedLocation/cac:Address/cbc:PostalZone")
+        municipio = _texto_xml(proyecto, "cac:RealizedLocation/cac:Address/cbc:CityName")
+        if not codigo_postal:
+            codigo_postal = _texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
+        if not municipio:
+            municipio = _texto_xml(party, "cac:PostalAddress/cbc:CityName")
+
+        cpvs = [
+            nodo.text.strip()
+            for nodo in proyecto.findall(
+                "cac:RequiredCommodityClassification/cbc:ItemClassificationCode",
+                NAMESPACES_ATOM,
+            )
+            if nodo.text
+        ]
+
+        fecha_limite = _texto_xml(
+            status,
+            "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndDate",
+        )
+        hora_limite = _texto_xml(
+            status,
+            "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndTime",
+        )
+        if fecha_limite and hora_limite:
+            fecha_limite = f"{fecha_limite} {hora_limite}"
+
+        documentos = []
+        referencias = [
+            ("PPT", "cac:TechnicalDocumentReference"),
+            ("PCAP", "cac:LegalDocumentReference"),
+        ]
+        for tipo_doc, etiqueta in referencias:
+            doc = status.find(etiqueta, NAMESPACES_ATOM)
+            if doc is not None:
+                uri = _texto_xml(doc, "cac:Attachment/cac:ExternalReference/cbc:URI")
+                if uri:
+                    documentos.append({
+                        "tipo": tipo_doc,
+                        "nombre": _texto_xml(doc, "cbc:ID") or tipo_doc,
+                        "url": uri,
+                    })
+        for doc in status.findall("cac:AdditionalDocumentReference", NAMESPACES_ATOM):
+            uri = _texto_xml(doc, "cac:Attachment/cac:ExternalReference/cbc:URI")
+            if uri:
+                documentos.append({
+                    "tipo": "ANEXO",
+                    "nombre": _texto_xml(doc, "cbc:ID") or "Anexo adicional",
+                    "url": uri,
+                })
+
+        filas.append({
+            "id": lic_id,
+            "id_licitacion_corta": lic_id.split("/")[-1] if lic_id else None,
+            "expediente": _texto_xml(status, "cbc:ContractFolderID"),
+            "titulo": _texto_xml(proyecto, "cbc:Name"),
+            "organo_contratante": _texto_xml(party, "cac:PartyName/cbc:Name"),
+            "tipo_contrato": _texto_xml(proyecto, "cbc:TypeCode"),
+            "estado": _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode"),
+            "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
+            "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
+            "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
+            "cpv": ",".join(cpvs),
+            "codigo_postal": codigo_postal,
+            "municipio": municipio,
+            "provincia": _texto_xml(
+                proyecto, "cac:RealizedLocation/cbc:CountrySubentity"
+            ),
+            "comunidad_autonoma": None,
+            "latitud": None,
+            "longitud": None,
+            "fecha_limite": fecha_limite,
+            "fecha_actualizacion": _texto_xml(entrada, "atom:updated"),
+            "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
+            "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
+            "resumen_ia": None,
+        })
+
+    radar = pd.DataFrame(filas)
+    if not radar.empty:
+        radar = radar.drop_duplicates(subset=["id"], keep="first")
+        radar["fecha_limite_dt"] = pd.to_datetime(
+            radar["fecha_limite"].astype(str).str.slice(0, 10),
+            errors="coerce",
+            utc=True,
+        )
+        radar["fecha_act_dt"] = pd.to_datetime(
+            radar["fecha_actualizacion"], errors="coerce", utc=True
+        )
+        radar["tipo_contrato_desc"] = (
+            radar["tipo_contrato"].map(MAPA_TIPOS).fillna("Otros")
+        )
+    return radar, actualizado_feed
+
+def _variantes_url_feed(url_feed):
+    variantes = [url_feed]
+    dominios = (
+        "contrataciondelsectorpublico.gob.es",
+        "contrataciondelestado.es",
+    )
+    for origen in dominios:
+        if origen in url_feed:
+            for destino in dominios:
+                candidata = url_feed.replace(origen, destino)
+                if candidata not in variantes:
+                    variantes.append(candidata)
+    return variantes
+
+def _descargar_pagina_feed(url_feed):
+    errores = []
+    for ronda in range(2):
+        for candidata_url in _variantes_url_feed(url_feed):
+            try:
+                respuesta = requests.get(
+                    candidata_url,
+                    headers=FEED_RECIENTE_HEADERS,
+                    timeout=45,
+                )
+                respuesta.raise_for_status()
+                inicio = respuesta.content[:4096]
+                if b"Web Application Firewall" in inicio:
+                    raise RuntimeError(
+                        "el cortafuegos de la plataforma rechazó temporalmente la consulta"
+                    )
+                if b"<feed" not in inicio and b"<?xml" not in inicio:
+                    tipo = respuesta.headers.get("content-type", "desconocido")
+                    raise RuntimeError(
+                        f"la plataforma no devolvió un feed XML ({tipo})"
+                    )
+                raiz = ET.fromstring(respuesta.content)
+                if raiz.tag != f"{{{NAMESPACES_ATOM['atom']}}}feed":
+                    raise RuntimeError("la respuesta no contiene un feed ATOM válido")
+                return raiz, candidata_url
+            except Exception as error:
+                errores.append(f"{candidata_url}: {error}")
+        if ronda == 0:
+            time.sleep(2)
+    detalle = errores[-1] if errores else "error desconocido"
+    raise RuntimeError(
+        "El feed oficial no está disponible temporalmente. "
+        f"Último intento: {detalle}"
+    )
+
+def _fila_desde_entrada_feed(entrada):
+    lic_id = _texto_xml(entrada, "atom:id")
+    enlace = entrada.find("atom:link", NAMESPACES_ATOM)
+    status = entrada.find("cac-place-ext:ContractFolderStatus", NAMESPACES_ATOM)
+    if status is None:
+        return None
+
+    party = status.find(
+        "cac-place-ext:LocatedContractingParty/cac:Party", NAMESPACES_ATOM
+    )
+    proyecto = status.find("cac:ProcurementProject", NAMESPACES_ATOM)
+    if proyecto is None:
+        return None
+
+    def numero(ruta):
+        valor = _texto_xml(proyecto, ruta)
+        try:
+            return float(valor) if valor else None
+        except (TypeError, ValueError):
+            return None
+
+    codigo_postal = _texto_xml(
+        proyecto, "cac:RealizedLocation/cac:Address/cbc:PostalZone"
+    )
+    municipio = _texto_xml(
+        proyecto, "cac:RealizedLocation/cac:Address/cbc:CityName"
+    )
+    if not codigo_postal:
+        codigo_postal = _texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
+    if not municipio:
+        municipio = _texto_xml(party, "cac:PostalAddress/cbc:CityName")
+
+    cpvs = [
+        nodo.text.strip()
+        for nodo in proyecto.findall(
+            "cac:RequiredCommodityClassification/cbc:ItemClassificationCode",
+            NAMESPACES_ATOM,
+        )
+        if nodo.text
+    ]
+    fecha_limite = _texto_xml(
+        status,
+        "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndDate",
+    )
+    hora_limite = _texto_xml(
+        status,
+        "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndTime",
+    )
+    if fecha_limite and hora_limite:
+        fecha_limite = f"{fecha_limite} {hora_limite}"
+
+    documentos = []
+    referencias = (
+        ("PPT", "cac:TechnicalDocumentReference"),
+        ("PCAP", "cac:LegalDocumentReference"),
+    )
+    for tipo_doc, etiqueta in referencias:
+        doc = status.find(etiqueta, NAMESPACES_ATOM)
+        if doc is not None:
+            uri = _texto_xml(doc, "cac:Attachment/cac:ExternalReference/cbc:URI")
+            if uri:
+                documentos.append({
+                    "tipo": tipo_doc,
+                    "nombre": _texto_xml(doc, "cbc:ID") or tipo_doc,
+                    "url": uri,
+                })
+    for doc in status.findall("cac:AdditionalDocumentReference", NAMESPACES_ATOM):
+        uri = _texto_xml(doc, "cac:Attachment/cac:ExternalReference/cbc:URI")
+        if uri:
+            documentos.append({
+                "tipo": "ANEXO",
+                "nombre": _texto_xml(doc, "cbc:ID") or "Anexo adicional",
+                "url": uri,
+            })
+
+    return {
+        "id": lic_id,
+        "id_licitacion_corta": lic_id.split("/")[-1] if lic_id else None,
+        "expediente": _texto_xml(status, "cbc:ContractFolderID"),
+        "titulo": _texto_xml(proyecto, "cbc:Name"),
+        "organo_contratante": _texto_xml(party, "cac:PartyName/cbc:Name"),
+        "tipo_contrato": _texto_xml(proyecto, "cbc:TypeCode"),
+        "estado": _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode"),
+        "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
+        "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
+        "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
+        "cpv": ",".join(cpvs),
+        "codigo_postal": codigo_postal,
+        "municipio": municipio,
+        "provincia": _texto_xml(
+            proyecto, "cac:RealizedLocation/cbc:CountrySubentity"
+        ),
+        "comunidad_autonoma": None,
+        "latitud": None,
+        "longitud": None,
+        "fecha_limite": fecha_limite,
+        "fecha_actualizacion": _texto_xml(entrada, "atom:updated"),
+        "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
+        "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
+        "resumen_ia": None,
+    }
+
+def _bajas_desde_pagina_feed(raiz):
+    bajas = []
+    for eliminada in raiz.findall("at:deleted-entry", NAMESPACES_ATOM):
+        lic_id = eliminada.attrib.get("ref")
+        fecha = eliminada.attrib.get("when")
+        comentario = " ".join(
+            texto.strip()
+            for texto in eliminada.itertext()
+            if texto and texto.strip()
+        )
+        tipo = eliminada.attrib.get("type", "")
+        detalle = f"{tipo} {comentario}".upper()
+        estado = "ANUL" if "ANUL" in detalle else "CERR"
+        bajas.append({
+            "id": lic_id,
+            "fecha_actualizacion": fecha,
+            "estado": estado,
+        })
+    return bajas
+
+@st.cache_data(ttl=900, show_spinner="Consultando las últimas actualizaciones oficiales…")
+def cargar_feed_reciente():
+    filas = []
+    bajas = []
+    visitadas = set()
+    siguiente = FEED_RECIENTE_URLS[0]
+    actualizado_feed = None
+    paginas_leidas = 0
+    parcial = False
+
+    while siguiente and paginas_leidas < FEED_MAX_PAGINAS:
+        if siguiente in visitadas:
+            break
+        visitadas.add(siguiente)
+        try:
+            raiz, url_real = _descargar_pagina_feed(siguiente)
+        except Exception:
+            if paginas_leidas == 0:
+                raise
+            parcial = True
+            break
+
+        paginas_leidas += 1
+        if actualizado_feed is None:
+            actualizado_feed = _texto_xml(raiz, "atom:updated")
+
+        for entrada in raiz.findall("atom:entry", NAMESPACES_ATOM):
+            fila = _fila_desde_entrada_feed(entrada)
+            if fila:
+                filas.append(fila)
+        bajas.extend(_bajas_desde_pagina_feed(raiz))
+
+        enlace_siguiente = raiz.find("atom:link[@rel='next']", NAMESPACES_ATOM)
+        href = enlace_siguiente.attrib.get("href") if enlace_siguiente is not None else None
+        siguiente = urljoin(url_real, href) if href else None
+
+    radar = pd.DataFrame(filas)
+    if not radar.empty:
+        radar["fecha_limite_dt"] = pd.to_datetime(
+            radar["fecha_limite"].astype(str).str.slice(0, 10),
+            errors="coerce",
+            utc=True,
+        )
+        radar["fecha_act_dt"] = pd.to_datetime(
+            radar["fecha_actualizacion"], errors="coerce", utc=True
+        )
+        radar = (
+            radar.sort_values("fecha_act_dt", ascending=False, na_position="last")
+            .drop_duplicates(subset=["id"], keep="first")
+        )
+        radar["tipo_contrato_desc"] = (
+            radar["tipo_contrato"].map(MAPA_TIPOS).fillna("Otros")
+        )
+        radar = normalizar_estado_vigente(radar)
+
+    bajas_df = pd.DataFrame(bajas)
+    if not bajas_df.empty:
+        bajas_df["fecha_act_dt"] = pd.to_datetime(
+            bajas_df["fecha_actualizacion"], errors="coerce", utc=True
+        )
+        bajas_df = (
+            bajas_df.sort_values("fecha_act_dt", ascending=False, na_position="last")
+            .drop_duplicates(subset=["id"], keep="first")
+        )
+
+    metadata = {
+        "paginas": paginas_leidas,
+        "bajas": len(bajas_df),
+        "parcial": parcial,
+    }
+    return radar, actualizado_feed, bajas_df, metadata
+
+def _clave_ubicacion(valor):
+    if valor is None or pd.isna(valor):
+        return ""
+    texto = unicodedata.normalize("NFKD", str(valor))
+    return "".join(
+        caracter for caracter in texto if not unicodedata.combining(caracter)
+    ).strip().lower()
+
+def _codigo_postal_normalizado(valor):
+    if valor is None or pd.isna(valor):
+        return ""
+    texto = str(valor).strip().split(".")[0]
+    digitos = "".join(caracter for caracter in texto if caracter.isdigit())
+    return digitos.zfill(5) if digitos else ""
+
+@st.cache_data(ttl=3600)
+def cargar_maestro_ubicaciones():
+    maestro = pd.read_excel(
+        "provincias.xlsx",
+        sheet_name="municipios datos",
+        dtype={"codigo_postal": str},
+    )
+    maestro["cp_clave"] = maestro["codigo_postal"].apply(
+        _codigo_postal_normalizado
+    )
+    maestro["municipio_clave"] = maestro["nucleo_nombre"].apply(
+        _clave_ubicacion
+    )
+    maestro = maestro.dropna(subset=["Latitud", "Longitud"])
+    por_cp = (
+        maestro.drop_duplicates(subset=["cp_clave"])
+        .set_index("cp_clave")
+    )
+    municipios_unicos = maestro[
+        ~maestro["municipio_clave"].duplicated(keep=False)
+    ]
+    por_municipio = municipios_unicos.set_index("municipio_clave")
+    return por_cp, por_municipio
+
+def completar_ubicaciones_feed(df_feed):
+    if df_feed.empty:
+        return df_feed
+    enriquecido = df_feed.copy()
+    enriquecido["origen_coordenadas"] = None
+    try:
+        por_cp, por_municipio = cargar_maestro_ubicaciones()
+    except Exception:
+        return enriquecido
+
+    correspondencias = {
+        "municipio": "nucleo_nombre",
+        "provincia": "PROVINCIA",
+        "comunidad_autonoma": "COMUNIDAD",
+        "latitud": "Latitud",
+        "longitud": "Longitud",
+    }
+    for indice, fila in enriquecido.iterrows():
+        cp = _codigo_postal_normalizado(fila.get("codigo_postal"))
+        referencia = None
+        origen = None
+        if cp and cp in por_cp.index:
+            referencia = por_cp.loc[cp]
+            origen = "Código postal"
+        else:
+            municipio = _clave_ubicacion(fila.get("municipio"))
+            if municipio and municipio in por_municipio.index:
+                referencia = por_municipio.loc[municipio]
+                origen = "Municipio"
+
+        if referencia is not None:
+            for destino, fuente in correspondencias.items():
+                enriquecido.at[indice, destino] = referencia[fuente]
+            enriquecido.at[indice, "origen_coordenadas"] = origen
+    return enriquecido
+
+def incorporar_bajas_feed(df_feed, bajas_feed, historico):
+    if bajas_feed.empty:
+        return df_feed
+
+    fuentes = pd.concat([df_feed, historico], ignore_index=True, sort=False)
+    fuentes = fuentes.dropna(subset=["id"]).drop_duplicates(subset=["id"], keep="first")
+    por_id = fuentes.set_index(fuentes["id"].astype(str), drop=False)
+    filas = []
+
+    for _, baja in bajas_feed.iterrows():
+        lic_id = str(baja.get("id") or "").strip()
+        if not lic_id:
+            continue
+        if lic_id in por_id.index:
+            fila = por_id.loc[lic_id].copy()
+            if isinstance(fila, pd.DataFrame):
+                fila = fila.iloc[0].copy()
+        else:
+            fila = pd.Series({columna: None for columna in fuentes.columns})
+            fila["id"] = lic_id
+            fila["id_licitacion_corta"] = lic_id.split("/")[-1]
+            fila["titulo"] = "Expediente retirado de la plataforma"
+            fila["documentos_adjuntos"] = "[]"
+            fila["tipo_contrato_desc"] = "Otros"
+
+        fila["estado_fuente"] = baja["estado"]
+        fila["estado"] = baja["estado"]
+        fila["fecha_actualizacion"] = baja["fecha_actualizacion"]
+        fila["fecha_act_dt"] = baja["fecha_act_dt"]
+        fila["movimiento"] = "Actualizada"
+        filas.append(fila.to_dict())
+
+    if not filas:
+        return df_feed
+    resultado = pd.concat([df_feed, pd.DataFrame(filas)], ignore_index=True, sort=False)
+    return (
+        resultado.sort_values("fecha_act_dt", ascending=False, na_position="last")
+        .drop_duplicates(subset=["id"], keep="first")
+    )
+
 @st.cache_data(ttl=300, show_spinner="Cargando licitaciones…")
 def cargar_datos(db_mtime):
     del db_mtime
@@ -290,10 +909,10 @@ def cargar_datos(db_mtime):
     with sqlite3.connect(uri, uri=True, timeout=10) as conn:
         df = pd.read_sql_query("SELECT * FROM licitaciones", conn)
 
-    df['fecha_limite_dt'] = pd.to_datetime(df['fecha_limite'].str.slice(0, 10), errors='coerce', utc=True)
+    df['fecha_limite_dt'] = pd.to_datetime(df['fecha_limite'].astype(str).str.slice(0, 10), errors='coerce', utc=True)
     df['fecha_act_dt'] = pd.to_datetime(df['fecha_actualizacion'], errors='coerce', utc=True)
     df['tipo_contrato_desc'] = df['tipo_contrato'].map(MAPA_TIPOS).fillna('Otros')
-    return df
+    return normalizar_estado_vigente(df)
 
 try:
     df = cargar_datos(os.path.getmtime(DB_PATH))
@@ -301,10 +920,31 @@ except Exception as e:
     st.error(f"❌ No se pudo conectar a la base de datos en {DB_PATH}. Error: {e}")
     st.stop()
 
-max_pbl_value = df['pbl_sin_iva'].max()
+try:
+    (
+        df_radar_catalogo,
+        fecha_feed_catalogo,
+        df_bajas_catalogo,
+        metadata_feed_catalogo,
+    ) = cargar_feed_reciente()
+    df_radar_catalogo = completar_ubicaciones_feed(df_radar_catalogo)
+    df_radar_catalogo = incorporar_bajas_feed(
+        df_radar_catalogo, df_bajas_catalogo, df
+    )
+    error_feed_catalogo = None
+except Exception as error_feed_inicial:
+    df_radar_catalogo = pd.DataFrame(columns=df.columns)
+    fecha_feed_catalogo = None
+    metadata_feed_catalogo = {"paginas": 0, "bajas": 0, "parcial": False}
+    error_feed_catalogo = str(error_feed_inicial)
+
+df_catalogo_filtros = pd.concat(
+    [df, df_radar_catalogo], ignore_index=True, sort=False
+)
+max_pbl_value = df_catalogo_filtros['pbl_sin_iva'].max()
 max_pbl_db = float(max_pbl_value) if pd.notnull(max_pbl_value) and max_pbl_value > 0 else 200000.0
 
-fechas_validas = df['fecha_limite_dt'].dropna()
+fechas_validas = df_catalogo_filtros['fecha_limite_dt'].dropna()
 f_min_db = fechas_validas.min().date() if not fechas_validas.empty else date.today()
 f_max_db = fechas_validas.max().date() if not fechas_validas.empty else date.today()
 hoy = date.today()
@@ -314,10 +954,14 @@ if "f_cpv" not in st.session_state:
     st.session_state["f_cpv"] = "71"
 if "f_estado" not in st.session_state:
     st.session_state["f_estado"] = ["PUB"]
+if "f_ccaa" not in st.session_state:
+    st.session_state["f_ccaa"] = ["Comunitat Valenciana"]
 if "f_pbl_max" not in st.session_state:
     st.session_state["f_pbl_max"] = 200000.0
 if "f_fecha" not in st.session_state:
     st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
+if "f_sin_fecha" not in st.session_state:
+    st.session_state["f_sin_fecha"] = True
 
 st.sidebar.title("🎛️ Filtros Avanzados")
 
@@ -332,6 +976,7 @@ if st.sidebar.button("🗑️ Quitar filtros", use_container_width=True):
     st.session_state["f_pbl_min"] = 0.0
     st.session_state["f_pbl_max"] = max_pbl_db
     st.session_state["f_fecha"] = (f_min_db, f_max_db)
+    st.session_state["f_sin_fecha"] = True
     st.session_state["f_organo"] = []
     st.rerun()
 
@@ -340,33 +985,34 @@ if st.sidebar.button("↩️ Filtros iniciales", use_container_width=True):
     st.session_state["f_tipo"] = []
     st.session_state["f_cpv"] = "71"
     st.session_state["f_estado"] = ["PUB"]
-    st.session_state["f_ccaa"] = []
+    st.session_state["f_ccaa"] = ["Comunitat Valenciana"]
     st.session_state["f_prov"] = []
     st.session_state["f_muni"] = []
     st.session_state["f_pbl_min"] = 0.0
     st.session_state["f_pbl_max"] = 200000.0
     st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
+    st.session_state["f_sin_fecha"] = True
     st.session_state["f_organo"] = []
     st.rerun()
 
 st.sidebar.divider()
 
 busqueda_texto = st.sidebar.text_input("🔍 Palabras clave (título, expediente...):", key="f_texto")
-tipos_list = sorted([x for x in df['tipo_contrato_desc'].unique() if x])
+tipos_list = sorted([x for x in df_catalogo_filtros['tipo_contrato_desc'].dropna().unique() if x])
 tipo_sel = st.sidebar.multiselect("📦 Tipo de Contrato:", tipos_list, key="f_tipo")
 cpv_2dig = st.sidebar.text_input("🏷️ CPV (2 dígitos):", max_chars=2, key="f_cpv")
 
-estados_unicos = df['estado'].dropna().unique().tolist()
+estados_unicos = df_catalogo_filtros['estado'].dropna().unique().tolist()
 opciones_estado = {c: MAPA_ESTADOS.get(c, (c, ''))[0] for c in estados_unicos}
 estados_sel = st.sidebar.multiselect("📌 Estado:", list(opciones_estado.keys()), format_func=lambda x: opciones_estado[x], key="f_estado")
 
-ccaa_list = sorted([x for x in df['comunidad_autonoma'].dropna().unique() if x])
+ccaa_list = sorted([x for x in df_catalogo_filtros['comunidad_autonoma'].dropna().unique() if x])
 ccaa_sel = st.sidebar.multiselect("🗺️ Comunidad Autónoma:", ccaa_list, key="f_ccaa")
 
-prov_list = sorted([x for x in df[df['comunidad_autonoma'].isin(ccaa_sel)]['provincia'].dropna().unique() if x]) if ccaa_sel else sorted([x for x in df['provincia'].dropna().unique() if x])
+prov_list = sorted([x for x in df_catalogo_filtros[df_catalogo_filtros['comunidad_autonoma'].isin(ccaa_sel)]['provincia'].dropna().unique() if x]) if ccaa_sel else sorted([x for x in df_catalogo_filtros['provincia'].dropna().unique() if x])
 prov_sel = st.sidebar.multiselect("📍 Provincia:", prov_list, key="f_prov")
 
-muni_list = sorted([x for x in df[df['provincia'].isin(prov_sel)]['municipio'].dropna().unique() if x]) if prov_sel else sorted([x for x in df['municipio'].dropna().unique() if x])
+muni_list = sorted([x for x in df_catalogo_filtros[df_catalogo_filtros['provincia'].isin(prov_sel)]['municipio'].dropna().unique() if x]) if prov_sel else sorted([x for x in df_catalogo_filtros['municipio'].dropna().unique() if x])
 muni_sel = st.sidebar.multiselect("🏙️ Municipio:", muni_list, key="f_muni")
 
 st.sidebar.markdown("💶 **Presupuesto Base sin IVA (€):**")
@@ -377,8 +1023,12 @@ if not fechas_validas.empty:
     fecha_rango = st.sidebar.date_input("📅 Fecha Límite Presentación:", min_value=f_min_db, max_value=f_max_db, key="f_fecha")
 else:
     fecha_rango = None
+incluir_sin_fecha = st.sidebar.checkbox(
+    "Mostrar también las que no indican fecha límite",
+    key="f_sin_fecha",
+)
 
-organos = sorted([x for x in df['organo_contratante'].dropna().unique() if x])
+organos = sorted([x for x in df_catalogo_filtros['organo_contratante'].dropna().unique() if x])
 organo_sel = st.sidebar.multiselect("🏛️ Órgano de Contratación:", organos, key="f_organo")
 
 df_f = df.copy()
@@ -392,7 +1042,13 @@ if tipo_sel: df_f = df_f[df_f['tipo_contrato_desc'].isin(tipo_sel)]
 df_f = df_f[(df_f['pbl_sin_iva'] >= pbl_min_val) & (df_f['pbl_sin_iva'] <= pbl_max_val)]
 
 if fecha_rango and len(fecha_rango) == 2:
-    df_f = df_f[(df_f['fecha_limite_dt'].dt.date >= fecha_rango[0]) & (df_f['fecha_limite_dt'].dt.date <= fecha_rango[1])]
+    dentro_del_rango = (
+        (df_f['fecha_limite_dt'].dt.date >= fecha_rango[0])
+        & (df_f['fecha_limite_dt'].dt.date <= fecha_rango[1])
+    )
+    if incluir_sin_fecha:
+        dentro_del_rango = dentro_del_rango | df_f['fecha_limite_dt'].isna()
+    df_f = df_f[dentro_del_rango]
 
 if ccaa_sel: df_f = df_f[df_f['comunidad_autonoma'].isin(ccaa_sel)]
 if prov_sel: df_f = df_f[df_f['provincia'].isin(prov_sel)]
@@ -403,24 +1059,206 @@ if cpv_2dig.strip():
     prefijo = cpv_2dig.strip()
     df_f = df_f[df_f['cpv'].apply(lambda x: any(c.strip().startswith(prefijo) for c in str(x).split(',')) if x else False)]
 
-st.title("🏛️ Monitor de Licitaciones")
-st.caption("Plataforma de Contratación del Sector Público")
+def aplicar_filtros_al_feed(df_entrada):
+    filtrado = df_entrada.copy()
+    if filtrado.empty:
+        return filtrado
+    historico_ids = set(df["id"].dropna().astype(str))
+    filtrado["movimiento"] = filtrado.apply(
+        lambda fila: (
+            "Actualizada"
+            if fila.get("estado") in {"ANUL", "CERR"}
+            or str(fila.get("id")) in historico_ids
+            else "Nueva licitación"
+        ),
+        axis=1,
+    )
+    if busqueda_texto.strip():
+        consulta = busqueda_texto.lower().strip()
+        filtrado = filtrado[
+            filtrado["titulo"].str.lower().str.contains(
+                consulta, na=False, regex=False
+            )
+            | filtrado["expediente"].str.lower().str.contains(
+                consulta, na=False, regex=False
+            )
+            | filtrado["organo_contratante"].str.lower().str.contains(
+                consulta, na=False, regex=False
+            )
+        ]
+    if estados_sel:
+        filtrado = filtrado[filtrado["estado"].isin(estados_sel)]
+    if tipo_sel:
+        filtrado = filtrado[filtrado["tipo_contrato_desc"].isin(tipo_sel)]
+    filtrado = filtrado[
+        (filtrado["pbl_sin_iva"].fillna(0) >= pbl_min_val)
+        & (filtrado["pbl_sin_iva"].fillna(0) <= pbl_max_val)
+    ]
+    if fecha_rango and len(fecha_rango) == 2:
+        dentro_del_rango = (
+            (filtrado["fecha_limite_dt"].dt.date >= fecha_rango[0])
+            & (filtrado["fecha_limite_dt"].dt.date <= fecha_rango[1])
+        )
+        if incluir_sin_fecha:
+            dentro_del_rango = dentro_del_rango | filtrado["fecha_limite_dt"].isna()
+        filtrado = filtrado[dentro_del_rango]
+    if ccaa_sel:
+        filtrado = filtrado[
+            filtrado["comunidad_autonoma"].isin(ccaa_sel)
+        ]
+    if prov_sel:
+        filtrado = filtrado[filtrado["provincia"].isin(prov_sel)]
+    if muni_sel:
+        filtrado = filtrado[filtrado["municipio"].isin(muni_sel)]
+    if organo_sel:
+        filtrado = filtrado[
+            filtrado["organo_contratante"].isin(organo_sel)
+        ]
+    if cpv_2dig.strip():
+        prefijo_feed = cpv_2dig.strip()
+        filtrado = filtrado[
+            filtrado["cpv"].apply(
+                lambda valor: any(
+                    codigo.strip().startswith(prefijo_feed)
+                    for codigo in str(valor).split(",")
+                ) if valor else False
+            )
+        ]
+    if filtrado.empty or "fecha_act_dt" not in filtrado.columns:
+        return filtrado
+    return filtrado.sort_values(
+        "fecha_act_dt", ascending=False, na_position="last"
+    )
 
-ultima_act = df['fecha_act_dt'].max()
-fecha_act_fmt = ultima_act.strftime("%d/%m/%Y %H:%M") if pd.notnull(ultima_act) else "No disponible"
-volumen_total = df_f['pbl_sin_iva'].sum() if not df_f.empty and 'pbl_sin_iva' in df_f.columns else 0.0
-presupuesto_medio = df_f['pbl_sin_iva'].mean() if not df_f.empty and len(df_f) > 0 and 'pbl_sin_iva' in df_f.columns else 0.0
+df_radar_filtrado = aplicar_filtros_al_feed(df_radar_catalogo)
+df_combinado = pd.concat(
+    [df_f, df_radar_filtrado], ignore_index=True, sort=False
+)
+if "id" in df_combinado.columns:
+    df_combinado = df_combinado.drop_duplicates(subset=["id"], keep="last")
+
+st.title("🏛️ LandAI Licitaciones")
+st.caption("Dashboard de oportunidades y análisis para proyectos de ingeniería civil.")
+
+st.markdown("""
+<div class="company-card">
+    <div class="company-heading">
+        <img class="company-logo" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAkGBwgHBgkIBwgKCgkLDRYPDQwMDRsUFRAWIB0iIiAdHx8kKDQsJCYxJx8fLT0tMTU3Ojo6Iys/RD84QzQ5Ojf/2wBDAQoKCg0MDRoPDxo3JR8lNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzf/wAARCAUABQADASIAAhEBAxEB/8QAHAABAQACAwEBAAAAAAAAAAAAAAMHCAQFBgEC/8QAMhABAAIBAwMBBgYCAwEBAQAAAAECAwQFERMyYQcGEhUhMXEUIkFTVJJRkTNCgSOhsf/EABYBAQEBAAAAAAAAAAAAAAAAAAABAv/EABURAQEAAAAAAAAAAAAAAAAAAAAB/9oADAMBAAIRAxEAPwDwIA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAA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AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38Ampg7zo38KYMNouD/2Q==" alt="Logotipo de Landa Consultoría y Proyectos">
+        <div>
+            <p class="company-name">Landa Consultoría y Proyectos</p>
+            <span style="color:#64748b; font-size:0.82rem;">Expertos en proyectos y obras de ingeniería civil</span>
+        </div>
+    </div>
+    <p class="company-copy"><b>Te ayudamos a preparar tus licitaciones y ejecutar tus proyectos.</b><br>Cuéntanos qué necesitas y estudiaremos cómo ayudarte.</p>
+    <div class="company-actions">
+        <a class="company-action" href="mailto:info@landaconsultores.com">✉️ info@landaconsultores.com</a>
+        <a class="company-action" href="tel:+34681881782">📞 681 881 782</a>
+        <a class="company-action" href="https://www.landaconsultores.com" target="_blank" rel="noopener noreferrer">🌐 Visitar la web</a>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown(
+    '<p class="data-source">🔎 <b>Fuente de los datos:</b> '
+    '<a href="https://contrataciondelestado.es/" target="_blank" rel="noopener noreferrer">'
+    'Plataforma de Contratación del Sector Público</a>. '
+    'Consulta siempre la documentación oficial antes de preparar una oferta.</p>',
+    unsafe_allow_html=True,
+)
+
+opciones_vista = [
+    "⚡ Últimas actualizaciones",
+    "🗂️ Histórico",
+    "📊 Gráficos",
+    "🗺️ Mapa",
+]
+vista_principal = st.segmented_control(
+    "Vista del dashboard",
+    opciones_vista,
+    default="⚡ Últimas actualizaciones",
+    selection_mode="single",
+    key="vista_principal",
+    label_visibility="collapsed",
+)
+if vista_principal is None:
+    vista_principal = "⚡ Últimas actualizaciones"
+
+if vista_principal == "⚡ Últimas actualizaciones":
+    df_indicadores = df_radar_filtrado
+    etiqueta_cantidad = "Actualizaciones filtradas"
+    etiqueta_actualizacion = "Última actualización feed"
+elif vista_principal == "🗂️ Histórico":
+    df_indicadores = df_f
+    etiqueta_cantidad = "Licitaciones filtradas"
+    etiqueta_actualizacion = "Última actualización BD"
+elif vista_principal == "📊 Gráficos":
+    fuente_indicadores = st.session_state.get(
+        "fuente_graficos", "Últimas actualizaciones"
+    )
+    if fuente_indicadores == "Últimas actualizaciones":
+        df_indicadores = df_radar_filtrado
+    elif fuente_indicadores == "Combinado":
+        df_indicadores = df_combinado
+    else:
+        df_indicadores = df_f
+    etiqueta_cantidad = "Licitaciones filtradas"
+    etiqueta_actualizacion = "Última actualización"
+else:
+    fuente_indicadores = st.session_state.get(
+        "fuente_mapa", "Últimas actualizaciones"
+    )
+    if fuente_indicadores == "Últimas actualizaciones":
+        df_indicadores = df_radar_filtrado
+    elif fuente_indicadores == "Combinado":
+        df_indicadores = df_combinado
+    else:
+        df_indicadores = df_f
+    etiqueta_cantidad = "Licitaciones filtradas"
+    etiqueta_actualizacion = "Última actualización"
+
+indicadores_usan_feed = (
+    vista_principal == "⚡ Últimas actualizaciones"
+    or (
+        vista_principal in {"📊 Gráficos", "🗺️ Mapa"}
+        and fuente_indicadores == "Últimas actualizaciones"
+    )
+)
+if indicadores_usan_feed and fecha_feed_catalogo:
+    ultima_act = pd.to_datetime(fecha_feed_catalogo, errors="coerce", utc=True)
+    if pd.notnull(ultima_act):
+        ultima_act = ultima_act.tz_convert("Europe/Madrid")
+else:
+    ultima_act = (
+        df_indicadores["fecha_act_dt"].max()
+        if not df_indicadores.empty and "fecha_act_dt" in df_indicadores.columns
+        else pd.NaT
+    )
+fecha_act_fmt = (
+    ultima_act.strftime("%d/%m/%Y %H:%M")
+    if pd.notnull(ultima_act) else "No disponible"
+)
+volumen_total = (
+    pd.to_numeric(df_indicadores["pbl_sin_iva"], errors="coerce").fillna(0).sum()
+    if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
+    else 0.0
+)
+presupuesto_medio = (
+    pd.to_numeric(
+        df_indicadores["pbl_sin_iva"], errors="coerce"
+    ).dropna().mean()
+    if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
+    else 0.0
+)
 
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-
 with kpi1:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{len(df_f)}</div><div class="metric-lbl-grid">Licitaciones Filtradas</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{len(df_indicadores)}</div><div class="metric-lbl-grid">{etiqueta_cantidad}</div></div>', unsafe_allow_html=True)
 with kpi2:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(volumen_total)}</div><div class="metric-lbl-grid">Volumen Total (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi3:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_medio)}</div><div class="metric-lbl-grid">Presupuesto Medio (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi4:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">Última Actualización BD</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_antiguedad(ultima_act)}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">{etiqueta_actualizacion}</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_antiguedad(ultima_act)}</div></div>', unsafe_allow_html=True)
 
 filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
@@ -434,6 +1272,8 @@ if pbl_min_val > 0 or pbl_max_val < max_pbl_db:
     filtros_activos.append(f'Presupuesto: {formato_eur(pbl_min_val)} – {formato_eur(pbl_max_val)}')
 if fecha_rango and len(fecha_rango) == 2:
     filtros_activos.append(f'Fecha límite: {fecha_rango[0].strftime("%d/%m/%Y")} – {fecha_rango[1].strftime("%d/%m/%Y")}')
+if not incluir_sin_fecha:
+    filtros_activos.append('Sin fecha límite: excluidas')
 if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
 
 resumen_filtros = ' · '.join(filtros_activos) if filtros_activos else 'Ninguno'
@@ -454,6 +1294,13 @@ def render_grid_tarjetas(df_vista, key_prefix):
             st_txt = texto_seguro(st_txt, "Estado desconocido")
             url_oficial = url_externa_segura(r.get("url_licitacion"))
             link_html = f'<a href="{html.escape(url_oficial, quote=True)}" target="_blank" rel="noopener noreferrer" class="external-link-btn" title="Ver ficha en la Plataforma">🔗</a>' if url_oficial else ''
+            movimiento = r.get("movimiento")
+            if movimiento == "Nueva licitación":
+                movimiento_html = '<span title="Nueva licitación" aria-label="Nueva licitación" style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#22c55e;border:2px solid #dcfce7;margin:auto 4px;"></span>'
+            elif movimiento == "Actualizada":
+                movimiento_html = '<span title="Licitación actualizada" aria-label="Licitación actualizada" style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#3b82f6;border:2px solid #dbeafe;margin:auto 4px;"></span>'
+            else:
+                movimiento_html = ""
 
             muni = r.get('municipio')
             prov = r.get('provincia')
@@ -473,7 +1320,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                     st.markdown(f"""
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                         <span class="{badge_cls}">{st_txt}</span>
-                        <div style="display: flex; gap: 4px;">{link_html} {maps_html}</div>
+                        <div style="display: flex; align-items:center; gap: 4px;">{movimiento_html} {link_html} {maps_html}</div>
                     </div>
                     <h5 style="margin: 10px 0 6px 0; color: #1a252c; line-height: 1.35; font-size: 0.95rem; min-height: 2.7em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
                         {titulo_safe}
@@ -551,82 +1398,281 @@ def render_grid_tarjetas(df_vista, key_prefix):
 
 
 
-if df_f.empty:
+if df_f.empty and df_radar_catalogo.empty:
     st.warning("⚠️ No se ha encontrado ninguna licitación que coincida con los filtros aplicados. Prueba a relajar los criterios de búsqueda.")
 else:
     st.write("")
-    tab_tarjetas, tab_graficos, tab_mapa = st.tabs([
-        "🗂️ Vista Tarjetas",
-        "📊 Gráficos",
-        "🗺️ Mapa"
-    ])
 
-    with tab_graficos:
+    if vista_principal == "⚡ Últimas actualizaciones":
+        st.subheader("⚡ Radar de actualizaciones")
+        st.caption(
+            "Cambios publicados recientemente en el feed oficial de la Plataforma de "
+            "Contratación del Sector Público. Se consulta al abrir el dashboard y la "
+            "consulta se renueva como máximo cada 15 minutos."
+        )
+        try:
+            if error_feed_catalogo:
+                raise RuntimeError(error_feed_catalogo)
+            df_radar = df_radar_filtrado.copy()
+            fecha_feed = fecha_feed_catalogo
+
+            if not df_radar_catalogo.empty:
+                fecha_feed_fmt = formato_fecha(fecha_feed)
+                nuevas = int((df_radar["movimiento"] == "Nueva licitación").sum())
+                actualizadas = int((df_radar["movimiento"] == "Actualizada").sum())
+                st.markdown(
+                    f"**{len(df_radar)} resultados con los filtros actuales** · "
+                    f"🟢 {nuevas} nuevas · 🔵 {actualizadas} actualizadas · "
+                    f"{metadata_feed_catalogo['paginas']} páginas oficiales · "
+                    f"{metadata_feed_catalogo['bajas']} cierres/anulaciones · "
+                    f"Feed oficial: {fecha_feed_fmt}"
+                )
+                if metadata_feed_catalogo["parcial"]:
+                    st.warning(
+                        "La portada del feed está disponible, pero alguna página anterior "
+                        "no respondió. Se muestran los cambios que sí pudieron recuperarse."
+                    )
+
+                if df_radar.empty:
+                    st.info(
+                        "El feed funciona correctamente, pero ninguna actualización "
+                        "reciente coincide con los filtros actuales."
+                    )
+                else:
+                    criterio_radar = st.selectbox(
+                        "🔃 Ordenar tarjetas por:",
+                        [
+                            "Actualización (Más reciente)",
+                            "Actualización (Más antigua)",
+                            "Fecha límite (Más cercana)",
+                            "Fecha límite (Más lejana)",
+                            "Presupuesto (Mayor a menor)",
+                            "Presupuesto (Menor a mayor)",
+                        ],
+                        key="select_orden_radar",
+                    )
+                    if criterio_radar == "Actualización (Más antigua)":
+                        df_radar = df_radar.sort_values(
+                            "fecha_act_dt", ascending=True, na_position="last"
+                        )
+                    elif criterio_radar == "Fecha límite (Más cercana)":
+                        df_radar = df_radar.sort_values(
+                            "fecha_limite_dt", ascending=True, na_position="last"
+                        )
+                    elif criterio_radar == "Fecha límite (Más lejana)":
+                        df_radar = df_radar.sort_values(
+                            "fecha_limite_dt", ascending=False, na_position="last"
+                        )
+                    elif criterio_radar == "Presupuesto (Mayor a menor)":
+                        df_radar = df_radar.sort_values(
+                            "pbl_sin_iva", ascending=False, na_position="last"
+                        )
+                    elif criterio_radar == "Presupuesto (Menor a mayor)":
+                        df_radar = df_radar.sort_values(
+                            "pbl_sin_iva", ascending=True, na_position="last"
+                        )
+                    else:
+                        df_radar = df_radar.sort_values(
+                            "fecha_act_dt", ascending=False, na_position="last"
+                        )
+                    items_radar = 12
+                    total_radar = len(df_radar_filtrado)
+                    paginas_radar = max(
+                        1, (total_radar + items_radar - 1) // items_radar
+                    )
+                    if "pagina_radar" not in st.session_state:
+                        st.session_state.pagina_radar = 1
+                    if st.session_state.pagina_radar > paginas_radar:
+                        st.session_state.pagina_radar = paginas_radar
+
+                    rad_ant, rad_info, rad_sig = st.columns([1, 2, 1])
+                    with rad_ant:
+                        if st.button(
+                            "⬅️ Anterior", key="radar_anterior",
+                            use_container_width=True,
+                            disabled=st.session_state.pagina_radar <= 1,
+                        ):
+                            st.session_state.pagina_radar -= 1
+                            st.rerun()
+                    with rad_info:
+                        st.markdown(
+                            f"<p style='text-align:center;font-weight:600;margin-top:6px;'>"
+                            f"Página {st.session_state.pagina_radar} de {paginas_radar} "
+                            f"(Total: {total_radar} actualizaciones)</p>",
+                            unsafe_allow_html=True,
+                        )
+                    with rad_sig:
+                        if st.button(
+                            "Siguiente ➡️", key="radar_siguiente",
+                            use_container_width=True,
+                            disabled=st.session_state.pagina_radar >= paginas_radar,
+                        ):
+                            st.session_state.pagina_radar += 1
+                            st.rerun()
+
+                    inicio_radar = (
+                        st.session_state.pagina_radar - 1
+                    ) * items_radar
+                    fin_radar = inicio_radar + items_radar
+                    render_grid_tarjetas(
+                        df_radar.iloc[inicio_radar:fin_radar],
+                        "radar",
+                    )
+            else:
+                st.info("El feed oficial no contiene actualizaciones en este momento.")
+        except Exception as error_feed:
+            st.warning(
+                "Ahora mismo no ha sido posible consultar el feed oficial. "
+                "El histórico del dashboard sigue disponible con normalidad."
+            )
+            st.caption(f"Detalle técnico: {error_feed}")
+
+    elif vista_principal == "📊 Gráficos":
         st.subheader("📊 Análisis de las licitaciones")
         st.caption("Los gráficos se actualizan automáticamente con los filtros aplicados.")
+        fuente_graficos = st.radio(
+            "Datos que quieres analizar:",
+            ["Últimas actualizaciones", "Histórico", "Combinado"],
+            horizontal=True,
+            key="fuente_graficos",
+        )
+        if fuente_graficos == "Últimas actualizaciones":
+            df_graficos = df_radar_filtrado.copy()
+        elif fuente_graficos == "Combinado":
+            df_graficos = pd.concat(
+                [df_f, df_radar_filtrado], ignore_index=True, sort=False
+            )
+            if "id" in df_graficos.columns:
+                df_graficos = df_graficos.drop_duplicates(
+                    subset=["id"], keep="last"
+                )
+        else:
+            df_graficos = df_f.copy()
 
-        df_graficos = df_f.copy()
-        df_graficos["provincia_grafico"] = df_graficos["provincia"].fillna("No especificada")
-        df_graficos["comunidad_grafico"] = df_graficos["comunidad_autonoma"].fillna("No especificada")
-        df_graficos["organo_grafico"] = df_graficos["organo_contratante"].fillna("No especificado")
-        df_graficos["pbl_sin_iva"] = pd.to_numeric(df_graficos["pbl_sin_iva"], errors="coerce").fillna(0)
+        if df_graficos.empty:
+            st.info("No hay datos de esta fuente que coincidan con los filtros actuales.")
+            df_graficos = df_f.iloc[0:0].copy()
+        campos_graficos = {
+            "comunidad": ("comunidad_autonoma", "No especificada"),
+            "provincia": ("provincia", "No especificada"),
+            "municipio": ("municipio", "No especificado"),
+            "organo": ("organo_contratante", "No especificado"),
+        }
+        for clave, (columna, fallback) in campos_graficos.items():
+            df_graficos[f"{clave}_grafico"] = df_graficos[columna].fillna(
+                fallback
+            )
+        df_graficos["pbl_sin_iva"] = pd.to_numeric(
+            df_graficos["pbl_sin_iva"], errors="coerce"
+        ).fillna(0)
 
         color_azul = "#2563eb"
         color_verde = "#0f9d6e"
         color_naranja = "#f59e0b"
         color_rojo = "#ef4444"
 
-        por_provincia = (
-            df_graficos.groupby("provincia_grafico", as_index=False)
-            .size()
-            .rename(columns={"size": "licitaciones"})
-            .sort_values("licitaciones", ascending=False)
-            .head(12)
-        )
-        presupuesto_provincia = (
-            df_graficos.groupby("provincia_grafico", as_index=False)["pbl_sin_iva"]
-            .sum()
-            .sort_values("pbl_sin_iva", ascending=False)
-            .head(12)
-        )
-        por_comunidad = (
-            df_graficos.groupby("comunidad_grafico", as_index=False)
-            .size()
-            .rename(columns={"size": "licitaciones"})
-            .sort_values("licitaciones", ascending=False)
-            .head(15)
-        )
-        presupuesto_organo = (
-            df_graficos.groupby("organo_grafico", as_index=False)["pbl_sin_iva"]
-            .sum()
-            .sort_values("pbl_sin_iva", ascending=False)
-            .head(15)
-        )
-        if "fecha_publicacion" in df_graficos.columns and df_graficos["fecha_publicacion"].notna().any():
-            campo_fecha_publicacion = "fecha_publicacion"
-            descripcion_fecha_publicacion = "la fecha real de publicación"
-        else:
-            campo_fecha_publicacion = "fecha_actualizacion"
-            descripcion_fecha_publicacion = "la fecha de actualización (base anterior sin fecha de publicación)"
-        fechas_publicacion = pd.to_datetime(
-            df_graficos[campo_fecha_publicacion], errors="coerce", utc=True
-        ).dt.tz_convert(None)
-        datos_publicacion_diaria = (
-            df_graficos.assign(fecha_publicacion=fechas_publicacion.dt.normalize())
-            .dropna(subset=["fecha_publicacion"])
-        )
-        presupuesto_diario = (
-            datos_publicacion_diaria.groupby("fecha_publicacion", as_index=False)["pbl_sin_iva"]
-            .sum()
-            .sort_values("fecha_publicacion")
-        )
-        licitaciones_diarias = (
-            datos_publicacion_diaria.groupby("fecha_publicacion", as_index=False)
-            .size()
-            .rename(columns={"size": "licitaciones"})
-            .sort_values("fecha_publicacion")
-        )
+        def agrupar_presupuesto(campo):
+            return (
+                df_graficos.groupby(campo, as_index=False)["pbl_sin_iva"]
+                .sum()
+                .sort_values("pbl_sin_iva", ascending=False)
+                .head(15)
+            )
 
+        def agrupar_licitaciones(campo):
+            tabla = (
+                df_graficos.groupby(campo, as_index=False)
+                .size()
+                .rename(columns={"size": "licitaciones"})
+                .sort_values("licitaciones", ascending=False)
+                .head(15)
+            )
+            tabla["licitaciones"] = tabla["licitaciones"].astype(int)
+            return tabla
+
+        def incluir_etiqueta_envuelta(tabla, campo, ancho):
+            resultado = tabla.copy()
+            resultado["etiqueta_grafico"] = resultado[campo].map(
+                lambda valor: "|".join(
+                    textwrap.wrap(
+                        str(valor),
+                        width=ancho,
+                        break_long_words=False,
+                        break_on_hyphens=False,
+                    )
+                )
+            )
+            return resultado
+
+        def grafico_horizontal(
+            tabla,
+            campo_nombre,
+            campo_valor,
+            titulo_nombre,
+            titulo_valor,
+            color,
+            es_cantidad=False,
+            ancho_etiqueta=72,
+        ):
+            datos = incluir_etiqueta_envuelta(
+                tabla, campo_nombre, ancho_etiqueta
+            )
+            max_lineas = (
+                int(datos["etiqueta_grafico"].str.count(r"\|").max()) + 1
+                if not datos.empty
+                else 1
+            )
+            alto_por_fila = max(38, max_lineas * 16)
+            altura = max(300, len(datos) * alto_por_fila)
+            formato = "d" if es_cantidad else ",.2f"
+            eje_x = (
+                alt.Axis(format="d", tickMinStep=1)
+                if es_cantidad
+                else alt.Axis(format=",.2f")
+            )
+            return (
+                alt.Chart(datos)
+                .mark_bar(color=color, cornerRadiusEnd=4)
+                .encode(
+                    x=alt.X(
+                        f"{campo_valor}:Q",
+                        title=titulo_valor,
+                        axis=eje_x,
+                    ),
+                    y=alt.Y(
+                        "etiqueta_grafico:N",
+                        title=None,
+                        sort="-x",
+                        axis=alt.Axis(
+                            labelExpr="split(datum.label, '|')",
+                            labelLimit=520,
+                            labelLineHeight=14,
+                            labelOverlap=False,
+                            labelPadding=8,
+                        ),
+                    ),
+                    tooltip=[
+                        alt.Tooltip(
+                            f"{campo_nombre}:N", title=titulo_nombre
+                        ),
+                        alt.Tooltip(
+                            f"{campo_valor}:Q",
+                            title=titulo_valor,
+                            format=formato,
+                        ),
+                    ],
+                )
+                .properties(height=altura)
+            )
+
+        presupuesto_comunidad = agrupar_presupuesto("comunidad_grafico")
+        presupuesto_provincia = agrupar_presupuesto("provincia_grafico")
+        presupuesto_municipio = agrupar_presupuesto("municipio_grafico")
+        presupuesto_organo = agrupar_presupuesto("organo_grafico")
+        por_comunidad = agrupar_licitaciones("comunidad_grafico")
+        por_provincia = agrupar_licitaciones("provincia_grafico")
+        por_municipio = agrupar_licitaciones("municipio_grafico")
+        por_organo = agrupar_licitaciones("organo_grafico")
         tramos_presupuesto = [
             "Menos de 25.000 €",
             "25.000–50.000 €",
@@ -670,41 +1716,89 @@ else:
             .reset_index()
         )
 
-        grafico_provincias = (
-            alt.Chart(por_provincia)
-            .mark_bar(color=color_azul, cornerRadiusEnd=4)
-            .encode(
-                x=alt.X("licitaciones:Q", title="Número de licitaciones"),
-                y=alt.Y("provincia_grafico:N", title=None, sort="-x"),
-                tooltip=[
-                    alt.Tooltip("provincia_grafico:N", title="Provincia"),
-                    alt.Tooltip("licitaciones:Q", title="Licitaciones")
-                ]
-            )
-            .properties(height=300)
+        grafico_presupuesto_comunidad = grafico_horizontal(
+            presupuesto_comunidad,
+            "comunidad_grafico",
+            "pbl_sin_iva",
+            "Comunidad autónoma",
+            "Presupuesto total sin IVA (€)",
+            "#0f9d6e",
         )
-        grafico_presupuesto_provincia = (
-            alt.Chart(presupuesto_provincia)
-            .mark_bar(color=color_verde, cornerRadiusEnd=4)
-            .encode(
-                x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
-                y=alt.Y("provincia_grafico:N", title=None, sort="-x"),
-                tooltip=[
-                    alt.Tooltip("provincia_grafico:N", title="Provincia"),
-                    alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
-                ]
-            )
-            .properties(height=300)
+        grafico_presupuesto_provincia = grafico_horizontal(
+            presupuesto_provincia,
+            "provincia_grafico",
+            "pbl_sin_iva",
+            "Provincia",
+            "Presupuesto total sin IVA (€)",
+            "#14b8a6",
+        )
+        grafico_presupuesto_municipio = grafico_horizontal(
+            presupuesto_municipio,
+            "municipio_grafico",
+            "pbl_sin_iva",
+            "Municipio",
+            "Presupuesto total sin IVA (€)",
+            "#22c55e",
+        )
+        grafico_presupuesto_organo = grafico_horizontal(
+            presupuesto_organo,
+            "organo_grafico",
+            "pbl_sin_iva",
+            "Órgano de contratación",
+            "Presupuesto total sin IVA (€)",
+            "#0891b2",
+        )
+        grafico_comunidades = grafico_horizontal(
+            por_comunidad,
+            "comunidad_grafico",
+            "licitaciones",
+            "Comunidad autónoma",
+            "Número de licitaciones",
+            "#7c3aed",
+            es_cantidad=True,
+        )
+        grafico_provincias = grafico_horizontal(
+            por_provincia,
+            "provincia_grafico",
+            "licitaciones",
+            "Provincia",
+            "Número de licitaciones",
+            color_azul,
+            es_cantidad=True,
+        )
+        grafico_municipios = grafico_horizontal(
+            por_municipio,
+            "municipio_grafico",
+            "licitaciones",
+            "Municipio",
+            "Número de licitaciones",
+            "#4f46e5",
+            es_cantidad=True,
+        )
+        grafico_organos = grafico_horizontal(
+            por_organo,
+            "organo_grafico",
+            "licitaciones",
+            "Órgano de contratación",
+            "Número de licitaciones",
+            "#0284c7",
+            es_cantidad=True,
         )
         grafico_tramos = (
             alt.Chart(por_tramo)
             .mark_bar(color=color_naranja, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
             .encode(
                 x=alt.X("tramo_presupuesto:N", title=None, sort=tramos_presupuesto, axis=alt.Axis(labelAngle=-25)),
-                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
+                y=alt.Y(
+                    "licitaciones:Q",
+                    title="Número de licitaciones",
+                    axis=alt.Axis(format="d", tickMinStep=1),
+                ),
                 tooltip=[
                     alt.Tooltip("tramo_presupuesto:N", title="Tramo"),
-                    alt.Tooltip("licitaciones:Q", title="Licitaciones")
+                    alt.Tooltip(
+                        "licitaciones:Q", title="Licitaciones", format="d"
+                    )
                 ]
             )
             .properties(height=300)
@@ -714,111 +1808,71 @@ else:
             .mark_bar(color=color_rojo, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
             .encode(
                 x=alt.X("plazo:N", title=None, sort=orden_vencimientos, axis=alt.Axis(labelAngle=-20)),
-                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
+                y=alt.Y(
+                    "licitaciones:Q",
+                    title="Número de licitaciones",
+                    axis=alt.Axis(format="d", tickMinStep=1),
+                ),
                 tooltip=[
                     alt.Tooltip("plazo:N", title="Vencimiento"),
-                    alt.Tooltip("licitaciones:Q", title="Licitaciones")
+                    alt.Tooltip(
+                        "licitaciones:Q", title="Licitaciones", format="d"
+                    )
                 ]
             )
             .properties(height=300)
         )
 
-        grafico_comunidades = (
-            alt.Chart(por_comunidad)
-            .mark_bar(color="#7c3aed", cornerRadiusEnd=4)
-            .encode(
-                x=alt.X("licitaciones:Q", title="Número de licitaciones"),
-                y=alt.Y("comunidad_grafico:N", title=None, sort="-x"),
-                tooltip=[
-                    alt.Tooltip("comunidad_grafico:N", title="Comunidad autónoma"),
-                    alt.Tooltip("licitaciones:Q", title="Licitaciones")
-                ]
-            )
-            .properties(height=420)
-        )
-        grafico_presupuesto_organo = (
-            alt.Chart(presupuesto_organo)
-            .mark_bar(color="#0891b2", cornerRadiusEnd=4)
-            .encode(
-                x=alt.X("pbl_sin_iva:Q", title="Presupuesto total sin IVA (€)"),
-                y=alt.Y("organo_grafico:N", title=None, sort="-x", axis=alt.Axis(labelLimit=260)),
-                tooltip=[
-                    alt.Tooltip("organo_grafico:N", title="Órgano de contratación"),
-                    alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto", format=",.2f")
-                ]
-            )
-            .properties(height=420)
-        )
-        grafico_licitaciones_diarias = (
-            alt.Chart(licitaciones_diarias)
-            .mark_line(color=color_naranja, point=alt.OverlayMarkDef(color=color_naranja, size=45), strokeWidth=3)
-            .encode(
-                x=alt.X("fecha_publicacion:T", title="Fecha de publicación", axis=alt.Axis(format="%d/%m/%Y")),
-                y=alt.Y("licitaciones:Q", title="Número de licitaciones"),
-                tooltip=[
-                    alt.Tooltip("fecha_publicacion:T", title="Fecha", format="%d/%m/%Y"),
-                    alt.Tooltip("licitaciones:Q", title="Licitaciones anunciadas")
-                ]
-            )
-            .properties(height=340)
-        )
-        grafico_presupuesto_diario = (
-            alt.Chart(presupuesto_diario)
-            .mark_line(color=color_azul, point=alt.OverlayMarkDef(color=color_azul, size=45), strokeWidth=3)
-            .encode(
-                x=alt.X("fecha_publicacion:T", title="Fecha de publicación / actualización", axis=alt.Axis(format="%d/%m/%Y")),
-                y=alt.Y("pbl_sin_iva:Q", title="PBL total sin IVA (€)"),
-                tooltip=[
-                    alt.Tooltip("fecha_publicacion:T", title="Fecha", format="%d/%m/%Y"),
-                    alt.Tooltip("pbl_sin_iva:Q", title="Presupuesto total", format=",.2f")
-                ]
-            )
-            .properties(height=360)
-        )
-
-        grafico_fila_1a, grafico_fila_1b = st.columns(2)
-        with grafico_fila_1a:
+        graficos_ordenados = [
+            (
+                "Presupuesto por comunidad autónoma",
+                grafico_presupuesto_comunidad,
+            ),
+            ("Presupuesto por provincia", grafico_presupuesto_provincia),
+            ("Presupuesto por municipio", grafico_presupuesto_municipio),
+            (
+                "Presupuesto por órgano de contratación",
+                grafico_presupuesto_organo,
+            ),
+            ("Licitaciones por comunidad autónoma", grafico_comunidades),
+            ("Licitaciones por provincia", grafico_provincias),
+            ("Licitaciones por municipio", grafico_municipios),
+            ("Licitaciones por órgano de contratación", grafico_organos),
+            ("Distribución de presupuesto", grafico_tramos),
+            ("Próximos vencimientos", grafico_vencimientos),
+        ]
+        for titulo_grafico, grafico in graficos_ordenados:
             with st.container(border=True):
-                st.markdown("#### Licitaciones por provincia")
-                st.altair_chart(grafico_provincias, use_container_width=True)
-        with grafico_fila_1b:
-            with st.container(border=True):
-                st.markdown("#### Presupuesto por provincia")
-                st.altair_chart(grafico_presupuesto_provincia, use_container_width=True)
+                st.markdown(f"#### {titulo_grafico}")
+                st.altair_chart(grafico, use_container_width=True)
 
-        grafico_fila_2a, grafico_fila_2b = st.columns(2)
-        with grafico_fila_2a:
-            with st.container(border=True):
-                st.markdown("#### Distribución por presupuesto")
-                st.altair_chart(grafico_tramos, use_container_width=True)
-        with grafico_fila_2b:
-            with st.container(border=True):
-                st.markdown("#### Próximos vencimientos")
-                st.altair_chart(grafico_vencimientos, use_container_width=True)
-
-        grafico_fila_3a, grafico_fila_3b = st.columns(2)
-        with grafico_fila_3a:
-            with st.container(border=True):
-                st.markdown("#### Licitaciones por comunidad autónoma")
-                st.altair_chart(grafico_comunidades, use_container_width=True)
-        with grafico_fila_3b:
-            with st.container(border=True):
-                st.markdown("#### Presupuesto por órgano de contratación")
-                st.altair_chart(grafico_presupuesto_organo, use_container_width=True)
-
-        with st.container(border=True):
-            st.markdown("#### Licitaciones anunciadas por día")
-            st.caption(f"Número de licitaciones agrupadas según {descripcion_fecha_publicacion}.")
-            st.altair_chart(grafico_licitaciones_diarias, use_container_width=True)
-
-        with st.container(border=True):
-            st.markdown("#### Presupuesto publicado por día")
-            st.caption(f"Suma diaria del presupuesto base de licitación sin IVA según {descripcion_fecha_publicacion}.")
-            st.altair_chart(grafico_presupuesto_diario, use_container_width=True)
-
-    with tab_mapa:
+    elif vista_principal == "🗺️ Mapa":
         st.subheader("📍 Ubicación de las licitaciones")
-        df_mapa = df_f.dropna(subset=['latitud', 'longitud']).copy()
+        st.caption(
+            "Las ubicaciones del feed son aproximadas: se calculan mediante el "
+            "código postal o, si no está disponible, mediante un municipio inequívoco."
+        )
+        fuente_mapa = st.radio(
+            "Datos que quieres mostrar:",
+            ["Últimas actualizaciones", "Histórico", "Combinado"],
+            horizontal=True,
+            key="fuente_mapa",
+        )
+        if fuente_mapa == "Últimas actualizaciones":
+            df_base_mapa = df_radar_filtrado.copy()
+        elif fuente_mapa == "Combinado":
+            df_base_mapa = pd.concat(
+                [df_f, df_radar_filtrado], ignore_index=True, sort=False
+            )
+            if "id" in df_base_mapa.columns:
+                df_base_mapa = df_base_mapa.drop_duplicates(
+                    subset=["id"], keep="last"
+                )
+        else:
+            df_base_mapa = df_f.copy()
+        if df_base_mapa.empty and not set(["latitud", "longitud"]).issubset(df_base_mapa.columns):
+            df_base_mapa = df_f.iloc[0:0].copy()
+        df_mapa = df_base_mapa.dropna(subset=['latitud', 'longitud']).copy()
         
         if not df_mapa.empty:
             df_mapa['pbl_fmt'] = df_mapa['pbl_sin_iva'].apply(lambda x: formato_eur(x))
@@ -827,6 +1881,11 @@ else:
             df_mapa['provincia_clean'] = df_mapa['provincia'].fillna('No especificada')
             df_mapa['ccaa_clean'] = df_mapa['comunidad_autonoma'].fillna('No especificada')
             df_mapa['expediente_clean'] = df_mapa['expediente'].fillna('N/A')
+            if "origen_coordenadas" not in df_mapa.columns:
+                df_mapa["origen_coordenadas"] = "Histórico"
+            df_mapa["origen_coordenadas"] = df_mapa[
+                "origen_coordenadas"
+            ].fillna("Histórico")
             
             np.random.seed(42)
             df_mapa['lat_j'] = df_mapa['latitud'] + np.random.normal(0, 0.00008, size=len(df_mapa))
@@ -878,7 +1937,12 @@ else:
         else:
             st.info("No hay licitaciones con coordenadas geográficas disponibles para mostrar en el mapa.")
 
-    with tab_tarjetas:
+    elif vista_principal == "🗂️ Histórico":
+        st.subheader("🗂️ Histórico de licitaciones")
+        st.caption(
+            "Base histórica consolidada mediante los conjuntos de datos abiertos de la "
+            "Plataforma de Contratación del Sector Público. Se actualiza diariamente."
+        )
         col_ord1, col_ord2 = st.columns([2, 3])
         with col_ord1:
             criterio_orden = st.selectbox(
@@ -942,24 +2006,13 @@ else:
                 st.session_state.pagina_actual += 1
                 st.rerun()
 
-# --- BLOQUE CORPORATIVO ---
-st.markdown("""
-<div class="company-card">
-    <div class="company-heading">
-        <img class="company-logo" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAkGBwgHBgkIBwgKCgkLDRYPDQwMDRsUFRAWIB0iIiAdHx8kKDQsJCYxJx8fLT0tMTU3Ojo6Iys/RD84QzQ5Ojf/2wBDAQoKCg0MDRoPDxo3JR8lNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzf/wAARCAUABQADASIAAhEBAxEB/8QAHAABAQACAwEBAAAAAAAAAAAAAAMHCAQFBgEC/8QAMhABAAIBAwMBBgYCAwEBAQAAAAECAwQFERMyYQcGEhUhMXEUIkFTVJJRkTNCgSOhsf/EABYBAQEBAAAAAAAAAAAAAAAAAAABAv/EABURAQEAAAAAAAAAAAAAAAAAAAAB/9oADAMBAAIRAxEAPwDwIA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAA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AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApg701MHeImAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKYO9NTB3iJgCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACmDvTUwd4iYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38AmKdG/g6N/AJinRv4OjfwCYp0b+Do38Ampg7zo38KYMNouD/2Q==" alt="Logotipo de Landa Consultoría y Proyectos">
-        <div>
-            <p class="company-name">Landa Consultoría y Proyectos</p>
-            <span style="color:#64748b; font-size:0.82rem;">Expertos en proyectos y obras de ingeniería civil</span>
-        </div>
-    </div>
-    <p class="company-copy"><b>Te ayudamos a preparar tus licitaciones y ejecutar tus proyectos.</b><br>Cuéntanos qué necesitas y estudiaremos cómo ayudarte.</p>
-    <div class="company-actions">
-        <a class="company-action" href="mailto:info@landaconsultores.com">✉️ info@landaconsultores.com</a>
-        <a class="company-action" href="tel:+34681881782">📞 681 881 782</a>
-        <a class="company-action" href="https://www.landaconsultores.com" target="_blank" rel="noopener noreferrer">🌐 Visitar la web</a>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    '<div class="legal-note"><b>Aviso:</b> LandAI Licitaciones es una herramienta '
+    'independiente de consulta y análisis. No pertenece ni representa a la Plataforma de '
+    'Contratación del Sector Público. La información oficial y vinculante es la publicada '
+    'en dicha plataforma.</div>',
+    unsafe_allow_html=True,
+)
 
 # Mantiene una navegación vertical predecible tras los reruns de Streamlit.
 components.html("""
@@ -968,34 +2021,7 @@ components.html("""
     const parentWindow = window.parent;
     const parentDocument = parentWindow.document;
     const storageKey = "dashboard_licitaciones_scroll";
-    const scrollContainer = parentDocument.querySelector('[data-testid="stMain"]');
-
-    const arrangeTopHeader = () => {
-        const heading = Array.from(parentDocument.querySelectorAll("h1"))
-            .find((element) => (element.textContent || "").includes("Monitor de Licitaciones"));
-        const companyCard = parentDocument.querySelector(".company-card");
-        if (!heading || !companyCard || companyCard.closest(".dashboard-top-header")) return;
-
-        const titleBlock = heading.closest('[data-testid="stElementContainer"]') || heading.parentElement;
-        const captionBlock = titleBlock?.nextElementSibling;
-        if (!titleBlock || !titleBlock.parentNode) return;
-
-        const wrapper = parentDocument.createElement("div");
-        wrapper.className = "dashboard-top-header";
-        const titleGroup = parentDocument.createElement("div");
-        titleGroup.className = "dashboard-title-group";
-
-        titleBlock.parentNode.insertBefore(wrapper, titleBlock);
-        wrapper.appendChild(titleGroup);
-        titleGroup.appendChild(titleBlock);
-        if (captionBlock && (captionBlock.textContent || "").includes("Plataforma de Contratación")) {
-            titleGroup.appendChild(captionBlock);
-        }
-        wrapper.appendChild(companyCard);
-    };
-
-    arrangeTopHeader();
-    parentWindow.setTimeout(arrangeTopHeader, 150);
+    const scrollContainer = hostDocument.querySelector('[data-testid="stMain"]');
 
     const savedScroll = parentWindow.sessionStorage.getItem(storageKey);
 
@@ -1004,7 +2030,7 @@ components.html("""
         const saved = savedScroll;
 
         if (saved === "tarjetas") {
-            const pageIndicator = Array.from(parentDocument.querySelectorAll("p"))
+            const pageIndicator = Array.from(hostDocument.querySelectorAll("p"))
                 .find((element) => /^Página \d+ de \d+/.test((element.textContent || "").trim()));
             const target = pageIndicator?.closest('[data-testid="stHorizontalBlock"]') || pageIndicator;
             if (target) {
@@ -1020,7 +2046,7 @@ components.html("""
     };
 
     const bindButtons = () => {
-        parentDocument.querySelectorAll("button").forEach((button) => {
+        hostDocument.querySelectorAll("button").forEach((button) => {
             if (button.dataset.licitacionesScrollBound === "1") return;
             const label = (button.innerText || button.textContent || "").trim();
 
