@@ -20,6 +20,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from google import genai
 from google.genai import types
+from feed_parser import extraer_adjudicacion
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -291,9 +292,30 @@ def formato_eur(valor):
         return "No especificado"
     return f"{float(valor):,.2f}".translate(str.maketrans({",": ".", ".": ","})) + " €"
 
+def calcular_baja(pbl_con_iva, adjudicacion_con_iva):
+    try:
+        pbl = float(pbl_con_iva)
+        adjudicacion = float(adjudicacion_con_iva)
+    except (TypeError, ValueError):
+        return None, None
+    if (
+        pd.isna(pbl)
+        or pd.isna(adjudicacion)
+        or pbl <= 0
+        or adjudicacion < 0
+        or adjudicacion > pbl
+    ):
+        return None, None
+    diferencia = pbl - adjudicacion
+    return diferencia, diferencia * 100 / pbl
+
 def formato_fecha(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
+
+def formato_fecha_corta(valor):
+    fecha = pd.to_datetime(valor, errors="coerce")
+    return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y")
 
 def texto_dias_restantes(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
@@ -608,6 +630,7 @@ def _fila_desde_entrada_feed(entrada):
     proyecto = status.find("cac:ProcurementProject", NAMESPACES_ATOM)
     if proyecto is None:
         return None
+    adjudicatario, fecha_adjudicacion, importe_adjudicacion_con_iva = extraer_adjudicacion(status)
 
     def numero(ruta):
         valor = _texto_xml(proyecto, ruta)
@@ -692,6 +715,9 @@ def _fila_desde_entrada_feed(entrada):
         "longitud": None,
         "fecha_limite": fecha_limite,
         "fecha_actualizacion": _texto_xml(entrada, "atom:updated"),
+        "adjudicatario": adjudicatario,
+        "fecha_adjudicacion": fecha_adjudicacion,
+        "importe_adjudicacion_con_iva": importe_adjudicacion_con_iva,
         "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
         "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
         "resumen_ia": None,
@@ -1366,11 +1392,38 @@ def render_grid_tarjetas(df_vista, key_prefix):
                     </p>
                     """, unsafe_allow_html=True)
                     
-                    mc1, mc2 = st.columns(2)
-                    with mc1:
-                        st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.85rem;">{formato_eur(r["pbl_sin_iva"])}</div><div class="metric-lbl-grid">PBL SIN IVA</div></div>', unsafe_allow_html=True)
-                    with mc2:
-                        st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{formato_fecha(r["fecha_limite"])}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_dias_restantes(r["fecha_limite"])}</div></div>', unsafe_allow_html=True)
+                    if r.get("estado") in {"ADJ", "RES"}:
+                        importe_adjudicado = r.get("importe_adjudicacion_con_iva")
+                        baja_importe, baja_porcentaje = calcular_baja(
+                            r.get("pbl_con_iva"), importe_adjudicado
+                        )
+                        baja_valor = formato_eur(baja_importe) if baja_importe is not None else "No disponible"
+                        baja_detalle = (
+                            f"{baja_porcentaje:.2f} %".replace(".", ",")
+                            if baja_porcentaje is not None else "Sin datos suficientes"
+                        )
+                        adjudicatario_safe = texto_seguro(
+                            r.get("adjudicatario"), "No disponible"
+                        )
+                        ma1, ma2, ma3 = st.columns(3)
+                        with ma1:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{formato_eur(r.get("pbl_con_iva"))}</div><div class="metric-lbl-grid">PBL CON IVA</div></div>', unsafe_allow_html=True)
+                        with ma2:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{formato_eur(importe_adjudicado)}</div><div class="metric-lbl-grid">ADJUDICACIÓN CON IVA</div></div>', unsafe_allow_html=True)
+                        with ma3:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{baja_valor}</div><div class="metric-lbl-grid">BAJA</div><div style="margin-top:4px;font-size:0.72rem;font-weight:700;color:#198754;">{baja_detalle}</div></div>', unsafe_allow_html=True)
+
+                        mi1, mi2 = st.columns([2, 1])
+                        with mi1:
+                            st.markdown(f'<div class="metric-box-grid card-metric" title="{adjudicatario_safe}"><div class="metric-val-grid" style="font-size:0.78rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">{adjudicatario_safe}</div><div class="metric-lbl-grid">ADJUDICATARIO</div></div>', unsafe_allow_html=True)
+                        with mi2:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;color:#495057;">{formato_fecha_corta(r.get("fecha_adjudicacion"))}</div><div class="metric-lbl-grid">FECHA ADJUDICACIÓN</div></div>', unsafe_allow_html=True)
+                    else:
+                        mc1, mc2 = st.columns(2)
+                        with mc1:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.85rem;">{formato_eur(r.get("pbl_con_iva"))}</div><div class="metric-lbl-grid">PBL CON IVA</div></div>', unsafe_allow_html=True)
+                        with mc2:
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{formato_fecha(r["fecha_limite"])}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_dias_restantes(r["fecha_limite"])}</div></div>', unsafe_allow_html=True)
 
                     with st.expander("📄 Ver documentación"):
                         docs = json.loads(r['documentos_adjuntos']) if r['documentos_adjuntos'] else []

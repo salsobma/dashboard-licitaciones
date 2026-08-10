@@ -54,6 +54,9 @@ def inicializar_db(db_path=DB_PATH):
         longitud REAL,
         fecha_limite TEXT,
         fecha_actualizacion TEXT,
+        adjudicatario TEXT,
+        fecha_adjudicacion TEXT,
+        importe_adjudicacion_con_iva REAL,
         url_licitacion TEXT,
         documentos_adjuntos TEXT,
         analizado_ia INTEGER DEFAULT 0,
@@ -68,6 +71,12 @@ def inicializar_db(db_path=DB_PATH):
         cursor.execute("ALTER TABLE licitaciones ADD COLUMN latitud REAL")
     if 'longitud' not in cols:
         cursor.execute("ALTER TABLE licitaciones ADD COLUMN longitud REAL")
+    if 'adjudicatario' not in cols:
+        cursor.execute("ALTER TABLE licitaciones ADD COLUMN adjudicatario TEXT")
+    if 'fecha_adjudicacion' not in cols:
+        cursor.execute("ALTER TABLE licitaciones ADD COLUMN fecha_adjudicacion TEXT")
+    if 'importe_adjudicacion_con_iva' not in cols:
+        cursor.execute("ALTER TABLE licitaciones ADD COLUMN importe_adjudicacion_con_iva REAL")
         
     conn.commit()
     conn.close()
@@ -75,6 +84,30 @@ def inicializar_db(db_path=DB_PATH):
 def find_text(element, path, ns=NAMESPACES):
     node = element.find(path, ns)
     return node.text.strip() if node is not None and node.text else None
+
+def extraer_adjudicacion(status_node):
+    nombres = []
+    fechas = []
+    importes_con_iva = []
+    for resultado in status_node.findall('cac:TenderResult', NAMESPACES):
+        nombre = find_text(resultado, 'cac:WinningParty/cac:PartyName/cbc:Name')
+        if nombre and nombre not in nombres:
+            nombres.append(nombre)
+        fecha = find_text(resultado, 'cbc:AwardDate')
+        if fecha:
+            fechas.append(fecha)
+        for proyecto in resultado.findall('cac:AwardedTenderedProject', NAMESPACES):
+            importe = find_text(proyecto, 'cac:LegalMonetaryTotal/cbc:PayableAmount')
+            if importe:
+                try:
+                    importes_con_iva.append(float(importe))
+                except ValueError:
+                    pass
+    return (
+        ' · '.join(nombres) if nombres else None,
+        max(fechas) if fechas else None,
+        sum(importes_con_iva) if importes_con_iva else None,
+    )
 
 def procesar_todos_los_atoms(db_path=DB_PATH):
     inicializar_db(db_path)
@@ -114,6 +147,7 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
                     
                 expediente = find_text(status_node, 'cbc:ContractFolderID')
                 estado = find_text(status_node, 'cbc-place-ext:ContractFolderStatusCode')
+                adjudicatario, fecha_adjudicacion, importe_adjudicacion_con_iva = extraer_adjudicacion(status_node)
                 
                 party_node = status_node.find('cac-place-ext:LocatedContractingParty/cac:Party', NAMESPACES)
                 organo = find_text(party_node, 'cac:PartyName/cbc:Name') if party_node is not None else None
@@ -195,8 +229,9 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
                     id, id_licitacion_corta, expediente, titulo, organo_contratante, tipo_contrato, estado,
                     pbl_sin_iva, pbl_con_iva, valor_estimado, cpv, codigo_postal,
                     municipio, provincia, comunidad_autonoma, latitud, longitud, fecha_limite, fecha_actualizacion,
+                    adjudicatario, fecha_adjudicacion, importe_adjudicacion_con_iva,
                     url_licitacion, documentos_adjuntos
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     estado=excluded.estado,
                     fecha_actualizacion=excluded.fecha_actualizacion,
@@ -204,6 +239,9 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
                     pbl_con_iva=excluded.pbl_con_iva,
                     valor_estimado=excluded.valor_estimado,
                     fecha_limite=excluded.fecha_limite,
+                    adjudicatario=excluded.adjudicatario,
+                    fecha_adjudicacion=excluded.fecha_adjudicacion,
+                    importe_adjudicacion_con_iva=excluded.importe_adjudicacion_con_iva,
                     municipio=excluded.municipio,
                     provincia=excluded.provincia,
                     comunidad_autonoma=excluded.comunidad_autonoma,
@@ -221,6 +259,7 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
                     lic_id, id_corta, expediente, titulo, organo, tipo_contrato, estado,
                     pbl_sin_iva, pbl_con_iva, valor_estimado, ",".join(cpvs),
                     codigo_postal, municipio, provincia, ccaa, latitud, longitud, fecha_limite, fecha_act,
+                    adjudicatario, fecha_adjudicacion, importe_adjudicacion_con_iva,
                     url_licitacion, json.dumps(documentos, ensure_ascii=False)
                 ))
                 total_guardados += 1
