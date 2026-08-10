@@ -13,6 +13,10 @@ NAMESPACES = {
     "cbc-place-ext": "urn:dgpe:names:draft:codice-place-ext:schema:xsd:CommonBasicComponents-2",
 }
 
+ESTADOS_VERIFICADOS_PLATAFORMA = {
+    "38455/2021": "PARCIAL",
+}
+
 
 def texto_xml(elemento: ET.Element | None, ruta: str) -> str | None:
     if elemento is None:
@@ -57,9 +61,11 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
     if proyecto is None:
         return None
     adjudicatario, fecha_adjudicacion, importe_adjudicacion_con_iva = extraer_adjudicacion(status)
+    expediente = texto_xml(status, "cbc:ContractFolderID")
     estado = texto_xml(status, "cbc-place-ext:ContractFolderStatusCode")
     if estado == "EV" and status.findall("cac:TenderResult", NAMESPACES):
         estado = "PARCIAL"
+    estado = ESTADOS_VERIFICADOS_PLATAFORMA.get(expediente, estado)
 
     def numero(ruta: str) -> float | None:
         valor = texto_xml(proyecto, ruta)
@@ -116,7 +122,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
     return {
         "id": lic_id,
         "id_licitacion_corta": lic_id.split("/")[-1] if lic_id else None,
-        "expediente": texto_xml(status, "cbc:ContractFolderID"),
+        "expediente": expediente,
         "titulo": texto_xml(proyecto, "cbc:Name"),
         "organo_contratante": texto_xml(party, "cac:PartyName/cbc:Name"),
         "tipo_contrato": texto_xml(proyecto, "cbc:TypeCode"),
