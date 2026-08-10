@@ -1,0 +1,56 @@
+name: Actualizar feed reciente
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7 9,13,17,21 * * *"
+      timezone: "Europe/Madrid"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: actualizar-feed-reciente
+  cancel-in-progress: false
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencia de descarga
+        run: python -m pip install --disable-pip-version-check requests
+
+      - name: Descargar y validar feed oficial
+        run: python actualizar_feed_cache.py
+
+      - name: Publicar snapshot si ha cambiado
+        shell: bash
+        run: |
+          if [ -z "$(git status --porcelain -- feed_cache)" ]; then
+            echo "El feed no ha cambiado."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- feed_cache
+          git commit -m "Actualiza feed reciente"
+          for intento in 1 2 3; do
+            git pull --rebase origin main
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            sleep $((intento * 5))
+          done
+          echo "No se pudo publicar el snapshot tras tres intentos." >&2
+          exit 1
