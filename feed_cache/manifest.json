@@ -1,29 +1,29 @@
 {
   "version": 1,
-  "fecha_feed": "2026-08-09T20:03:15.159+02:00",
+  "fecha_feed": "2026-08-10T20:10:56.860+02:00",
   "paginas": [
     {
       "numero": 1,
       "url": "https://contrataciondelsectorpublico.gob.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom",
-      "bytes": 888676
+      "bytes": 5082878
     },
     {
       "numero": 2,
-      "url": "https://contrataciondelestado.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3_20260809_200315.atom",
-      "bytes": 15226488
+      "url": "https://contrataciondelestado.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3_20260810_201056.atom",
+      "bytes": 16350674
     },
     {
       "numero": 3,
-      "url": "https://contrataciondelestado.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3_20260807_201321.atom",
-      "bytes": 17239578
+      "url": "https://contrataciondelestado.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3_20260810_201056_1.atom",
+      "bytes": 14957250
     },
     {
       "numero": 4,
-      "url": "https://contrataciondelestado.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3_20260807_201321_1.atom",
-      "bytes": 14860297
+      "url": "https://contrataciondelestado.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3_20260810_201056_2.atom",
+      "bytes": 15819975
     }
   ],
   "completo": true,
-  "registros": 1513,
-  "bajas": 10
+  "registros": 1677,
+  "bajas": 6
 }
