@@ -148,6 +148,8 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
                 expediente = find_text(status_node, 'cbc:ContractFolderID')
                 estado = find_text(status_node, 'cbc-place-ext:ContractFolderStatusCode')
                 adjudicatario, fecha_adjudicacion, importe_adjudicacion_con_iva = extraer_adjudicacion(status_node)
+                if estado == 'EV' and status_node.findall('cac:TenderResult', NAMESPACES):
+                    estado = 'PARCIAL'
                 
                 party_node = status_node.find('cac-place-ext:LocatedContractingParty/cac:Party', NAMESPACES)
                 organo = find_text(party_node, 'cac:PartyName/cbc:Name') if party_node is not None else None

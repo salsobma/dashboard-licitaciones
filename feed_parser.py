@@ -57,6 +57,9 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
     if proyecto is None:
         return None
     adjudicatario, fecha_adjudicacion, importe_adjudicacion_con_iva = extraer_adjudicacion(status)
+    estado = texto_xml(status, "cbc-place-ext:ContractFolderStatusCode")
+    if estado == "EV" and status.findall("cac:TenderResult", NAMESPACES):
+        estado = "PARCIAL"
 
     def numero(ruta: str) -> float | None:
         valor = texto_xml(proyecto, ruta)
@@ -117,7 +120,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "titulo": texto_xml(proyecto, "cbc:Name"),
         "organo_contratante": texto_xml(party, "cac:PartyName/cbc:Name"),
         "tipo_contrato": texto_xml(proyecto, "cbc:TypeCode"),
-        "estado": texto_xml(status, "cbc-place-ext:ContractFolderStatusCode"),
+        "estado": estado,
         "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
         "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
         "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),

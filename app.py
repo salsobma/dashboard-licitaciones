@@ -262,6 +262,7 @@ MAPA_ESTADOS = {
     'PUB': ('En plazo / Publicada', 'badge-pub'),
     'PRE': ('Preanuncio', 'badge-res'),
     'EV':  ('En Evaluación', 'badge-ev'),
+    'PARCIAL': ('Parcialmente resuelta', 'badge-ev'),
     'ADJ': ('Adjudicada', 'badge-adj'),
     'RES': ('Resuelta / Formalizada', 'badge-res'),
     'ANUL': ('Anulada', 'badge-res'),
@@ -320,7 +321,7 @@ def formato_fecha_corta(valor):
 def texto_dias_restantes(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     if pd.isna(fecha):
-        return "Fecha límite no disponible en la plataforma"
+        return ""
     dias = (fecha.date() - date.today()).days
     if dias > 1:
         return f"Faltan {dias} días"
@@ -349,6 +350,28 @@ def normalizar_estado_vigente(tabla):
         return resultado
 
     resultado["estado_fuente"] = resultado["estado"]
+    campos_adjudicacion = [
+        campo for campo in (
+            "adjudicatario",
+            "fecha_adjudicacion",
+            "importe_adjudicacion_con_iva",
+        )
+        if campo in resultado.columns
+    ]
+    if campos_adjudicacion:
+        tiene_resultado_adjudicacion = pd.Series(False, index=resultado.index)
+        for campo in campos_adjudicacion:
+            valores = resultado[campo]
+            if pd.api.types.is_numeric_dtype(valores):
+                tiene_resultado_adjudicacion |= valores.notna()
+            else:
+                tiene_resultado_adjudicacion |= (
+                    valores.notna() & valores.astype(str).str.strip().ne("")
+                )
+        resultado.loc[
+            resultado["estado"].eq("EV") & tiene_resultado_adjudicacion,
+            "estado",
+        ] = "PARCIAL"
     texto_limite = resultado["fecha_limite"].fillna("").astype(str).str.strip()
     limite_local = pd.to_datetime(texto_limite.str.slice(0, 19), errors="coerce")
 
@@ -532,7 +555,12 @@ def _cargar_feed_reciente_portada_legacy():
             "titulo": _texto_xml(proyecto, "cbc:Name"),
             "organo_contratante": _texto_xml(party, "cac:PartyName/cbc:Name"),
             "tipo_contrato": _texto_xml(proyecto, "cbc:TypeCode"),
-            "estado": _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode"),
+            "estado": (
+                "PARCIAL"
+                if _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode") == "EV"
+                and status.findall("cac:TenderResult", NAMESPACES_ATOM)
+                else _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode")
+            ),
             "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
             "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
             "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
@@ -700,7 +728,12 @@ def _fila_desde_entrada_feed(entrada):
         "titulo": _texto_xml(proyecto, "cbc:Name"),
         "organo_contratante": _texto_xml(party, "cac:PartyName/cbc:Name"),
         "tipo_contrato": _texto_xml(proyecto, "cbc:TypeCode"),
-        "estado": _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode"),
+        "estado": (
+            "PARCIAL"
+            if _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode") == "EV"
+            and status.findall("cac:TenderResult", NAMESPACES_ATOM)
+            else _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode")
+        ),
         "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
         "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
         "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
@@ -1016,8 +1049,6 @@ if "f_pbl_max" not in st.session_state:
     st.session_state["f_pbl_max"] = 200000.0
 if "f_fecha" not in st.session_state:
     st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
-if "f_sin_fecha" not in st.session_state:
-    st.session_state["f_sin_fecha"] = True
 
 st.sidebar.title("🎛️ Filtros Avanzados")
 
@@ -1032,7 +1063,6 @@ if st.sidebar.button("🗑️ Quitar filtros", use_container_width=True):
     st.session_state["f_pbl_min"] = 0.0
     st.session_state["f_pbl_max"] = max_pbl_db
     st.session_state["f_fecha"] = (f_min_db, f_max_db)
-    st.session_state["f_sin_fecha"] = True
     st.session_state["f_organo"] = []
     st.session_state["f_adjudicatario"] = []
     st.rerun()
@@ -1048,7 +1078,6 @@ if st.sidebar.button("↩️ Filtros iniciales", use_container_width=True):
     st.session_state["f_pbl_min"] = 0.0
     st.session_state["f_pbl_max"] = 200000.0
     st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
-    st.session_state["f_sin_fecha"] = True
     st.session_state["f_organo"] = []
     st.session_state["f_adjudicatario"] = []
     st.rerun()
@@ -1081,11 +1110,6 @@ if not fechas_validas.empty:
     fecha_rango = st.sidebar.date_input("📅 Fecha Límite Presentación:", min_value=f_min_db, max_value=f_max_db, key="f_fecha")
 else:
     fecha_rango = None
-incluir_sin_fecha = st.sidebar.checkbox(
-    "Mostrar también las que no indican fecha límite",
-    key="f_sin_fecha",
-)
-
 organos = sorted([x for x in df_catalogo_filtros['organo_contratante'].dropna().unique() if x])
 organo_sel = st.sidebar.multiselect("🏛️ Órgano de Contratación:", organos, key="f_organo")
 
@@ -1112,8 +1136,7 @@ if fecha_rango and len(fecha_rango) == 2:
         (df_f['fecha_limite_dt'].dt.date >= fecha_rango[0])
         & (df_f['fecha_limite_dt'].dt.date <= fecha_rango[1])
     )
-    if incluir_sin_fecha:
-        dentro_del_rango = dentro_del_rango | df_f['fecha_limite_dt'].isna()
+    dentro_del_rango = dentro_del_rango | df_f['fecha_limite_dt'].isna()
     df_f = df_f[dentro_del_rango]
 
 if ccaa_sel: df_f = df_f[df_f['comunidad_autonoma'].isin(ccaa_sel)]
@@ -1166,8 +1189,7 @@ def aplicar_filtros_al_feed(df_entrada):
             (filtrado["fecha_limite_dt"].dt.date >= fecha_rango[0])
             & (filtrado["fecha_limite_dt"].dt.date <= fecha_rango[1])
         )
-        if incluir_sin_fecha:
-            dentro_del_rango = dentro_del_rango | filtrado["fecha_limite_dt"].isna()
+        dentro_del_rango = dentro_del_rango | filtrado["fecha_limite_dt"].isna()
         filtrado = filtrado[dentro_del_rango]
     if ccaa_sel:
         filtrado = filtrado[
@@ -1343,8 +1365,6 @@ if pbl_min_val > 0 or pbl_max_val < max_pbl_db:
     filtros_activos.append(f'Presupuesto: {formato_eur(pbl_min_val)} – {formato_eur(pbl_max_val)}')
 if fecha_rango and len(fecha_rango) == 2:
     filtros_activos.append(f'Fecha límite: {fecha_rango[0].strftime("%d/%m/%Y")} – {fecha_rango[1].strftime("%d/%m/%Y")}')
-if not incluir_sin_fecha:
-    filtros_activos.append('Sin fecha límite: excluidas')
 if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
 if adjudicatario_sel: filtros_activos.append('Adjudicatario: ' + ', '.join(adjudicatario_sel))
 
@@ -1408,7 +1428,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                     </p>
                     """, unsafe_allow_html=True)
                     
-                    if r.get("estado") in {"ADJ", "RES"}:
+                    if r.get("estado") in {"ADJ", "RES", "PARCIAL"}:
                         importe_adjudicado = r.get("importe_adjudicacion_con_iva")
                         baja_importe, baja_porcentaje = calcular_baja(
                             r.get("pbl_con_iva"), importe_adjudicado
