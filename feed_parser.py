@@ -21,6 +21,31 @@ def texto_xml(elemento: ET.Element | None, ruta: str) -> str | None:
     return nodo.text.strip() if nodo is not None and nodo.text else None
 
 
+def extraer_adjudicacion(status: ET.Element) -> tuple[str | None, str | None, float | None]:
+    nombres = []
+    fechas = []
+    importes_con_iva = []
+    for resultado in status.findall("cac:TenderResult", NAMESPACES):
+        nombre = texto_xml(resultado, "cac:WinningParty/cac:PartyName/cbc:Name")
+        if nombre and nombre not in nombres:
+            nombres.append(nombre)
+        fecha = texto_xml(resultado, "cbc:AwardDate")
+        if fecha:
+            fechas.append(fecha)
+        for proyecto in resultado.findall("cac:AwardedTenderedProject", NAMESPACES):
+            importe = texto_xml(proyecto, "cac:LegalMonetaryTotal/cbc:PayableAmount")
+            if importe:
+                try:
+                    importes_con_iva.append(float(importe))
+                except ValueError:
+                    pass
+    return (
+        " · ".join(nombres) if nombres else None,
+        max(fechas) if fechas else None,
+        sum(importes_con_iva) if importes_con_iva else None,
+    )
+
+
 def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
     lic_id = texto_xml(entrada, "atom:id")
     enlace = entrada.find("atom:link", NAMESPACES)
@@ -31,6 +56,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
     proyecto = status.find("cac:ProcurementProject", NAMESPACES)
     if proyecto is None:
         return None
+    adjudicatario, fecha_adjudicacion, importe_adjudicacion_con_iva = extraer_adjudicacion(status)
 
     def numero(ruta: str) -> float | None:
         valor = texto_xml(proyecto, ruta)
@@ -104,6 +130,9 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "longitud": None,
         "fecha_limite": fecha_limite,
         "fecha_actualizacion": texto_xml(entrada, "atom:updated"),
+        "adjudicatario": adjudicatario,
+        "fecha_adjudicacion": fecha_adjudicacion,
+        "importe_adjudicacion_con_iva": importe_adjudicacion_con_iva,
         "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
         "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
         "resumen_ia": None,
