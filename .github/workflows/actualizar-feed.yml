@@ -16,7 +16,7 @@ concurrency:
 jobs:
   actualizar:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
@@ -32,7 +32,29 @@ jobs:
         run: python -m pip install --disable-pip-version-check requests
 
       - name: Descargar y validar feed oficial
-        run: python actualizar_feed_cache.py
+        shell: bash
+        run: |
+          esperas=(0 120 300)
+          total_intentos=${#esperas[@]}
+
+          for indice in "${!esperas[@]}"; do
+            espera=${esperas[$indice]}
+            intento=$((indice + 1))
+
+            if [ "$espera" -gt 0 ]; then
+              echo "La Plataforma no respondio. Nuevo intento en ${espera} segundos..."
+              sleep "$espera"
+            fi
+
+            echo "Intento ${intento} de ${total_intentos} para actualizar el feed."
+            if python actualizar_feed_cache.py; then
+              echo "Feed descargado y validado correctamente."
+              exit 0
+            fi
+          done
+
+          echo "El feed oficial no pudo actualizarse tras ${total_intentos} intentos." >&2
+          exit 1
 
       - name: Publicar snapshot si ha cambiado
         shell: bash
