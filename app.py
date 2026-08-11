@@ -132,6 +132,23 @@ def _graph_headers():
     }
 
 
+def _detalle_error_graph(error):
+    """Resume un error de Graph sin exponer tokens ni secretos."""
+    respuesta = getattr(error, "response", None)
+    if respuesta is None:
+        return type(error).__name__
+    codigo_http = getattr(respuesta, "status_code", "")
+    try:
+        payload = respuesta.json()
+        detalle = payload.get("error", {}) if isinstance(payload, dict) else {}
+        codigo = str(detalle.get("code", "")).strip()
+        mensaje = str(detalle.get("message", "")).strip()
+        partes = [str(codigo_http), codigo, mensaje]
+        return " · ".join(parte for parte in partes if parte)[:500]
+    except (ValueError, AttributeError):
+        return str(codigo_http) or type(error).__name__
+
+
 @st.cache_data(ttl=30, show_spinner=False)
 def cargar_favoritos_compartidos():
     """Devuelve {id_licitacion: id_elemento_lista}."""
@@ -1564,6 +1581,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                 "El dashboard funciona, pero no se ha podido conectar con los "
                 "favoritos de Microsoft Lists."
             )
+            st.caption(f"Detalle Microsoft: {_detalle_error_graph(error)}")
     for i in range(0, len(df_vista), 3):
         cols = st.columns(3)
         lote = df_vista.iloc[i:i+3]
