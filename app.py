@@ -224,7 +224,7 @@ def alternar_favorito(licitacion):
             timeout=15,
         )
         # Hasta que se creen las columnas ampliadas, el favorito sigue funcionando.
-        if respuesta.status_code == 400:
+        if not respuesta.ok:
             respuesta = requests.post(
                 base,
                 headers=_graph_headers(),
@@ -399,10 +399,12 @@ st.markdown("""
     div[class*="st-key-acciones_"] [data-testid="stLinkButton"] a {
         min-height: 32px !important; height: 32px !important; padding: 2px 8px !important;
         border-radius: 6px !important; line-height: 1 !important;
+        display: flex !important; align-items: center !important; justify-content: center !important;
     }
     div[class*="st-key-acciones_"] [data-testid="stButton"] p,
     div[class*="st-key-acciones_"] [data-testid="stLinkButton"] p {
         font-size: 1rem !important; line-height: 1 !important;
+        margin: 0 !important; width: 100% !important; text-align: center !important;
     }
     div[class*="st-key-fav_activo_"] button {
         background: #198754 !important; border-color: #198754 !important;
@@ -1697,9 +1699,10 @@ def render_grid_tarjetas(df_vista, key_prefix):
                                                 alternar_favorito(r.to_dict())
                                                 st.rerun()
                                             except requests.RequestException as error_favorito:
-                                                st.error(
-                                                    "No se pudo actualizar Microsoft Lists. "
-                                                    f"Detalle: {_detalle_error_graph(error_favorito)}"
+                                                st.toast(
+                                                    "No se pudo actualizar Microsoft Lists: "
+                                                    f"{_detalle_error_graph(error_favorito)}",
+                                                    icon="⚠️",
                                                 )
                                 else:
                                     st.button(
