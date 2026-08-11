@@ -68,11 +68,24 @@ def _secreto(nombre, defecto=""):
     return os.getenv(f"PREMIUM_{nombre.upper()}", str(valor or defecto)).strip()
 
 
+def _secreto_microsoft(nombre, defecto=""):
+    """Reutiliza las credenciales OIDC para las llamadas de Microsoft Graph."""
+    try:
+        auth = st.secrets.get("auth", {})
+        microsoft = auth.get("microsoft", {})
+        valor = microsoft.get(nombre, defecto)
+    except Exception:
+        valor = defecto
+    return str(valor or defecto).strip()
+
+
 PREMIUM_EMAIL = _secreto("allowed_email").lower()
 PREMIUM_LIST_URL = _secreto("sharepoint_list_url")
 GRAPH_TENANT_ID = _secreto("tenant_id")
 GRAPH_CLIENT_ID = _secreto("graph_client_id")
-GRAPH_CLIENT_SECRET = _secreto("graph_client_secret")
+GRAPH_CLIENT_SECRET = _secreto_microsoft("client_secret") or _secreto(
+    "graph_client_secret"
+)
 GRAPH_SITE_ID = _secreto("site_id")
 GRAPH_LIST_ID = _secreto("list_id")
 
@@ -1540,9 +1553,17 @@ st.markdown(
 st.divider()
 
 def render_grid_tarjetas(df_vista, key_prefix):
-    favoritos_actuales = (
-        cargar_favoritos_compartidos() if ES_PREMIUM and LISTS_CONFIGURADO else {}
-    )
+    favoritos_actuales = {}
+    error_favoritos = None
+    if ES_PREMIUM and LISTS_CONFIGURADO:
+        try:
+            favoritos_actuales = cargar_favoritos_compartidos()
+        except requests.RequestException as error:
+            error_favoritos = error
+            st.warning(
+                "El dashboard funciona, pero no se ha podido conectar con los "
+                "favoritos de Microsoft Lists."
+            )
     for i in range(0, len(df_vista), 3):
         cols = st.columns(3)
         lote = df_vista.iloc[i:i+3]
@@ -1577,7 +1598,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                 with st.container(border=True):
                     licitacion_id = str(r.get("id") or "").strip()
                     if ES_PREMIUM:
-                        if LISTS_CONFIGURADO:
+                        if LISTS_CONFIGURADO and error_favoritos is None:
                             es_favorito = licitacion_id in favoritos_actuales
                             etiqueta_favorito = (
                                 "⭐ En seguimiento" if es_favorito else "☆ Añadir a favoritos"
@@ -1599,6 +1620,8 @@ def render_grid_tarjetas(df_vista, key_prefix):
                                         "No se pudo actualizar Microsoft Lists. "
                                         f"Detalle: {error_favorito}"
                                     )
+                        elif error_favoritos is not None:
+                            st.caption("☆ Favoritos temporalmente no disponibles")
                         else:
                             st.caption("☆ Favoritos pendientes de conectar con Microsoft Lists")
                     st.markdown(f"""
