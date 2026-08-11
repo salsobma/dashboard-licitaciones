@@ -132,6 +132,23 @@ def _graph_headers():
     }
 
 
+def _graph_lista_base():
+    """Construye la ruta de Graph desde la URL visible de la lista.
+
+    La referencia por ruta evita problemas con identificadores compuestos de sitio.
+    """
+    url_lista = urlparse(PREMIUM_LIST_URL)
+    ruta_sitio = url_lista.path.split("/Lists/", 1)[0].rstrip("/")
+    if url_lista.netloc and ruta_sitio:
+        referencia_sitio = f"{url_lista.netloc}:{ruta_sitio}:"
+    else:
+        referencia_sitio = GRAPH_SITE_ID
+    return (
+        f"https://graph.microsoft.com/v1.0/sites/{referencia_sitio}/lists/"
+        f"{GRAPH_LIST_ID}/items"
+    )
+
+
 def _detalle_error_graph(error):
     """Resume un error de Graph sin exponer tokens ni secretos."""
     respuesta = getattr(error, "response", None)
@@ -154,10 +171,7 @@ def cargar_favoritos_compartidos():
     """Devuelve {id_licitacion: id_elemento_lista}."""
     if not LISTS_CONFIGURADO:
         return {}
-    url = (
-        f"https://graph.microsoft.com/v1.0/sites/{GRAPH_SITE_ID}/lists/"
-        f"{GRAPH_LIST_ID}/items"
-    )
+    url = _graph_lista_base()
     favoritos = {}
     while url:
         respuesta = requests.get(
@@ -181,10 +195,7 @@ def alternar_favorito(licitacion):
     if not licitacion_id or not LISTS_CONFIGURADO:
         return
     favoritos = cargar_favoritos_compartidos()
-    base = (
-        f"https://graph.microsoft.com/v1.0/sites/{GRAPH_SITE_ID}/lists/"
-        f"{GRAPH_LIST_ID}/items"
-    )
+    base = _graph_lista_base()
     if licitacion_id in favoritos:
         respuesta = requests.delete(
             f"{base}/{favoritos[licitacion_id]}", headers=_graph_headers(), timeout=15
