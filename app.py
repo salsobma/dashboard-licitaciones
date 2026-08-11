@@ -1,4 +1,5 @@
 import html
+import hashlib
 # Revisión de despliegue: filtro del Radar protegido ante resultados vacíos.
 import streamlit as st
 import streamlit.components.v1 as components
@@ -202,17 +203,34 @@ def alternar_favorito(licitacion):
         )
     else:
         titulo = str(licitacion.get("titulo") or licitacion.get("expediente") or licitacion_id)
+        campos_base = {
+            "Title": titulo[:255],
+            "LicitacionId": licitacion_id,
+        }
+        pbl_sin_iva = pd.to_numeric(licitacion.get("pbl_sin_iva"), errors="coerce")
+        estado_lista = MAPA_ESTADOS.get(
+            licitacion.get("estado"), (licitacion.get("estado") or "", "")
+        )[0]
+        campos_ampliados = {
+            **campos_base,
+            "PblSinIva": float(pbl_sin_iva) if pd.notna(pbl_sin_iva) else 0,
+            "Estado": str(estado_lista)[:255],
+            "LinkPlataforma": str(licitacion.get("url_licitacion") or ""),
+        }
         respuesta = requests.post(
             base,
             headers=_graph_headers(),
-            json={
-                "fields": {
-                    "Title": titulo[:255],
-                    "LicitacionId": licitacion_id,
-                }
-            },
+            json={"fields": campos_ampliados},
             timeout=15,
         )
+        # Hasta que se creen las columnas ampliadas, el favorito sigue funcionando.
+        if respuesta.status_code == 400:
+            respuesta = requests.post(
+                base,
+                headers=_graph_headers(),
+                json={"fields": campos_base},
+                timeout=15,
+            )
     respuesta.raise_for_status()
     cargar_favoritos_compartidos.clear()
 
@@ -377,6 +395,19 @@ st.markdown("""
     .external-link-btn:hover { background-color: #0d6efd; color: white; }
     .maps-btn { color: #198754; text-decoration: none; font-size: 0.9rem; font-weight: 600; background-color: #e8f5e9; padding: 3px 8px; border-radius: 6px; border: 1px solid #c3e6cb; display: inline-block; }
     .maps-btn:hover { background-color: #198754; color: white; }
+    div[class*="st-key-acciones_"] [data-testid="stButton"] button,
+    div[class*="st-key-acciones_"] [data-testid="stLinkButton"] a {
+        min-height: 32px !important; height: 32px !important; padding: 2px 8px !important;
+        border-radius: 6px !important; line-height: 1 !important;
+    }
+    div[class*="st-key-acciones_"] [data-testid="stButton"] p,
+    div[class*="st-key-acciones_"] [data-testid="stLinkButton"] p {
+        font-size: 1rem !important; line-height: 1 !important;
+    }
+    div[class*="st-key-fav_activo_"] button {
+        background: #198754 !important; border-color: #198754 !important;
+        color: #ffd43b !important;
+    }
     
     .metric-box-grid { background-color: #ffffff; border-radius: 8px; padding: 12px 10px; text-align: center; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
     .metric-val-grid { font-size: 1.35rem; font-weight: 800; color: #0d6efd; letter-spacing: -0.5px; }
@@ -1626,38 +1657,68 @@ def render_grid_tarjetas(df_vista, key_prefix):
             with col:
                 with st.container(border=True):
                     licitacion_id = str(r.get("id") or "").strip()
-                    if ES_PREMIUM:
-                        if LISTS_CONFIGURADO and error_favoritos is None:
-                            es_favorito = licitacion_id in favoritos_actuales
-                            etiqueta_favorito = (
-                                "⭐ En seguimiento" if es_favorito else "☆ Añadir a favoritos"
+                    token_acciones = hashlib.sha1(
+                        f"{key_prefix}-{licitacion_id}".encode("utf-8")
+                    ).hexdigest()[:12]
+                    with st.container(key=f"acciones_{token_acciones}"):
+                        if ES_PREMIUM:
+                            cabecera_col, fav_col, enlace_col, mapa_col = st.columns(
+                                [6, 0.8, 0.8, 0.8], gap="small"
                             )
-                            clave_favorito = (
-                                f"fav_{key_prefix}_{i}_{licitacion_id.split('/')[-1]}"
-                            )
-                            if st.button(
-                                etiqueta_favorito,
-                                key=clave_favorito,
-                                use_container_width=True,
-                                type="primary" if es_favorito else "secondary",
-                            ):
-                                try:
-                                    alternar_favorito(r.to_dict())
-                                    st.rerun()
-                                except requests.RequestException as error_favorito:
-                                    st.error(
-                                        "No se pudo actualizar Microsoft Lists. "
-                                        f"Detalle: {error_favorito}"
-                                    )
-                        elif error_favoritos is not None:
-                            st.caption("☆ Favoritos temporalmente no disponibles")
                         else:
-                            st.caption("☆ Favoritos pendientes de conectar con Microsoft Lists")
+                            cabecera_col, enlace_col, mapa_col = st.columns(
+                                [6, 0.8, 0.8], gap="small"
+                            )
+                            fav_col = None
+                        with cabecera_col:
+                            st.markdown(
+                                f'<span class="{badge_cls}">{st_txt}</span> {movimiento_html}',
+                                unsafe_allow_html=True,
+                            )
+                        if fav_col is not None:
+                            with fav_col:
+                                if LISTS_CONFIGURADO and error_favoritos is None:
+                                    es_favorito = licitacion_id in favoritos_actuales
+                                    with st.container(
+                                        key=("fav_activo_" if es_favorito else "fav_vacio_")
+                                        + token_acciones
+                                    ):
+                                        if st.button(
+                                            "★" if es_favorito else "☆",
+                                            key=f"fav_{token_acciones}",
+                                            help=(
+                                                "Quitar de favoritos"
+                                                if es_favorito
+                                                else "Añadir a favoritos"
+                                            ),
+                                            use_container_width=True,
+                                        ):
+                                            try:
+                                                alternar_favorito(r.to_dict())
+                                                st.rerun()
+                                            except requests.RequestException as error_favorito:
+                                                st.error(
+                                                    "No se pudo actualizar Microsoft Lists. "
+                                                    f"Detalle: {_detalle_error_graph(error_favorito)}"
+                                                )
+                                else:
+                                    st.button(
+                                        "☆", disabled=True, key=f"fav_off_{token_acciones}",
+                                        help="Favoritos temporalmente no disponibles",
+                                        use_container_width=True,
+                                    )
+                        with enlace_col:
+                            if url_oficial:
+                                st.link_button(
+                                    "🔗", url_oficial, help="Ver ficha en la Plataforma",
+                                    use_container_width=True,
+                                )
+                        with mapa_col:
+                            st.link_button(
+                                "📍", maps_url, help="Ver ubicación en el mapa",
+                                use_container_width=True,
+                            )
                     st.markdown(f"""
-                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                        <span class="{badge_cls}">{st_txt}</span>
-                        <div style="display: flex; align-items:center; gap: 4px;">{movimiento_html} {link_html} {maps_html}</div>
-                    </div>
                     <h5 style="margin: 10px 0 6px 0; color: #1a252c; line-height: 1.35; font-size: 0.95rem; min-height: 2.7em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
                         {titulo_safe}
                     </h5>
