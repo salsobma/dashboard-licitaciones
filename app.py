@@ -1446,6 +1446,15 @@ df_combinado = pd.concat(
 if "id" in df_combinado.columns:
     df_combinado = df_combinado.drop_duplicates(subset=["id"], keep="last")
 
+# Los favoritos son una selección persistente y no deben desaparecer al cambiar filtros.
+df_catalogo_favoritos = pd.concat(
+    [df, df_radar_catalogo], ignore_index=True, sort=False
+)
+if "id" in df_catalogo_favoritos.columns:
+    df_catalogo_favoritos = df_catalogo_favoritos.drop_duplicates(
+        subset=["id"], keep="last"
+    )
+
 st.title("🏛️ LandAI Licitaciones")
 st.caption("Dashboard de oportunidades y análisis para proyectos de ingeniería civil.")
 
@@ -1532,8 +1541,8 @@ if vista_principal is None:
 
 if vista_principal == "⭐ Favoritos":
     favoritos_actuales = cargar_favoritos_compartidos()
-    df_indicadores = df_combinado[
-        df_combinado["id"].astype(str).isin(favoritos_actuales)
+    df_indicadores = df_catalogo_favoritos[
+        df_catalogo_favoritos["id"].astype(str).isin(favoritos_actuales)
     ]
     etiqueta_cantidad = "Favoritos compartidos"
     etiqueta_actualizacion = "Seguimiento Premium"
@@ -1869,8 +1878,8 @@ else:
             "con Microsoft Lists."
         )
         favoritos_actuales = cargar_favoritos_compartidos()
-        df_favoritos = df_combinado[
-            df_combinado["id"].astype(str).isin(favoritos_actuales)
+        df_favoritos = df_catalogo_favoritos[
+            df_catalogo_favoritos["id"].astype(str).isin(favoritos_actuales)
         ].copy()
         if df_favoritos.empty:
             st.info("Todavía no hay licitaciones favoritas.")
