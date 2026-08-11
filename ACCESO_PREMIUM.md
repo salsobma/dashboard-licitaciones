@@ -7,7 +7,7 @@ cuando la única cuenta autorizada inicia sesión mediante Microsoft.
 
 1. Registra una aplicación de un solo tenant en Microsoft Entra ID.
 2. Añade como URI de redirección web
-   `https://TU-APP.streamlit.app/oauth2callback`.
+   `https://dashboard-licitaciones.streamlit.app/oauth2callback`.
 3. Crea un secreto de cliente y concede a la aplicación los permisos de Microsoft
    Graph necesarios para leer y modificar la lista de SharePoint. Limita el acceso al
    sitio utilizado por la aplicación siempre que la administración del tenant lo permita.
