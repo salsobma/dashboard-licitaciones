@@ -111,6 +111,7 @@ LISTS_CONFIGURADO = all(
 )
 
 
+@st.cache_data(ttl=3000, show_spinner=False)
 def _token_graph():
     respuesta = requests.post(
         f"https://login.microsoftonline.com/{GRAPH_TENANT_ID}/oauth2/v2.0/token",
@@ -148,6 +149,25 @@ def _graph_lista_base():
         f"https://graph.microsoft.com/v1.0/sites/{referencia_sitio}/lists/"
         f"{GRAPH_LIST_ID}/items"
     )
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _nombres_columnas_lista():
+    """Relaciona el nombre visible de cada columna con su nombre interno."""
+    url = _graph_lista_base().rsplit("/items", 1)[0] + "/columns"
+    respuesta = requests.get(
+        url,
+        headers=_graph_headers(),
+        params={"$select": "name,displayName"},
+        timeout=15,
+    )
+    respuesta.raise_for_status()
+    return {
+        str(columna.get("displayName") or "").strip().lower(): str(
+            columna.get("name") or ""
+        ).strip()
+        for columna in respuesta.json().get("value", [])
+    }
 
 
 def _detalle_error_graph(error):
@@ -211,11 +231,15 @@ def alternar_favorito(licitacion):
         estado_lista = MAPA_ESTADOS.get(
             licitacion.get("estado"), (licitacion.get("estado") or "", "")
         )[0]
+        nombres_columnas = _nombres_columnas_lista()
+        nombre_pbl = nombres_columnas.get("pblsiniva", "PblSinIva")
+        nombre_estado = nombres_columnas.get("estado", "Estado")
+        nombre_enlace = nombres_columnas.get("linkplataforma", "LinkPlataforma")
         campos_ampliados = {
             **campos_base,
-            "PblSinIva": float(pbl_sin_iva) if pd.notna(pbl_sin_iva) else 0,
-            "Estado": str(estado_lista)[:255],
-            "LinkPlataforma": str(licitacion.get("url_licitacion") or ""),
+            nombre_pbl: float(pbl_sin_iva) if pd.notna(pbl_sin_iva) else 0,
+            nombre_estado: str(estado_lista)[:255],
+            nombre_enlace: str(licitacion.get("url_licitacion") or ""),
         }
         respuesta = requests.post(
             base,
@@ -1686,8 +1710,13 @@ def render_grid_tarjetas(df_vista, key_prefix):
                                         + token_acciones
                                     ):
                                         if st.button(
-                                            "★" if es_favorito else "☆",
+                                            " ",
                                             key=f"fav_{token_acciones}",
+                                            icon=(
+                                                ":material/star:"
+                                                if es_favorito
+                                                else ":material/star_border:"
+                                            ),
                                             help=(
                                                 "Quitar de favoritos"
                                                 if es_favorito
@@ -1706,19 +1735,22 @@ def render_grid_tarjetas(df_vista, key_prefix):
                                                 )
                                 else:
                                     st.button(
-                                        "☆", disabled=True, key=f"fav_off_{token_acciones}",
+                                        " ", disabled=True, key=f"fav_off_{token_acciones}",
+                                        icon=":material/star_border:",
                                         help="Favoritos temporalmente no disponibles",
                                         use_container_width=True,
                                     )
                         with enlace_col:
                             if url_oficial:
                                 st.link_button(
-                                    "🔗", url_oficial, help="Ver ficha en la Plataforma",
+                                    " ", url_oficial, help="Ver ficha en la Plataforma",
+                                    icon=":material/link:",
                                     use_container_width=True,
                                 )
                         with mapa_col:
                             st.link_button(
-                                "📍", maps_url, help="Ver ubicación en el mapa",
+                                " ", maps_url, help="Ver ubicación en el mapa",
+                                icon=":material/location_on:",
                                 use_container_width=True,
                             )
                     st.markdown(f"""
