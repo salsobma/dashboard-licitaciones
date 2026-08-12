@@ -806,11 +806,13 @@ def _cargar_paginas_feed_guardadas():
 def cargar_feed_reciente():
     filas = []
     bajas = []
+    sincronizado_en = None
     paginas_guardadas = _cargar_paginas_feed_guardadas()
 
     if paginas_guardadas is not None:
         filas, bajas, manifiesto_feed = paginas_guardadas
         actualizado_feed = manifiesto_feed.get("fecha_feed")
+        sincronizado_en = manifiesto_feed.get("sincronizado_en")
         paginas_leidas = len(manifiesto_feed["paginas"])
         parcial = not bool(manifiesto_feed.get("completo"))
         siguiente = None
@@ -881,6 +883,7 @@ def cargar_feed_reciente():
         "paginas": paginas_leidas,
         "bajas": len(bajas_df),
         "parcial": parcial,
+        "sincronizado_en": sincronizado_en,
     }
     return radar, actualizado_feed, bajas_df, metadata
 
