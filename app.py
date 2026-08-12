@@ -503,20 +503,22 @@ st.markdown("""
         div[class*="st-key-acciones_"] [data-testid="stHorizontalBlock"] {
             display: flex !important; flex-direction: row !important;
             flex-wrap: nowrap !important; align-items: center !important;
-            gap: 6px !important;
+            justify-content: flex-start !important; gap: 5px !important;
+            width: 100% !important; overflow: hidden !important;
         }
         div[class*="st-key-acciones_"] [data-testid="column"] {
             min-width: 0 !important; width: auto !important;
         }
         div[class*="st-key-acciones_"] [data-testid="column"]:first-child {
-            flex: 1 1 auto !important;
+            flex: 0 1 auto !important; width: auto !important;
+            max-width: calc(100% - 124px) !important; overflow: hidden !important;
         }
         div[class*="st-key-acciones_"] [data-testid="column"]:not(:first-child) {
-            flex: 0 0 38px !important; width: 38px !important;
+            flex: 0 0 36px !important; width: 36px !important;
         }
         div[class*="st-key-acciones_"] [data-testid="stButton"],
         div[class*="st-key-acciones_"] [data-testid="stLinkButton"] {
-            width: 38px !important; margin: 0 !important;
+            width: 36px !important; margin: 0 !important;
         }
     }
     
