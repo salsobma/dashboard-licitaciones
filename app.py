@@ -499,6 +499,26 @@ st.markdown("""
         background: #198754 !important; border-color: #198754 !important;
         color: #ffd43b !important;
     }
+    @media (max-width: 768px) {
+        div[class*="st-key-acciones_"] [data-testid="stHorizontalBlock"] {
+            display: flex !important; flex-direction: row !important;
+            flex-wrap: nowrap !important; align-items: center !important;
+            gap: 6px !important;
+        }
+        div[class*="st-key-acciones_"] [data-testid="column"] {
+            min-width: 0 !important; width: auto !important;
+        }
+        div[class*="st-key-acciones_"] [data-testid="column"]:first-child {
+            flex: 1 1 auto !important;
+        }
+        div[class*="st-key-acciones_"] [data-testid="column"]:not(:first-child) {
+            flex: 0 0 38px !important; width: 38px !important;
+        }
+        div[class*="st-key-acciones_"] [data-testid="stButton"],
+        div[class*="st-key-acciones_"] [data-testid="stLinkButton"] {
+            width: 38px !important; margin: 0 !important;
+        }
+    }
     
     .metric-box-grid { background-color: #ffffff; border-radius: 8px; padding: 12px 10px; text-align: center; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
     .metric-val-grid { font-size: 1.35rem; font-weight: 800; color: #0d6efd; letter-spacing: -0.5px; }
