@@ -469,6 +469,16 @@ st.markdown("""
     .external-link-btn:hover { background-color: #0d6efd; color: white; }
     .maps-btn { color: #198754; text-decoration: none; font-size: 0.9rem; font-weight: 600; background-color: #e8f5e9; padding: 3px 8px; border-radius: 6px; border: 1px solid #c3e6cb; display: inline-block; }
     .maps-btn:hover { background-color: #198754; color: white; }
+    .st-key-acceso_premium_cta [data-testid="stButton"] button {
+        background: linear-gradient(135deg, #080808 0%, #1b1b1b 100%) !important;
+        color: #ffffff !important; border: 1px solid #080808 !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.18) !important;
+        font-weight: 700 !important;
+    }
+    .st-key-acceso_premium_cta [data-testid="stButton"] button:hover {
+        background: #000000 !important; border-color: #c9a227 !important;
+        color: #f5d76e !important;
+    }
     div[class*="st-key-acciones_"] [data-testid="stButton"] button,
     div[class*="st-key-acciones_"] [data-testid="stLinkButton"] a {
         min-height: 32px !important; height: 32px !important; padding: 2px 8px !important;
@@ -1534,19 +1544,19 @@ else:
         auth_configurado = bool(st.secrets.get("auth", {}))
     except Exception:
         auth_configurado = False
-    if auth_configurado:
-        st.button(
-            "🔐 Acceso Premium",
-            on_click=st.login,
-            args=("microsoft",),
-            type="primary",
-        )
-    else:
-        st.button(
-            "🔐 Acceso Premium",
-            disabled=True,
-            help="Pendiente de configurar el inicio de sesión con Microsoft.",
-        )
+    with st.container(key="acceso_premium_cta"):
+        if auth_configurado:
+            st.button(
+                "🔐 Acceso Premium",
+                on_click=st.login,
+                args=("microsoft",),
+            )
+        else:
+            st.button(
+                "🔐 Acceso Premium",
+                disabled=True,
+                help="Pendiente de configurar el inicio de sesión con Microsoft.",
+            )
 
 if not ES_PREMIUM:
     st.markdown("""
