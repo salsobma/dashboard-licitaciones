@@ -1715,37 +1715,6 @@ def render_grid_tarjetas(df_vista, key_prefix):
         if df_vista.empty:
             st.info("Todavía no hay licitaciones favoritas.")
             return
-        nombres_columnas = _nombres_columnas_lista()
-        columnas_lists = {
-            "titulo": nombres_columnas.get("título", "Title"),
-            "organo_contratante": nombres_columnas.get(
-                "organocontratacion", "OrganoContratacion"
-            ),
-            "municipio": nombres_columnas.get("municipio", "Municipio"),
-            "pbl_sin_iva": nombres_columnas.get("pblsiniva", "PblSinIva"),
-            "estado": nombres_columnas.get("estado", "Estado"),
-            "url_licitacion": nombres_columnas.get(
-                "linkplataforma", "LinkPlataforma"
-            ),
-        }
-        estados_por_texto = {
-            str(etiqueta): codigo
-            for codigo, (etiqueta, _) in MAPA_ESTADOS.items()
-        }
-        for indice, fila in df_vista.iterrows():
-            detalle = favoritos_actuales.get(str(fila.get("id") or ""), {})
-            campos = detalle.get("fields", {}) if isinstance(detalle, dict) else {}
-            for destino, nombre_interno in columnas_lists.items():
-                valor = campos.get(nombre_interno)
-                if valor in (None, ""):
-                    continue
-                if destino == "estado":
-                    valor = estados_por_texto.get(str(valor), valor)
-                elif destino == "pbl_sin_iva":
-                    valor = pd.to_numeric(valor, errors="coerce")
-                    if pd.isna(valor):
-                        continue
-                df_vista.at[indice, destino] = valor
     for i in range(0, len(df_vista), 3):
         cols = st.columns(3)
         lote = df_vista.iloc[i:i+3]
