@@ -318,6 +318,14 @@ def formato_fecha_corta(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y")
 
+def cargar_fecha_sincronizacion_historico():
+    ruta = Path(__file__).resolve().parent / "sync_metadata.json"
+    try:
+        metadata = json.loads(ruta.read_text(encoding="utf-8"))
+        return metadata.get("historico_sincronizado_en")
+    except (OSError, ValueError, TypeError):
+        return None
+
 def texto_dias_restantes(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     if pd.isna(fecha):
@@ -1257,6 +1265,14 @@ st.markdown(
     'Plataforma de Contratación del Sector Público</a>. '
     'Consulta siempre la documentación oficial antes de preparar una oferta.</p>',
     unsafe_allow_html=True,
+)
+
+sincronizacion_feed = metadata_feed_catalogo.get("sincronizado_en")
+sincronizacion_historico = cargar_fecha_sincronizacion_historico()
+st.caption(
+    "Última sincronización: "
+    f"feed {formato_fecha(sincronizacion_feed)} · "
+    f"histórico {formato_fecha(sincronizacion_historico)}"
 )
 
 opciones_vista = [
