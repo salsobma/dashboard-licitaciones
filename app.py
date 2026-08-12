@@ -260,12 +260,23 @@ def alternar_favorito(licitacion):
         if item_id and enlace:
             # El hipervínculo se actualiza aparte para que un rechazo de este tipo
             # de columna no impida guardar PBL y estado.
-            requests.patch(
+            headers_enlace = {**_graph_headers(), "Prefer": "apiversion=2.1"}
+            respuesta_enlace = requests.patch(
                 f"{base}/{item_id}/fields",
-                headers=_graph_headers(),
-                json={nombre_enlace: enlace},
+                headers=headers_enlace,
+                json={
+                    nombre_enlace: {
+                        "Description": "Abrir en la Plataforma",
+                        "Url": enlace,
+                    }
+                },
                 timeout=15,
             )
+            if not respuesta_enlace.ok:
+                requests.delete(
+                    f"{base}/{item_id}", headers=_graph_headers(), timeout=15
+                )
+                respuesta_enlace.raise_for_status()
     respuesta.raise_for_status()
     cargar_favoritos_compartidos.clear()
 
@@ -446,6 +457,7 @@ st.markdown("""
         min-height: 32px !important; height: 32px !important; padding: 2px 8px !important;
         border-radius: 6px !important; line-height: 1 !important;
         display: flex !important; align-items: center !important; justify-content: center !important;
+        position: relative !important;
     }
     div[class*="st-key-acciones_"] [data-testid="stButton"] p,
     div[class*="st-key-acciones_"] [data-testid="stLinkButton"] p {
@@ -453,6 +465,8 @@ st.markdown("""
     }
     div[class*="st-key-acciones_"] [data-testid="stIconMaterial"] {
         margin: 0 !important; padding: 0 !important;
+        position: absolute !important; left: 50% !important; top: 50% !important;
+        transform: translate(-50%, -50%) !important;
     }
     div[class*="st-key-fav_activo_"] button {
         background: #198754 !important; border-color: #198754 !important;
@@ -1670,6 +1684,7 @@ st.markdown(
 
 st.divider()
 
+@st.fragment
 def render_grid_tarjetas(df_vista, key_prefix):
     favoritos_actuales = {}
     error_favoritos = None
@@ -1759,7 +1774,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                                         ):
                                             try:
                                                 alternar_favorito(r.to_dict())
-                                                st.rerun()
+                                                st.rerun(scope="fragment")
                                             except requests.RequestException as error_favorito:
                                                 st.toast(
                                                     "No se pudo actualizar Microsoft Lists: "
