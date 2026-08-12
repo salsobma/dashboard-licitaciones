@@ -1629,7 +1629,10 @@ if vista_principal is None:
     vista_principal = "⚡ Últimas actualizaciones"
 
 if vista_principal == "⭐ Favoritos":
-    favoritos_actuales = cargar_favoritos_compartidos()
+    try:
+        favoritos_actuales = cargar_favoritos_compartidos()
+    except requests.RequestException:
+        favoritos_actuales = st.session_state.get("favoritos_sesion", {})
     df_indicadores = df_catalogo_favoritos[
         df_catalogo_favoritos["id"].astype(str).isin(favoritos_actuales)
     ]
