@@ -250,11 +250,14 @@ def alternar_favorito(licitacion, favoritos=None):
             "organocontratacion", "OrganoContratacion"
         )
         nombre_municipio = nombres_columnas.get("municipio", "Municipio")
-        campos_principales = {
+        campos_seguros = {
             **campos_base,
             nombre_pbl: float(pbl_sin_iva) if pd.notna(pbl_sin_iva) else 0,
             nombre_estado: str(estado_lista)[:255],
             nombre_enlace: str(licitacion.get("url_licitacion") or ""),
+        }
+        campos_principales = {
+            **campos_seguros,
             nombre_organo: str(licitacion.get("organo_contratante") or "")[:255],
             nombre_municipio: str(licitacion.get("municipio") or "")[:255],
         }
@@ -264,6 +267,20 @@ def alternar_favorito(licitacion, favoritos=None):
             json={"fields": campos_principales},
             timeout=15,
         )
+        if not respuesta.ok:
+            # Un 500 también puede significar que otra sesión ya creó la fila.
+            cargar_favoritos_compartidos.clear()
+            favoritos_remotos = cargar_favoritos_compartidos()
+            if licitacion_id in favoritos_remotos:
+                return favoritos_remotos[licitacion_id]
+            # Las columnas adicionales son informativas: nunca deben impedir
+            # que la selección del favorito quede sincronizada.
+            respuesta = requests.post(
+                base,
+                headers=_graph_headers(),
+                json={"fields": campos_seguros},
+                timeout=15,
+            )
         respuesta.raise_for_status()
         nuevo_item_id = str(respuesta.json().get("id") or "")
     respuesta.raise_for_status()
