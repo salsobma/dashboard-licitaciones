@@ -211,12 +211,14 @@ def cargar_favoritos_compartidos():
     return favoritos
 
 
-def alternar_favorito(licitacion):
+def alternar_favorito(licitacion, favoritos=None):
     licitacion_id = str(licitacion.get("id") or "").strip()
     if not licitacion_id or not LISTS_CONFIGURADO:
         return
-    favoritos = cargar_favoritos_compartidos()
+    if favoritos is None:
+        favoritos = cargar_favoritos_compartidos()
     base = _graph_lista_base()
+    nuevo_item_id = None
     if licitacion_id in favoritos:
         respuesta = requests.delete(
             f"{base}/{favoritos[licitacion_id]}", headers=_graph_headers(), timeout=15
@@ -239,6 +241,7 @@ def alternar_favorito(licitacion):
             **campos_base,
             nombre_pbl: float(pbl_sin_iva) if pd.notna(pbl_sin_iva) else 0,
             nombre_estado: str(estado_lista)[:255],
+            nombre_enlace: str(licitacion.get("url_licitacion") or ""),
         }
         respuesta = requests.post(
             base,
@@ -246,39 +249,11 @@ def alternar_favorito(licitacion):
             json={"fields": campos_principales},
             timeout=15,
         )
-        # Hasta que se creen las columnas ampliadas, el favorito sigue funcionando.
-        if not respuesta.ok:
-            respuesta = requests.post(
-                base,
-                headers=_graph_headers(),
-                json={"fields": campos_base},
-                timeout=15,
-            )
         respuesta.raise_for_status()
-        item_id = str(respuesta.json().get("id") or "")
-        enlace = str(licitacion.get("url_licitacion") or "").strip()
-        if item_id and enlace:
-            # El hipervínculo se actualiza aparte para que un rechazo de este tipo
-            # de columna no impida guardar PBL y estado.
-            headers_enlace = {**_graph_headers(), "Prefer": "apiversion=2.1"}
-            respuesta_enlace = requests.patch(
-                f"{base}/{item_id}/fields",
-                headers=headers_enlace,
-                json={
-                    nombre_enlace: {
-                        "Description": "Abrir en la Plataforma",
-                        "Url": enlace,
-                    }
-                },
-                timeout=15,
-            )
-            if not respuesta_enlace.ok:
-                requests.delete(
-                    f"{base}/{item_id}", headers=_graph_headers(), timeout=15
-                )
-                respuesta_enlace.raise_for_status()
+        nuevo_item_id = str(respuesta.json().get("id") or "")
     respuesta.raise_for_status()
     cargar_favoritos_compartidos.clear()
+    return nuevo_item_id
 
 
 def eliminar_todos_los_favoritos():
@@ -290,6 +265,8 @@ def eliminar_todos_los_favoritos():
         respuesta = requests.delete(f"{base}/{item_id}", headers=headers, timeout=15)
         respuesta.raise_for_status()
     cargar_favoritos_compartidos.clear()
+    st.session_state.pop("favoritos_sesion", None)
+    st.session_state.pop("favoritos_sesion_ts", None)
 
 # --- CONFIGURACIÓN DE GEMINI ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "TU_API_KEY_AQUI")
@@ -1690,7 +1667,17 @@ def render_grid_tarjetas(df_vista, key_prefix):
     error_favoritos = None
     if ES_PREMIUM and LISTS_CONFIGURADO:
         try:
-            favoritos_actuales = cargar_favoritos_compartidos()
+            ahora = time.time()
+            ultima_carga = st.session_state.get("favoritos_sesion_ts", 0)
+            if (
+                "favoritos_sesion" not in st.session_state
+                or ahora - ultima_carga > 30
+            ):
+                st.session_state["favoritos_sesion"] = (
+                    cargar_favoritos_compartidos()
+                )
+                st.session_state["favoritos_sesion_ts"] = ahora
+            favoritos_actuales = dict(st.session_state["favoritos_sesion"])
         except requests.RequestException as error:
             error_favoritos = error
             st.warning(
@@ -1773,7 +1760,23 @@ def render_grid_tarjetas(df_vista, key_prefix):
                                             use_container_width=True,
                                         ):
                                             try:
-                                                alternar_favorito(r.to_dict())
+                                                nuevo_item_id = alternar_favorito(
+                                                    r.to_dict(), favoritos_actuales
+                                                )
+                                                if es_favorito:
+                                                    favoritos_actuales.pop(
+                                                        licitacion_id, None
+                                                    )
+                                                elif nuevo_item_id:
+                                                    favoritos_actuales[
+                                                        licitacion_id
+                                                    ] = nuevo_item_id
+                                                st.session_state[
+                                                    "favoritos_sesion"
+                                                ] = favoritos_actuales
+                                                st.session_state[
+                                                    "favoritos_sesion_ts"
+                                                ] = time.time()
                                                 st.rerun(scope="fragment")
                                             except requests.RequestException as error_favorito:
                                                 st.toast(
