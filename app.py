@@ -501,20 +501,22 @@ st.markdown("""
     }
     @media (max-width: 768px) {
         div[class*="st-key-acciones_"] [data-testid="stHorizontalBlock"] {
-            display: flex !important; flex-direction: row !important;
-            flex-wrap: nowrap !important; align-items: center !important;
-            justify-content: flex-start !important; gap: 5px !important;
-            width: 100% !important; overflow: hidden !important;
+            display: grid !important;
+            grid-template-columns: max-content 36px 36px 36px !important;
+            align-items: center !important; justify-content: start !important;
+            gap: 5px !important; width: 100% !important;
+            overflow: visible !important;
         }
         div[class*="st-key-acciones_"] [data-testid="column"] {
             min-width: 0 !important; width: auto !important;
         }
         div[class*="st-key-acciones_"] [data-testid="column"]:first-child {
-            flex: 0 1 auto !important; width: auto !important;
-            max-width: calc(100% - 124px) !important; overflow: hidden !important;
+            width: auto !important; max-width: none !important;
+            overflow: visible !important;
         }
         div[class*="st-key-acciones_"] [data-testid="column"]:not(:first-child) {
             flex: 0 0 36px !important; width: 36px !important;
+            min-width: 36px !important;
         }
         div[class*="st-key-acciones_"] [data-testid="stButton"],
         div[class*="st-key-acciones_"] [data-testid="stLinkButton"] {
