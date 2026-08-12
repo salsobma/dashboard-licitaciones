@@ -1306,11 +1306,11 @@ if vista_principal is None:
 if vista_principal == "⚡ Últimas actualizaciones":
     df_indicadores = df_radar_filtrado
     etiqueta_cantidad = "Actualizaciones filtradas"
-    etiqueta_actualizacion = "Última actualización feed"
+    etiqueta_actualizacion = "Última novedad registrada en el feed"
 elif vista_principal == "🗂️ Histórico":
     df_indicadores = df_f
     etiqueta_cantidad = "Licitaciones filtradas"
-    etiqueta_actualizacion = "Última actualización de la base de datos"
+    etiqueta_actualizacion = "Última novedad registrada en el histórico"
 elif vista_principal == "📊 Gráficos":
     fuente_indicadores = st.session_state.get(
         "fuente_graficos", "Últimas actualizaciones"
