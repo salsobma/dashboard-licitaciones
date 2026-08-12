@@ -1269,10 +1269,21 @@ st.markdown(
 
 sincronizacion_feed = metadata_feed_catalogo.get("sincronizado_en")
 sincronizacion_historico = cargar_fecha_sincronizacion_historico()
+novedad_feed = fecha_feed_catalogo
+novedad_historico = (
+    df["fecha_act_dt"].max()
+    if not df.empty and "fecha_act_dt" in df.columns
+    else pd.NaT
+)
 st.caption(
-    "Última sincronización: "
+    "**Última sincronización con la base de datos:** "
     f"feed {formato_fecha(sincronizacion_feed)} · "
     f"histórico {formato_fecha(sincronizacion_historico)}"
+)
+st.caption(
+    "**Última novedad registrada:** "
+    f"feed {formato_fecha(novedad_feed)} · "
+    f"histórico {formato_fecha(novedad_historico)}"
 )
 
 opciones_vista = [
