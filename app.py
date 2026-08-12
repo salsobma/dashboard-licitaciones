@@ -1283,7 +1283,7 @@ if vista_principal == "⚡ Últimas actualizaciones":
 elif vista_principal == "🗂️ Histórico":
     df_indicadores = df_f
     etiqueta_cantidad = "Licitaciones filtradas"
-    etiqueta_actualizacion = "Última actualización BD"
+    etiqueta_actualizacion = "Última actualización de la base de datos"
 elif vista_principal == "📊 Gráficos":
     fuente_indicadores = st.session_state.get(
         "fuente_graficos", "Últimas actualizaciones"
@@ -1322,8 +1322,8 @@ if indicadores_usan_feed and fecha_feed_catalogo:
         ultima_act = ultima_act.tz_convert("Europe/Madrid")
 else:
     ultima_act = (
-        df_indicadores["fecha_act_dt"].max()
-        if not df_indicadores.empty and "fecha_act_dt" in df_indicadores.columns
+        df["fecha_act_dt"].max()
+        if not df.empty and "fecha_act_dt" in df.columns
         else pd.NaT
     )
 fecha_act_fmt = (
