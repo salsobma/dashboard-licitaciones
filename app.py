@@ -189,7 +189,7 @@ def _detalle_error_graph(error):
 
 @st.cache_data(ttl=8, show_spinner=False)
 def cargar_favoritos_compartidos():
-    """Devuelve {id_licitacion: id_elemento_lista}."""
+    """Devuelve los elementos y campos de Lists por id de licitación."""
     if not LISTS_CONFIGURADO:
         return {}
     url = _graph_lista_base()
@@ -206,7 +206,10 @@ def cargar_favoritos_compartidos():
         for elemento in datos.get("value", []):
             licitacion_id = str(elemento.get("fields", {}).get("LicitacionId", "")).strip()
             if licitacion_id:
-                favoritos[licitacion_id] = str(elemento["id"])
+                favoritos[licitacion_id] = {
+                    "item_id": str(elemento["id"]),
+                    "fields": dict(elemento.get("fields", {})),
+                }
         url = datos.get("@odata.nextLink")
     return favoritos
 
@@ -220,8 +223,14 @@ def alternar_favorito(licitacion, favoritos=None):
     base = _graph_lista_base()
     nuevo_item_id = None
     if licitacion_id in favoritos:
+        item_favorito = favoritos[licitacion_id]
+        item_id = (
+            item_favorito.get("item_id")
+            if isinstance(item_favorito, dict)
+            else item_favorito
+        )
         respuesta = requests.delete(
-            f"{base}/{favoritos[licitacion_id]}", headers=_graph_headers(), timeout=15
+            f"{base}/{item_id}", headers=_graph_headers(), timeout=15
         )
     else:
         titulo = str(licitacion.get("titulo") or licitacion.get("expediente") or licitacion_id)
@@ -237,11 +246,17 @@ def alternar_favorito(licitacion, favoritos=None):
         nombre_pbl = nombres_columnas.get("pblsiniva", "PblSinIva")
         nombre_estado = nombres_columnas.get("estado", "Estado")
         nombre_enlace = nombres_columnas.get("linkplataforma", "LinkPlataforma")
+        nombre_organo = nombres_columnas.get(
+            "organocontratacion", "OrganoContratacion"
+        )
+        nombre_municipio = nombres_columnas.get("municipio", "Municipio")
         campos_principales = {
             **campos_base,
             nombre_pbl: float(pbl_sin_iva) if pd.notna(pbl_sin_iva) else 0,
             nombre_estado: str(estado_lista)[:255],
             nombre_enlace: str(licitacion.get("url_licitacion") or ""),
+            nombre_organo: str(licitacion.get("organo_contratante") or "")[:255],
+            nombre_municipio: str(licitacion.get("municipio") or "")[:255],
         }
         respuesta = requests.post(
             base,
@@ -253,7 +268,10 @@ def alternar_favorito(licitacion, favoritos=None):
         nuevo_item_id = str(respuesta.json().get("id") or "")
     respuesta.raise_for_status()
     cargar_favoritos_compartidos.clear()
-    return nuevo_item_id
+    return {
+        "item_id": nuevo_item_id,
+        "fields": campos_principales if nuevo_item_id else {},
+    } if nuevo_item_id else None
 
 
 def eliminar_todos_los_favoritos():
@@ -261,7 +279,12 @@ def eliminar_todos_los_favoritos():
     favoritos = cargar_favoritos_compartidos()
     base = _graph_lista_base()
     headers = _graph_headers()
-    for item_id in favoritos.values():
+    for item_favorito in favoritos.values():
+        item_id = (
+            item_favorito.get("item_id")
+            if isinstance(item_favorito, dict)
+            else item_favorito
+        )
         respuesta = requests.delete(f"{base}/{item_id}", headers=headers, timeout=15)
         respuesta.raise_for_status()
     cargar_favoritos_compartidos.clear()
@@ -1692,6 +1715,37 @@ def render_grid_tarjetas(df_vista, key_prefix):
         if df_vista.empty:
             st.info("Todavía no hay licitaciones favoritas.")
             return
+        nombres_columnas = _nombres_columnas_lista()
+        columnas_lists = {
+            "titulo": nombres_columnas.get("título", "Title"),
+            "organo_contratante": nombres_columnas.get(
+                "organocontratacion", "OrganoContratacion"
+            ),
+            "municipio": nombres_columnas.get("municipio", "Municipio"),
+            "pbl_sin_iva": nombres_columnas.get("pblsiniva", "PblSinIva"),
+            "estado": nombres_columnas.get("estado", "Estado"),
+            "url_licitacion": nombres_columnas.get(
+                "linkplataforma", "LinkPlataforma"
+            ),
+        }
+        estados_por_texto = {
+            str(etiqueta): codigo
+            for codigo, (etiqueta, _) in MAPA_ESTADOS.items()
+        }
+        for indice, fila in df_vista.iterrows():
+            detalle = favoritos_actuales.get(str(fila.get("id") or ""), {})
+            campos = detalle.get("fields", {}) if isinstance(detalle, dict) else {}
+            for destino, nombre_interno in columnas_lists.items():
+                valor = campos.get(nombre_interno)
+                if valor in (None, ""):
+                    continue
+                if destino == "estado":
+                    valor = estados_por_texto.get(str(valor), valor)
+                elif destino == "pbl_sin_iva":
+                    valor = pd.to_numeric(valor, errors="coerce")
+                    if pd.isna(valor):
+                        continue
+                df_vista.at[indice, destino] = valor
     for i in range(0, len(df_vista), 3):
         cols = st.columns(3)
         lote = df_vista.iloc[i:i+3]
@@ -1767,17 +1821,17 @@ def render_grid_tarjetas(df_vista, key_prefix):
                                             use_container_width=True,
                                         ):
                                             try:
-                                                nuevo_item_id = alternar_favorito(
+                                                nuevo_favorito = alternar_favorito(
                                                     r.to_dict(), favoritos_actuales
                                                 )
                                                 if es_favorito:
                                                     favoritos_actuales.pop(
                                                         licitacion_id, None
                                                     )
-                                                elif nuevo_item_id:
+                                                elif nuevo_favorito:
                                                     favoritos_actuales[
                                                         licitacion_id
-                                                    ] = nuevo_item_id
+                                                    ] = nuevo_favorito
                                                 st.session_state[
                                                     "favoritos_sesion"
                                                 ] = favoritos_actuales
