@@ -187,7 +187,7 @@ def _detalle_error_graph(error):
         return str(codigo_http) or type(error).__name__
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=8, show_spinner=False)
 def cargar_favoritos_compartidos():
     """Devuelve {id_licitacion: id_elemento_lista}."""
     if not LISTS_CONFIGURADO:
@@ -1661,7 +1661,7 @@ st.markdown(
 
 st.divider()
 
-@st.fragment
+@st.fragment(run_every=10)
 def render_grid_tarjetas(df_vista, key_prefix):
     favoritos_actuales = {}
     error_favoritos = None
@@ -1671,7 +1671,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
             ultima_carga = st.session_state.get("favoritos_sesion_ts", 0)
             if (
                 "favoritos_sesion" not in st.session_state
-                or ahora - ultima_carga > 30
+                or ahora - ultima_carga > 8
             ):
                 st.session_state["favoritos_sesion"] = (
                     cargar_favoritos_compartidos()
@@ -1685,6 +1685,13 @@ def render_grid_tarjetas(df_vista, key_prefix):
                 "favoritos de Microsoft Lists."
             )
             st.caption(f"Detalle Microsoft: {_detalle_error_graph(error)}")
+    if key_prefix == "favoritos" and error_favoritos is None:
+        df_vista = df_vista[
+            df_vista["id"].astype(str).isin(favoritos_actuales)
+        ].copy()
+        if df_vista.empty:
+            st.info("Todavía no hay licitaciones favoritas.")
+            return
     for i in range(0, len(df_vista), 3):
         cols = st.columns(3)
         lote = df_vista.iloc[i:i+3]
@@ -1937,17 +1944,10 @@ else:
                     "No se pudieron eliminar todos los favoritos. "
                     f"Detalle: {_detalle_error_graph(error_borrado)}"
                 )
-        favoritos_actuales = cargar_favoritos_compartidos()
-        df_favoritos = df_catalogo_favoritos[
-            df_catalogo_favoritos["id"].astype(str).isin(favoritos_actuales)
-        ].copy()
-        if df_favoritos.empty:
-            st.info("Todavía no hay licitaciones favoritas.")
-        else:
-            df_favoritos = df_favoritos.sort_values(
-                "fecha_act_dt", ascending=False, na_position="last"
-            )
-            render_grid_tarjetas(df_favoritos, "favoritos")
+        df_catalogo_favoritos_ordenado = df_catalogo_favoritos.sort_values(
+            "fecha_act_dt", ascending=False, na_position="last"
+        )
+        render_grid_tarjetas(df_catalogo_favoritos_ordenado, "favoritos")
 
     elif vista_principal == "⚡ Últimas actualizaciones":
         st.subheader("⚡ Radar de actualizaciones")
