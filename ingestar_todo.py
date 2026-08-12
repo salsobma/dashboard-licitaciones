@@ -4,6 +4,9 @@ import json
 import glob
 import os
 import pandas as pd
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 # --- RUTA EXACTA A LA BASE DE DATOS ---
 DB_PATH = os.getenv("LICITACIONES_DB_PATH", "licitaciones.db")
@@ -273,6 +276,14 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
 
     conn.commit()
     conn.close()
+    Path("sync_metadata.json").write_text(
+        json.dumps(
+            {"historico_sincronizado_en": datetime.now(ZoneInfo("Europe/Madrid")).isoformat()},
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n",
+        encoding="utf-8",
+    )
     print(f"\n🎉 Ingesta finalizada con éxito en SQLite. Total licitaciones procesadas: {total_guardados}")
 
 if __name__ == "__main__":

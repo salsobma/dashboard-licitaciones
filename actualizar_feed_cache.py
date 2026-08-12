@@ -6,8 +6,10 @@ import shutil
 import tempfile
 import time
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -127,6 +129,7 @@ def generar_snapshot(destino: Path) -> dict[str, object]:
     manifiesto: dict[str, object] = {
         "version": 1,
         "fecha_feed": fecha_feed,
+        "sincronizado_en": datetime.now(ZoneInfo("Europe/Madrid")).isoformat(),
         "paginas": paginas,
         "completo": siguiente is None or len(paginas) == MAX_PAGINAS,
         "registros": len(filas),

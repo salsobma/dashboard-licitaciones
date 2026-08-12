@@ -623,6 +623,14 @@ def formato_fecha_corta(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y")
 
+def cargar_fecha_sincronizacion_historico():
+    ruta = Path(__file__).resolve().parent / "sync_metadata.json"
+    try:
+        metadata = json.loads(ruta.read_text(encoding="utf-8"))
+        return metadata.get("historico_sincronizado_en")
+    except (OSError, ValueError, TypeError):
+        return None
+
 def texto_dias_restantes(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     if pd.isna(fecha):
@@ -1103,11 +1111,13 @@ def _cargar_paginas_feed_guardadas():
 def cargar_feed_reciente():
     filas = []
     bajas = []
+    sincronizado_en = None
     paginas_guardadas = _cargar_paginas_feed_guardadas()
 
     if paginas_guardadas is not None:
         filas, bajas, manifiesto_feed = paginas_guardadas
         actualizado_feed = manifiesto_feed.get("fecha_feed")
+        sincronizado_en = manifiesto_feed.get("sincronizado_en")
         paginas_leidas = len(manifiesto_feed["paginas"])
         parcial = not bool(manifiesto_feed.get("completo"))
         siguiente = None
@@ -1178,6 +1188,7 @@ def cargar_feed_reciente():
         "paginas": paginas_leidas,
         "bajas": len(bajas_df),
         "parcial": parcial,
+        "sincronizado_en": sincronizado_en,
     }
     return radar, actualizado_feed, bajas_df, metadata
 
@@ -1609,6 +1620,25 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+sincronizacion_feed = metadata_feed_catalogo.get("sincronizado_en")
+sincronizacion_historico = cargar_fecha_sincronizacion_historico()
+novedad_feed = fecha_feed_catalogo
+novedad_historico = (
+    df["fecha_act_dt"].max()
+    if not df.empty and "fecha_act_dt" in df.columns
+    else pd.NaT
+)
+st.caption(
+    "**Última sincronización con la base de datos:** "
+    f"feed {formato_fecha(sincronizacion_feed)} · "
+    f"histórico {formato_fecha(sincronizacion_historico)}"
+)
+st.caption(
+    "**Última novedad registrada:** "
+    f"feed {formato_fecha(novedad_feed)} · "
+    f"histórico {formato_fecha(novedad_historico)}"
+)
+
 opciones_vista = [
     "⚡ Últimas actualizaciones",
     "🗂️ Histórico",
@@ -1641,11 +1671,11 @@ if vista_principal == "⭐ Favoritos":
 elif vista_principal == "⚡ Últimas actualizaciones":
     df_indicadores = df_radar_filtrado
     etiqueta_cantidad = "Actualizaciones filtradas"
-    etiqueta_actualizacion = "Última actualización feed"
+    etiqueta_actualizacion = "Última novedad registrada en el feed"
 elif vista_principal == "🗂️ Histórico":
     df_indicadores = df_f
     etiqueta_cantidad = "Licitaciones filtradas"
-    etiqueta_actualizacion = "Última actualización BD"
+    etiqueta_actualizacion = "Última novedad registrada en el histórico"
 elif vista_principal == "📊 Gráficos":
     fuente_indicadores = st.session_state.get(
         "fuente_graficos", "Últimas actualizaciones"
@@ -1684,8 +1714,8 @@ if indicadores_usan_feed and fecha_feed_catalogo:
         ultima_act = ultima_act.tz_convert("Europe/Madrid")
 else:
     ultima_act = (
-        df_indicadores["fecha_act_dt"].max()
-        if not df_indicadores.empty and "fecha_act_dt" in df_indicadores.columns
+        df["fecha_act_dt"].max()
+        if not df.empty and "fecha_act_dt" in df.columns
         else pd.NaT
     )
 fecha_act_fmt = (
