@@ -235,16 +235,15 @@ def alternar_favorito(licitacion):
         nombre_pbl = nombres_columnas.get("pblsiniva", "PblSinIva")
         nombre_estado = nombres_columnas.get("estado", "Estado")
         nombre_enlace = nombres_columnas.get("linkplataforma", "LinkPlataforma")
-        campos_ampliados = {
+        campos_principales = {
             **campos_base,
             nombre_pbl: float(pbl_sin_iva) if pd.notna(pbl_sin_iva) else 0,
             nombre_estado: str(estado_lista)[:255],
-            nombre_enlace: str(licitacion.get("url_licitacion") or ""),
         }
         respuesta = requests.post(
             base,
             headers=_graph_headers(),
-            json={"fields": campos_ampliados},
+            json={"fields": campos_principales},
             timeout=15,
         )
         # Hasta que se creen las columnas ampliadas, el favorito sigue funcionando.
@@ -255,7 +254,30 @@ def alternar_favorito(licitacion):
                 json={"fields": campos_base},
                 timeout=15,
             )
+        respuesta.raise_for_status()
+        item_id = str(respuesta.json().get("id") or "")
+        enlace = str(licitacion.get("url_licitacion") or "").strip()
+        if item_id and enlace:
+            # El hipervínculo se actualiza aparte para que un rechazo de este tipo
+            # de columna no impida guardar PBL y estado.
+            requests.patch(
+                f"{base}/{item_id}/fields",
+                headers=_graph_headers(),
+                json={nombre_enlace: enlace},
+                timeout=15,
+            )
     respuesta.raise_for_status()
+    cargar_favoritos_compartidos.clear()
+
+
+def eliminar_todos_los_favoritos():
+    """Vacía el seguimiento compartido de Microsoft Lists."""
+    favoritos = cargar_favoritos_compartidos()
+    base = _graph_lista_base()
+    headers = _graph_headers()
+    for item_id in favoritos.values():
+        respuesta = requests.delete(f"{base}/{item_id}", headers=headers, timeout=15)
+        respuesta.raise_for_status()
     cargar_favoritos_compartidos.clear()
 
 # --- CONFIGURACIÓN DE GEMINI ---
@@ -427,8 +449,10 @@ st.markdown("""
     }
     div[class*="st-key-acciones_"] [data-testid="stButton"] p,
     div[class*="st-key-acciones_"] [data-testid="stLinkButton"] p {
-        font-size: 1rem !important; line-height: 1 !important;
-        margin: 0 !important; width: 100% !important; text-align: center !important;
+        display: none !important;
+    }
+    div[class*="st-key-acciones_"] [data-testid="stIconMaterial"] {
+        margin: 0 !important; padding: 0 !important;
     }
     div[class*="st-key-fav_activo_"] button {
         background: #198754 !important; border-color: #198754 !important;
@@ -1877,6 +1901,24 @@ else:
             "Licitaciones seleccionadas desde el acceso Premium y sincronizadas "
             "con Microsoft Lists."
         )
+        confirmar_borrado = st.checkbox(
+            "Confirmo que quiero eliminar todos los favoritos compartidos",
+            key="confirmar_borrado_favoritos",
+        )
+        if st.button(
+            "🗑️ Eliminar todos los favoritos",
+            key="eliminar_todos_favoritos",
+            disabled=not confirmar_borrado,
+            type="primary",
+        ):
+            try:
+                eliminar_todos_los_favoritos()
+                st.rerun()
+            except requests.RequestException as error_borrado:
+                st.error(
+                    "No se pudieron eliminar todos los favoritos. "
+                    f"Detalle: {_detalle_error_graph(error_borrado)}"
+                )
         favoritos_actuales = cargar_favoritos_compartidos()
         df_favoritos = df_catalogo_favoritos[
             df_catalogo_favoritos["id"].astype(str).isin(favoritos_actuales)
