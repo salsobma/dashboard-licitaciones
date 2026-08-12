@@ -11,8 +11,14 @@ cuando la única cuenta autorizada inicia sesión mediante Microsoft.
 3. Crea un secreto de cliente y concede a la aplicación los permisos de Microsoft
    Graph necesarios para leer y modificar la lista de SharePoint. Limita el acceso al
    sitio utilizado por la aplicación siempre que la administración del tenant lo permita.
-4. Crea una Lista de Microsoft privada con la columna predeterminada `Title` y una
-   columna de texto de una sola línea llamada `LicitacionId`.
+4. Crea una Lista de Microsoft privada con estas columnas:
+   - `Title`: texto, no obligatoria y no única (es la columna predeterminada).
+   - `LicitacionId`: texto, obligatoria y única.
+   - `PblSinIva`: moneda en euros, no obligatoria y no única.
+   - `Estado`: texto, no obligatoria y no única.
+   - `LinkPlataforma`: texto, no obligatoria y no única.
+   - `OrganoContratacion`: texto, no obligatoria y no única.
+   - `Municipio`: texto, no obligatoria y no única.
 5. Copia las claves de `.streamlit/secrets.example.toml` en los secretos del despliegue
    de Streamlit. No crees ni publiques un archivo `secrets.toml` real en GitHub.
 

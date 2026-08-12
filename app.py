@@ -2664,6 +2664,7 @@ components.html("""
 (() => {
     const parentWindow = window.parent;
     const parentDocument = parentWindow.document;
+    const hostDocument = parentDocument;
     const storageKey = "dashboard_licitaciones_scroll";
     const scrollContainer = hostDocument.querySelector('[data-testid="stMain"]');
 
