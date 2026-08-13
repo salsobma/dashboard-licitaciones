@@ -56,6 +56,32 @@ def extraer_adjudicacion(status: ET.Element) -> tuple[str | None, str | None, fl
     )
 
 
+def extraer_fecha_publicacion(status: ET.Element) -> str | None:
+    """Devuelve la fecha del anuncio inicial de licitacion, si esta publicada."""
+    fechas_convocatoria = []
+    fechas_documento = []
+    for aviso in status.iter():
+        if aviso.tag.rsplit("}", 1)[-1] != "ValidNoticeInfo":
+            continue
+        codigos = {
+            (nodo.text or "").strip()
+            for nodo in aviso.iter()
+            if nodo.tag.rsplit("}", 1)[-1] == "NoticeTypeCode"
+        }
+        fechas = [
+            (nodo.text or "").strip()
+            for nodo in aviso.iter()
+            if nodo.tag.rsplit("}", 1)[-1] == "IssueDate"
+            and (nodo.text or "").strip()
+        ]
+        if "DOC_CN" in codigos:
+            fechas_convocatoria.extend(fechas)
+        elif "DOC_CD" in codigos:
+            fechas_documento.extend(fechas)
+    candidatas = fechas_convocatoria or fechas_documento
+    return min(candidatas) if candidatas else None
+
+
 def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
     lic_id = texto_xml(entrada, "atom:id")
     enlace = entrada.find("atom:link", NAMESPACES)
@@ -74,8 +100,6 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
     ) = extraer_adjudicacion(status)
     expediente = texto_xml(status, "cbc:ContractFolderID")
     estado = texto_xml(status, "cbc-place-ext:ContractFolderStatusCode")
-    if estado == "EV" and status.findall("cac:TenderResult", NAMESPACES):
-        estado = "PARCIAL"
 
     def numero(ruta: str) -> float | None:
         valor = texto_xml(proyecto, ruta)
@@ -90,13 +114,13 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         codigo_postal = texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
     if not municipio:
         municipio = texto_xml(party, "cac:PostalAddress/cbc:CityName")
-    cpvs = [
+    cpvs = sorted({
         nodo.text.strip()
         for nodo in proyecto.findall(
             "cac:RequiredCommodityClassification/cbc:ItemClassificationCode", NAMESPACES
         )
         if nodo.text
-    ]
+    })
     fecha_limite = texto_xml(
         status, "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndDate"
     )
@@ -148,6 +172,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "latitud": None,
         "longitud": None,
         "fecha_limite": fecha_limite,
+        "fecha_publicacion": extraer_fecha_publicacion(status),
         "fecha_actualizacion": texto_xml(entrada, "atom:updated"),
         "adjudicatario": adjudicatario,
         "fecha_adjudicacion": fecha_adjudicacion,
