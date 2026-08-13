@@ -169,8 +169,12 @@ def leer_metadata(metadata_path: Path = METADATA_PATH) -> dict[str, object]:
 
 
 def obtener_checkpoint(
-    conexion: sqlite3.Connection, metadata_path: Path = METADATA_PATH
+    conexion: sqlite3.Connection,
+    metadata_path: Path = METADATA_PATH,
+    desde_inicio: bool = False,
 ) -> datetime:
+    if desde_inicio:
+        return datetime(datetime.now().year, 1, 1, tzinfo=ZoneInfo("UTC"))
     metadata = leer_metadata(metadata_path)
     checkpoint = fecha_utc(metadata.get("feed_incremental_actualizado_hasta"))
     if checkpoint is None:
@@ -243,11 +247,12 @@ def sincronizar(
     db_path: Path,
     guardar_metadata: bool = True,
     metadata_path: Path = METADATA_PATH,
+    desde_inicio: bool = False,
 ) -> dict[str, object]:
     maestro = cargar_maestro()
     with sqlite3.connect(db_path) as conexion:
         inicializar_esquema(conexion)
-        checkpoint = obtener_checkpoint(conexion, metadata_path)
+        checkpoint = obtener_checkpoint(conexion, metadata_path, desde_inicio=desde_inicio)
         filas, bajas, paginas, fecha_feed = descargar_incremento(checkpoint)
 
         # Una misma sindicacion puede contener varias versiones del mismo ID.
@@ -335,6 +340,7 @@ def sincronizar(
 
     ahora = datetime.now(ZoneInfo("Europe/Madrid")).isoformat()
     resultado = {
+        "modo": "auditoria_anual" if desde_inicio else "incremental",
         "sincronizado_en": ahora,
         "feed_actualizado": fecha_feed,
         "checkpoint_anterior": checkpoint.isoformat(),
@@ -368,11 +374,17 @@ def main() -> None:
     parser.add_argument("--db", type=Path, default=DB_PATH)
     parser.add_argument("--metadata", type=Path, default=METADATA_PATH)
     parser.add_argument("--sin-metadata", action="store_true")
+    parser.add_argument(
+        "--desde-inicio",
+        action="store_true",
+        help="Revisa el feed completo desde el 1 de enero del año en curso.",
+    )
     args = parser.parse_args()
     resultado = sincronizar(
         args.db.resolve(),
         guardar_metadata=not args.sin_metadata,
         metadata_path=args.metadata.resolve(),
+        desde_inicio=args.desde_inicio,
     )
     print(json.dumps(resultado, ensure_ascii=False, indent=2))
 
