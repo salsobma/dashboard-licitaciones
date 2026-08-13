@@ -750,11 +750,16 @@ st.markdown("""
     .card-title {
         margin: 10px 0 6px 0 !important; color: #1a252c !important;
         line-height: 1.35 !important; font-size: 0.95rem !important;
-        min-height: 4.05em; display: block; overflow: visible;
+        min-height: 4.25em; height: 4.25em; max-height: 4.25em;
+        display: -webkit-box; overflow: hidden;
+        -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+        line-clamp: 3; text-overflow: ellipsis;
         text-align: justify; text-justify: inter-word;
         overflow-wrap: break-word;
     }
     .card-title:hover, .card-title:focus {
+        height: auto; max-height: none;
+        -webkit-line-clamp: unset; line-clamp: unset;
         outline: 2px solid #93c5fd; outline-offset: 2px;
     }
     details summary {
