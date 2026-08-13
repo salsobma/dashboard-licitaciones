@@ -2005,11 +2005,18 @@ vista_principal = st.segmented_control(
 if vista_principal is None:
     vista_principal = "📡 Radar de licitaciones"
 
-if vista_principal in {"⭐ Favoritos", "📅 Calendario"}:
+favoritos_actuales = {}
+if ES_PREMIUM and LISTS_CONFIGURADO:
     try:
         favoritos_actuales = cargar_favoritos_compartidos()
     except requests.RequestException:
         favoritos_actuales = st.session_state.get("favoritos_sesion", {})
+
+cantidad_favoritos = int(
+    df_catalogo_favoritos["id"].astype(str).isin(favoritos_actuales).sum()
+)
+
+if vista_principal in {"⭐ Favoritos", "📅 Calendario"}:
     df_indicadores = df_catalogo_favoritos[
         df_catalogo_favoritos["id"].astype(str).isin(favoritos_actuales)
     ]
@@ -2038,30 +2045,15 @@ ultima_act = (
     if not df.empty and "fecha_act_dt" in df.columns
     else pd.NaT
 )
-ahora_local = pd.Timestamp.now(tz="Europe/Madrid").tz_localize(None)
-limite_proximos_7_dias = ahora_local + pd.Timedelta(days=7)
-if not df_indicadores.empty and "fecha_limite" in df_indicadores.columns:
-    fechas_limite_kpi = pd.to_datetime(
-        df_indicadores["fecha_limite"], errors="coerce"
-    )
-    vencen_7_dias = int(
-        (
-            fechas_limite_kpi.notna()
-            & (fechas_limite_kpi >= ahora_local)
-            & (fechas_limite_kpi <= limite_proximos_7_dias)
-        ).sum()
-    )
-else:
-    vencen_7_dias = 0
 volumen_total = (
     pd.to_numeric(df_indicadores["pbl_sin_iva"], errors="coerce").fillna(0).sum()
     if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
     else 0.0
 )
-presupuesto_medio = (
+presupuesto_mediano = (
     pd.to_numeric(
         df_indicadores["pbl_sin_iva"], errors="coerce"
-    ).dropna().mean()
+    ).dropna().median()
     if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
     else 0.0
 )
@@ -2072,9 +2064,9 @@ with kpi1:
 with kpi2:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(volumen_total)}</div><div class="metric-lbl-grid">Volumen Total (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi3:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_medio)}</div><div class="metric-lbl-grid">Presupuesto Medio (sin IVA)</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_mediano)}</div><div class="metric-lbl-grid">Presupuesto Mediano (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi4:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{vencen_7_dias}</div><div class="metric-lbl-grid">Vencen en los próximos 7 días</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#ca8a04;">Requieren revisión</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{cantidad_favoritos}</div><div class="metric-lbl-grid">Licitaciones favoritas</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#ca8a04;">Marcadas para seguimiento</div></div>', unsafe_allow_html=True)
 
 filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
