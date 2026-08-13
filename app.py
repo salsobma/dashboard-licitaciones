@@ -941,7 +941,7 @@ def generar_ics_licitaciones(filas, nombre_calendario="LandAI Licitaciones"):
                 titulo,
                 f"Expediente: {expediente}",
                 f"Órgano: {licitacion.get('organo_contratante') or 'No disponible'}",
-                f"Presupuesto: {formato_eur(licitacion.get('pbl_con_iva'))}",
+                f"PBL sin IVA: {formato_eur(licitacion.get('pbl_sin_iva'))}",
                 url,
             ) if parte
         )
@@ -1005,12 +1005,12 @@ def html_calendario_vencimientos(tabla, anio, mes):
                 municipio = str(licitacion.get("municipio") or "").strip()
                 provincia = str(licitacion.get("provincia") or "").strip()
                 ubicacion = html.escape(", ".join(parte for parte in (municipio, provincia) if parte) or "No disponible")
-                presupuesto = html.escape(formato_eur(licitacion.get("pbl_con_iva")))
+                presupuesto = html.escape(formato_eur(licitacion.get("pbl_sin_iva")))
                 enlace = url_externa_segura(licitacion.get("url_licitacion"))
                 tooltip = (
                     f'<span class="calendar-event-tooltip"><b>{titulo}</b><br>'
                     f'<b>Organismo:</b> {organo}<br><b>Ubicación:</b> {ubicacion}<br>'
-                    f'<b>Presupuesto:</b> {presupuesto}<br><b>Vencimiento:</b> '
+                    f'<b>PBL sin IVA:</b> {presupuesto}<br><b>Vencimiento:</b> '
                     f'{fecha.strftime("%d/%m/%Y · %H:%M")}</span>'
                 )
                 contenido_evento = (
@@ -2155,7 +2155,7 @@ if ccaa_sel: filtros_activos.append('CC. AA.: ' + ', '.join(ccaa_sel))
 if prov_sel: filtros_activos.append('Provincia: ' + ', '.join(prov_sel))
 if muni_sel: filtros_activos.append('Municipio: ' + ', '.join(muni_sel))
 if pbl_min_val > 0 or pbl_max_val < max_pbl_db:
-    filtros_activos.append(f'Presupuesto: {formato_eur(pbl_min_val)} – {formato_eur(pbl_max_val)}')
+    filtros_activos.append(f'PBL sin IVA: {formato_eur(pbl_min_val)} – {formato_eur(pbl_max_val)}')
 if fecha_rango and len(fecha_rango) == 2:
     filtros_activos.append(f'Fecha límite: {fecha_rango[0].strftime("%d/%m/%Y")} – {fecha_rango[1].strftime("%d/%m/%Y")}')
 if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
@@ -2349,7 +2349,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                         )
                         ma1, ma2, ma3 = st.columns(3)
                         with ma1:
-                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{formato_eur(r.get("pbl_con_iva"))}</div><div class="metric-lbl-grid">PBL CON IVA</div></div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{formato_eur(r.get("pbl_sin_iva"))}</div><div class="metric-lbl-grid">PBL SIN IVA</div></div>', unsafe_allow_html=True)
                         with ma2:
                             st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{formato_eur(importe_adjudicado)}</div><div class="metric-lbl-grid">ADJUDICACIÓN CON IVA</div></div>', unsafe_allow_html=True)
                         with ma3:
@@ -2363,7 +2363,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                     else:
                         mc1, mc2 = st.columns(2)
                         with mc1:
-                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.85rem;">{formato_eur(r.get("pbl_con_iva"))}</div><div class="metric-lbl-grid">PBL CON IVA</div></div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.85rem;">{formato_eur(r.get("pbl_sin_iva"))}</div><div class="metric-lbl-grid">PBL SIN IVA</div></div>', unsafe_allow_html=True)
                         with mc2:
                             st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size: 0.82rem; color: #495057;">{formato_fecha(r["fecha_limite"])}</div><div class="metric-lbl-grid">FECHA PRESENTACIÓN</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_dias_restantes(r["fecha_limite"])}</div></div>', unsafe_allow_html=True)
 
