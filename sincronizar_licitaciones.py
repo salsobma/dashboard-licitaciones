@@ -3,15 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import time
 import unicodedata
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
-from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+import requests
 
 from feed_parser import bajas_desde_pagina, fila_desde_entrada, NAMESPACES
 
@@ -23,6 +24,9 @@ MAESTRO_PATH = BASE_DIR / "provincias.xlsx"
 FEED_URL = (
     "https://contrataciondelsectorpublico.gob.es/sindicacion/"
     "sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom"
+)
+FEED_URL_ALTERNATIVA = FEED_URL.replace(
+    "contrataciondelsectorpublico.gob.es", "contrataciondelestado.es"
 )
 SOLAPE_HORAS = 48
 MAX_PAGINAS_SEGURIDAD = 200
@@ -71,23 +75,45 @@ def fecha_utc(valor: object) -> datetime | None:
 def descargar_pagina(url: str) -> tuple[bytes, ET.Element, str]:
     if urlparse(url).hostname not in DOMINIOS_PERMITIDOS:
         raise RuntimeError("El feed enlaza a un dominio no permitido.")
-    peticion = Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/atom+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Cache-Control": "no-cache",
-        },
+    variantes = [url]
+    for origen, destino in (
+        ("contrataciondelsectorpublico.gob.es", "contrataciondelestado.es"),
+        ("contrataciondelestado.es", "contrataciondelsectorpublico.gob.es"),
+    ):
+        alternativa = url.replace(origen, destino)
+        if alternativa not in variantes:
+            variantes.append(alternativa)
+    errores = []
+    cabeceras = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 Chrome/138.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/atom+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-ES,es;q=0.9",
+        "Referer": "https://contrataciondelsectorpublico.gob.es/datosabiertos",
+        "Cache-Control": "no-cache",
+    }
+    for ronda in range(2):
+        for candidata in variantes:
+            try:
+                respuesta = requests.get(candidata, headers=cabeceras, timeout=45)
+                respuesta.raise_for_status()
+                contenido = respuesta.content
+                if b"Web Application Firewall" in contenido[:4096]:
+                    raise RuntimeError("el cortafuegos rechazo temporalmente la consulta")
+                raiz = ET.fromstring(contenido)
+                if raiz.tag != "{http://www.w3.org/2005/Atom}feed":
+                    raise RuntimeError("la respuesta no contiene un feed ATOM valido")
+                return contenido, raiz, respuesta.url
+            except Exception as error:
+                errores.append(f"{candidata}: {error}")
+        if ronda == 0:
+            time.sleep(2)
+    raise RuntimeError(
+        "El feed oficial no esta disponible. "
+        f"Ultimo intento: {errores[-1] if errores else 'error desconocido'}"
     )
-    with urlopen(peticion, timeout=60) as respuesta:
-        contenido = respuesta.read()
-        url_real = respuesta.geturl()
-    if b"Web Application Firewall" in contenido[:4096]:
-        raise RuntimeError("El cortafuegos rechazo temporalmente la consulta.")
-    raiz = ET.fromstring(contenido)
-    if raiz.tag != "{http://www.w3.org/2005/Atom}feed":
-        raise RuntimeError("La respuesta no contiene un feed ATOM valido.")
-    return contenido, raiz, url_real
 
 
 def enlace_siguiente(raiz: ET.Element, url_real: str) -> str | None:

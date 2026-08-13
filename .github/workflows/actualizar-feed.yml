@@ -40,7 +40,7 @@ jobs:
           python-version: "3.12"
 
       - name: Instalar dependencias
-        run: python -m pip install --disable-pip-version-check pandas openpyxl
+        run: python -m pip install --disable-pip-version-check pandas openpyxl requests
 
       - name: Determinar tipo de comprobacion
         id: modo
