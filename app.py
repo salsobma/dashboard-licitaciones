@@ -754,8 +754,19 @@ st.markdown("""
         display: -webkit-box; overflow: hidden;
         -webkit-box-orient: vertical; -webkit-line-clamp: 3;
         line-clamp: 3; text-overflow: ellipsis;
-        text-align: justify; text-justify: inter-word;
-        overflow-wrap: anywhere;
+        text-align: left;
+        overflow-wrap: break-word; cursor: help;
+    }
+    .card-title:focus {
+        max-height: none; -webkit-line-clamp: unset; line-clamp: unset;
+        outline: 2px solid #93c5fd; outline-offset: 2px;
+    }
+    div[data-testid="stExpander"] details summary {
+        position: relative; justify-content: center !important;
+        text-align: center !important;
+    }
+    div[data-testid="stExpander"] details summary svg {
+        position: absolute; left: 0.85rem;
     }
     .document-extract {
         max-height: 420px; overflow-y: auto; padding: 0.75rem;
@@ -2226,7 +2237,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                                 use_container_width=True,
                             )
                     st.markdown(f"""
-                    <h5 class="card-title" title="{titulo_safe}">
+                    <h5 class="card-title" title="{titulo_safe}" tabindex="0" aria-label="{titulo_safe}">
                         {titulo_safe}
                     </h5>
                     <p style="margin: 0; font-size: 0.8rem; color: #495057; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
