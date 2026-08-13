@@ -762,13 +762,24 @@ st.markdown("""
     .calendar-grid th { padding: 0.45rem; color: #64748b; font-size: 0.75rem; text-transform: uppercase; }
     .calendar-grid td { height: 105px; vertical-align: top; padding: 0.45rem; border: 1px solid #dbe3ec; border-radius: 8px; background: #ffffff; }
     .calendar-grid td.calendar-empty { background: transparent; border-color: transparent; }
+    .calendar-grid td.calendar-today { background: #eaf3ff; border: 2px solid #2563eb; box-shadow: inset 0 0 0 1px #bfdbfe; }
     .calendar-day { display: block; margin-bottom: 0.35rem; color: #334155; font-weight: 800; }
-    .calendar-event { display: block; margin: 0.2rem 0; padding: 0.25rem 0.35rem; border-radius: 5px; color: #ffffff; font-size: 0.68rem; line-height: 1.25; overflow: hidden; }
+    .calendar-event { display: block; position: relative; margin: 0.2rem 0; padding: 0.25rem 0.35rem; border-radius: 5px; color: #ffffff !important; font-size: 0.68rem; line-height: 1.25; text-decoration: none !important; }
+    .calendar-event-label { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .calendar-event.safe { background: #198754; }
     .calendar-event.watch { background: #ca8a04; }
     .calendar-event.urgent { background: #ea580c; }
     .calendar-event.critical { background: #dc2626; }
     .calendar-event.expired { background: #6c757d; }
+    .calendar-event-tooltip { display: none; position: absolute; left: 50%; top: calc(100% + 7px); transform: translateX(-50%); z-index: 1000; width: 290px; padding: 0.7rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff; color: #1e293b; box-shadow: 0 10px 28px rgba(15,23,42,0.22); font-size: 0.75rem; line-height: 1.4; white-space: normal; text-align: left; }
+    .calendar-event:hover .calendar-event-tooltip, .calendar-event:focus .calendar-event-tooltip { display: block; }
+    .deadline-badge { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 132px; padding: 0.5rem 0.65rem; border-radius: 8px; color: #ffffff; font-size: 0.77rem; font-weight: 800; line-height: 1.3; text-align: center; }
+    .deadline-badge.safe { background: #198754; }
+    .deadline-badge.watch { background: #ca8a04; }
+    .deadline-badge.urgent { background: #ea580c; }
+    .deadline-badge.critical { background: #dc2626; }
+    .deadline-badge.expired { background: #6c757d; }
+    @media (hover: none) { .calendar-event-tooltip { display: none !important; } }
 
     .row-widget.stHorizontal { align-items: stretch !important; }
     div[data-testid="stVerticalBlock"]:has(> div.stContainer) { height: 100%; }
@@ -983,13 +994,35 @@ def html_calendario_vencimientos(tabla, anio, mes):
                 )
                 expediente = html.escape(str(licitacion.get("expediente") or "Sin expediente"))
                 titulo = html.escape(str(licitacion.get("titulo") or "Licitación"), quote=True)
-                contenidos.append(
-                    f'<span class="calendar-event {clase}" title="{titulo}">'
-                    f'{fecha.strftime("%H:%M")} · {expediente}</span>'
+                organo = html.escape(str(licitacion.get("organo_contratante") or "No disponible"))
+                municipio = str(licitacion.get("municipio") or "").strip()
+                provincia = str(licitacion.get("provincia") or "").strip()
+                ubicacion = html.escape(", ".join(parte for parte in (municipio, provincia) if parte) or "No disponible")
+                presupuesto = html.escape(formato_eur(licitacion.get("pbl_con_iva")))
+                enlace = url_externa_segura(licitacion.get("url_licitacion"))
+                tooltip = (
+                    f'<span class="calendar-event-tooltip"><b>{titulo}</b><br>'
+                    f'<b>Organismo:</b> {organo}<br><b>Ubicación:</b> {ubicacion}<br>'
+                    f'<b>Presupuesto:</b> {presupuesto}<br><b>Vencimiento:</b> '
+                    f'{fecha.strftime("%d/%m/%Y · %H:%M")}</span>'
                 )
+                contenido_evento = (
+                    f'<span class="calendar-event-label">{fecha.strftime("%H:%M")} · {expediente}</span>'
+                    f'{tooltip}'
+                )
+                if enlace:
+                    contenidos.append(
+                        f'<a class="calendar-event {clase}" href="{html.escape(enlace, quote=True)}" '
+                        f'target="_blank" rel="noopener noreferrer">{contenido_evento}</a>'
+                    )
+                else:
+                    contenidos.append(
+                        f'<span class="calendar-event {clase}">{contenido_evento}</span>'
+                    )
             if len(eventos) > 3:
                 contenidos.append(f'<small>+{len(eventos) - 3} más</small>')
-            celdas.append(f"<td>{''.join(contenidos)}</td>")
+            clase_hoy = " calendar-today" if date.today() == date(anio, mes, dia) else ""
+            celdas.append(f'<td class="{clase_hoy.strip()}">{"".join(contenidos)}</td>')
         filas_html.append(f"<tr>{''.join(celdas)}</tr>")
     return (
         '<div style="overflow-x:auto"><table class="calendar-grid">'
@@ -2479,14 +2512,27 @@ else:
             for _, licitacion in proximas.iterrows():
                 fecha = licitacion["fecha_calendario"]
                 enlace = url_externa_segura(licitacion.get("url_licitacion"))
+                dias_restantes = (fecha.date() - date.today()).days
+                clase_plazo = (
+                    "expired" if dias_restantes < 0 else
+                    "critical" if dias_restantes <= 3 else
+                    "urgent" if dias_restantes <= 7 else
+                    "watch" if dias_restantes <= 15 else "safe"
+                )
                 with st.container(border=True):
-                    detalle_col, enlace_col = st.columns([5, 1])
+                    fecha_col, detalle_col, enlace_col = st.columns([1.4, 4.6, 1])
+                    with fecha_col:
+                        st.markdown(
+                            f'<div class="deadline-badge {clase_plazo}">'
+                            f'{fecha.strftime("%d/%m/%Y · %H:%M")}<br>'
+                            f'{html.escape(texto_dias_restantes(fecha))}</div>',
+                            unsafe_allow_html=True,
+                        )
                     with detalle_col:
                         st.markdown(
                             f"**{html.escape(str(licitacion.get('titulo') or 'Sin título'))}**  \n"
-                            f"{fecha.strftime('%d/%m/%Y · %H:%M')} · "
-                            f"{texto_dias_restantes(fecha)} · "
-                            f"Exp. {html.escape(str(licitacion.get('expediente') or 'N/A'))}"
+                            f"Exp. {html.escape(str(licitacion.get('expediente') or 'N/A'))} · "
+                            f"{html.escape(str(licitacion.get('organo_contratante') or 'Organismo no disponible'))}"
                         )
                     with enlace_col:
                         if enlace:
