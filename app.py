@@ -2,6 +2,7 @@ import html
 import hashlib
 import io
 import re
+import calendar as calendar_module
 # Revisión de despliegue: filtro del Radar protegido ante resultados vacíos.
 import streamlit as st
 import streamlit.components.v1 as components
@@ -17,7 +18,8 @@ import requests
 import textwrap
 import time
 import unicodedata
-from datetime import date
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
@@ -756,6 +758,17 @@ st.markdown("""
         color: #334155; font-size: 0.78rem; line-height: 1.45;
         white-space: pre-wrap; overflow-wrap: anywhere;
     }
+    .calendar-grid { width: 100%; min-width: 760px; border-collapse: separate; border-spacing: 5px; table-layout: fixed; }
+    .calendar-grid th { padding: 0.45rem; color: #64748b; font-size: 0.75rem; text-transform: uppercase; }
+    .calendar-grid td { height: 105px; vertical-align: top; padding: 0.45rem; border: 1px solid #dbe3ec; border-radius: 8px; background: #ffffff; }
+    .calendar-grid td.calendar-empty { background: transparent; border-color: transparent; }
+    .calendar-day { display: block; margin-bottom: 0.35rem; color: #334155; font-weight: 800; }
+    .calendar-event { display: block; margin: 0.2rem 0; padding: 0.25rem 0.35rem; border-radius: 5px; color: #ffffff; font-size: 0.68rem; line-height: 1.25; overflow: hidden; }
+    .calendar-event.safe { background: #198754; }
+    .calendar-event.watch { background: #ca8a04; }
+    .calendar-event.urgent { background: #ea580c; }
+    .calendar-event.critical { background: #dc2626; }
+    .calendar-event.expired { background: #6c757d; }
 
     .row-widget.stHorizontal { align-items: stretch !important; }
     div[data-testid="stVerticalBlock"]:has(> div.stContainer) { height: 100%; }
@@ -860,6 +873,129 @@ def texto_dias_restantes(valor):
     if dias == -1:
         return "Finalizó hace 1 día"
     return f"Finalizó hace {abs(dias)} días"
+
+
+def _fecha_calendario(valor):
+    fecha = pd.to_datetime(valor, errors="coerce")
+    if pd.isna(fecha):
+        return None
+    fecha_python = fecha.to_pydatetime()
+    zona_madrid = ZoneInfo("Europe/Madrid")
+    if fecha_python.tzinfo is None:
+        return fecha_python.replace(tzinfo=zona_madrid)
+    return fecha_python.astimezone(zona_madrid)
+
+
+def _escapar_ics(valor):
+    return (
+        str(valor or "")
+        .replace("\\", "\\\\")
+        .replace("\r\n", "\\n")
+        .replace("\n", "\\n")
+        .replace(",", "\\,")
+        .replace(";", "\\;")
+    )
+
+
+def generar_ics_licitaciones(filas, nombre_calendario="LandAI Licitaciones"):
+    ahora_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    lineas = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//LANDA//LandAI Licitaciones//ES",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        f"X-WR-CALNAME:{_escapar_ics(nombre_calendario)}",
+    ]
+    total = 0
+    for licitacion in filas:
+        fecha = _fecha_calendario(licitacion.get("fecha_limite"))
+        if fecha is None:
+            continue
+        fecha_utc = fecha.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        licitacion_id = str(licitacion.get("id") or licitacion.get("expediente") or "")
+        uid_hash = hashlib.sha1(licitacion_id.encode("utf-8")).hexdigest()
+        expediente = str(licitacion.get("expediente") or "Sin expediente")
+        titulo = str(licitacion.get("titulo") or "Licitación")
+        url = url_externa_segura(licitacion.get("url_licitacion")) or ""
+        descripcion = "\n".join(
+            parte for parte in (
+                titulo,
+                f"Expediente: {expediente}",
+                f"Órgano: {licitacion.get('organo_contratante') or 'No disponible'}",
+                f"Presupuesto: {formato_eur(licitacion.get('pbl_con_iva'))}",
+                url,
+            ) if parte
+        )
+        lineas.extend([
+            "BEGIN:VEVENT",
+            f"UID:{uid_hash}@landai-licitaciones",
+            f"DTSTAMP:{ahora_utc}",
+            f"DTSTART:{fecha_utc}",
+            f"SUMMARY:{_escapar_ics(f'Vence licitación · {expediente}')}",
+            f"DESCRIPTION:{_escapar_ics(descripcion)}",
+            f"URL:{_escapar_ics(url)}",
+        ])
+        for minutos, etiqueta in (
+            (21600, "Quedan 15 días"),
+            (10080, "Quedan 7 días"),
+            (4320, "Quedan 3 días"),
+            (1440, "Queda 1 día"),
+        ):
+            lineas.extend([
+                "BEGIN:VALARM",
+                f"TRIGGER:-PT{minutos}M",
+                "ACTION:DISPLAY",
+                f"DESCRIPTION:{_escapar_ics(etiqueta + ': ' + expediente)}",
+                "END:VALARM",
+            ])
+        lineas.append("END:VEVENT")
+        total += 1
+    lineas.append("END:VCALENDAR")
+    return ("\r\n".join(lineas) + "\r\n").encode("utf-8"), total
+
+
+def html_calendario_vencimientos(tabla, anio, mes):
+    eventos_por_dia = {}
+    for _, licitacion in tabla.iterrows():
+        fecha = _fecha_calendario(licitacion.get("fecha_limite"))
+        if fecha is None or fecha.year != anio or fecha.month != mes:
+            continue
+        eventos_por_dia.setdefault(fecha.day, []).append((fecha, licitacion))
+
+    cabecera = "".join(f"<th>{dia}</th>" for dia in ("Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"))
+    filas_html = []
+    for semana in calendar_module.Calendar(firstweekday=0).monthdayscalendar(anio, mes):
+        celdas = []
+        for dia in semana:
+            if dia == 0:
+                celdas.append('<td class="calendar-empty"></td>')
+                continue
+            eventos = sorted(eventos_por_dia.get(dia, []), key=lambda elemento: elemento[0])
+            contenidos = [f'<span class="calendar-day">{dia}</span>']
+            for fecha, licitacion in eventos[:3]:
+                dias = (fecha.date() - date.today()).days
+                clase = (
+                    "expired" if dias < 0 else
+                    "critical" if dias <= 3 else
+                    "urgent" if dias <= 7 else
+                    "watch" if dias <= 15 else "safe"
+                )
+                expediente = html.escape(str(licitacion.get("expediente") or "Sin expediente"))
+                titulo = html.escape(str(licitacion.get("titulo") or "Licitación"), quote=True)
+                contenidos.append(
+                    f'<span class="calendar-event {clase}" title="{titulo}">'
+                    f'{fecha.strftime("%H:%M")} · {expediente}</span>'
+                )
+            if len(eventos) > 3:
+                contenidos.append(f'<small>+{len(eventos) - 3} más</small>')
+            celdas.append(f"<td>{''.join(contenidos)}</td>")
+        filas_html.append(f"<tr>{''.join(celdas)}</tr>")
+    return (
+        '<div style="overflow-x:auto"><table class="calendar-grid">'
+        f"<thead><tr>{cabecera}</tr></thead><tbody>{''.join(filas_html)}</tbody>"
+        "</table></div>"
+    )
 
 def texto_antiguedad(valor):
     if pd.isna(valor):
@@ -1862,6 +1998,7 @@ opciones_vista = [
 ]
 if ES_PREMIUM and LISTS_CONFIGURADO:
     opciones_vista.insert(0, "⭐ Favoritos")
+    opciones_vista.insert(1, "📅 Calendario")
 vista_principal = st.segmented_control(
     "Vista del dashboard",
     opciones_vista,
@@ -1873,7 +2010,7 @@ vista_principal = st.segmented_control(
 if vista_principal is None:
     vista_principal = "⚡ Últimas actualizaciones"
 
-if vista_principal == "⭐ Favoritos":
+if vista_principal in {"⭐ Favoritos", "📅 Calendario"}:
     try:
         favoritos_actuales = cargar_favoritos_compartidos()
     except requests.RequestException:
@@ -1881,7 +2018,16 @@ if vista_principal == "⭐ Favoritos":
     df_indicadores = df_catalogo_favoritos[
         df_catalogo_favoritos["id"].astype(str).isin(favoritos_actuales)
     ]
-    etiqueta_cantidad = "Favoritos compartidos"
+    if vista_principal == "📅 Calendario":
+        fechas_indicadores = pd.to_datetime(
+            df_indicadores["fecha_limite"], errors="coerce"
+        )
+        df_indicadores = df_indicadores[fechas_indicadores.notna()]
+    etiqueta_cantidad = (
+        "Vencimientos en calendario"
+        if vista_principal == "📅 Calendario"
+        else "Favoritos compartidos"
+    )
     etiqueta_actualizacion = "Seguimiento Premium"
 elif vista_principal == "⚡ Últimas actualizaciones":
     df_indicadores = df_radar_filtrado
@@ -2193,6 +2339,30 @@ def render_grid_tarjetas(df_vista, key_prefix):
                         else:
                             st.write("Sin documentos adjuntos directos.")
 
+                    if ES_PREMIUM:
+                        ics_individual, eventos_individuales = generar_ics_licitaciones(
+                            [r.to_dict()]
+                        )
+                        expediente_archivo = re.sub(
+                            r"[^A-Za-z0-9_-]+",
+                            "_",
+                            str(r.get("expediente") or "licitacion"),
+                        ).strip("_") or "licitacion"
+                        st.download_button(
+                            "📅 Añadir al calendario",
+                            data=ics_individual,
+                            file_name=f"vencimiento_{expediente_archivo}.ics",
+                            mime="text/calendar; charset=utf-8",
+                            key=f"ics_{token_acciones}",
+                            use_container_width=True,
+                            disabled=eventos_individuales == 0,
+                            help=(
+                                "Esta licitación no tiene una fecha límite válida."
+                                if eventos_individuales == 0
+                                else "Descarga un evento compatible con Outlook y otros calendarios."
+                            ),
+                        )
+
                     if st.button(
                         "🧠 Resumen IA",
                         key=f"boton_resumen_{token_acciones}",
@@ -2238,6 +2408,93 @@ else:
             "fecha_act_dt", ascending=False, na_position="last"
         )
         render_grid_tarjetas(df_catalogo_favoritos_ordenado, "favoritos")
+
+    elif vista_principal == "📅 Calendario":
+        st.subheader("📅 Calendario de vencimientos")
+        st.caption(
+            "Fechas límite de las licitaciones favoritas. Puedes descargar los "
+            "eventos para Outlook, Google Calendar o Apple Calendar."
+        )
+        df_calendario = df_catalogo_favoritos[
+            df_catalogo_favoritos["id"].astype(str).isin(favoritos_actuales)
+        ].copy()
+        df_calendario["fecha_calendario"] = pd.to_datetime(
+            df_calendario["fecha_limite"], errors="coerce"
+        )
+        df_calendario = df_calendario[df_calendario["fecha_calendario"].notna()]
+
+        if df_calendario.empty:
+            st.info("No hay favoritas con una fecha límite válida.")
+        else:
+            df_calendario = df_calendario.sort_values("fecha_calendario")
+            ics_total, total_eventos = generar_ics_licitaciones(
+                df_calendario.to_dict("records"),
+                "Vencimientos LandAI",
+            )
+            col_descarga, col_leyenda = st.columns([1, 2])
+            with col_descarga:
+                st.download_button(
+                    f"📅 Descargar calendario ({total_eventos})",
+                    data=ics_total,
+                    file_name="vencimientos_landai.ics",
+                    mime="text/calendar; charset=utf-8",
+                    use_container_width=True,
+                )
+            with col_leyenda:
+                st.caption(
+                    "🟢 >15 días · 🟡 8–15 días · 🟠 4–7 días · "
+                    "🔴 0–3 días · ⚫ vencida"
+                )
+
+            meses_disponibles = sorted({
+                (fecha.year, fecha.month)
+                for fecha in df_calendario["fecha_calendario"]
+            })
+            hoy_mes = (date.today().year, date.today().month)
+            mes_inicial = next(
+                (mes for mes in meses_disponibles if mes >= hoy_mes),
+                meses_disponibles[-1],
+            )
+            nombres_meses = (
+                "", "enero", "febrero", "marzo", "abril", "mayo", "junio",
+                "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+            )
+            mes_elegido = st.selectbox(
+                "Mes que quieres consultar",
+                meses_disponibles,
+                index=meses_disponibles.index(mes_inicial),
+                format_func=lambda valor: f"{nombres_meses[valor[1]].capitalize()} {valor[0]}",
+            )
+            st.markdown(
+                html_calendario_vencimientos(df_calendario, *mes_elegido),
+                unsafe_allow_html=True,
+            )
+
+            st.markdown("#### Próximos vencimientos")
+            proximas = df_calendario[
+                df_calendario["fecha_calendario"].dt.date >= date.today()
+            ].head(12)
+            if proximas.empty:
+                st.info("No hay próximos vencimientos entre las favoritas.")
+            for _, licitacion in proximas.iterrows():
+                fecha = licitacion["fecha_calendario"]
+                enlace = url_externa_segura(licitacion.get("url_licitacion"))
+                with st.container(border=True):
+                    detalle_col, enlace_col = st.columns([5, 1])
+                    with detalle_col:
+                        st.markdown(
+                            f"**{html.escape(str(licitacion.get('titulo') or 'Sin título'))}**  \n"
+                            f"{fecha.strftime('%d/%m/%Y · %H:%M')} · "
+                            f"{texto_dias_restantes(fecha)} · "
+                            f"Exp. {html.escape(str(licitacion.get('expediente') or 'N/A'))}"
+                        )
+                    with enlace_col:
+                        if enlace:
+                            st.link_button(
+                                "Abrir ficha",
+                                enlace,
+                                use_container_width=True,
+                            )
 
     elif vista_principal == "⚡ Últimas actualizaciones":
         st.subheader("⚡ Radar de actualizaciones")
