@@ -2023,29 +2023,36 @@ if vista_principal in {"⭐ Favoritos", "📅 Calendario"}:
         if vista_principal == "📅 Calendario"
         else "Favoritos compartidos"
     )
-    etiqueta_actualizacion = "Seguimiento Premium"
 elif vista_principal == "📡 Radar de licitaciones":
     df_indicadores = df_f
     etiqueta_cantidad = "Licitaciones filtradas"
-    etiqueta_actualizacion = "Última novedad registrada"
 elif vista_principal == "📊 Gráficos":
     df_indicadores = df_f
     etiqueta_cantidad = "Licitaciones filtradas"
-    etiqueta_actualizacion = "Última actualización"
 else:
     df_indicadores = df_f
     etiqueta_cantidad = "Licitaciones filtradas"
-    etiqueta_actualizacion = "Última actualización"
 
 ultima_act = (
     df["fecha_act_dt"].max()
     if not df.empty and "fecha_act_dt" in df.columns
     else pd.NaT
 )
-fecha_act_fmt = (
-    ultima_act.strftime("%d/%m/%Y %H:%M")
-    if pd.notnull(ultima_act) else "No disponible"
-)
+ahora_local = pd.Timestamp.now(tz="Europe/Madrid").tz_localize(None)
+limite_proximos_7_dias = ahora_local + pd.Timedelta(days=7)
+if not df_indicadores.empty and "fecha_limite" in df_indicadores.columns:
+    fechas_limite_kpi = pd.to_datetime(
+        df_indicadores["fecha_limite"], errors="coerce"
+    )
+    vencen_7_dias = int(
+        (
+            fechas_limite_kpi.notna()
+            & (fechas_limite_kpi >= ahora_local)
+            & (fechas_limite_kpi <= limite_proximos_7_dias)
+        ).sum()
+    )
+else:
+    vencen_7_dias = 0
 volumen_total = (
     pd.to_numeric(df_indicadores["pbl_sin_iva"], errors="coerce").fillna(0).sum()
     if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
@@ -2067,7 +2074,7 @@ with kpi2:
 with kpi3:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_medio)}</div><div class="metric-lbl-grid">Presupuesto Medio (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi4:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid" style="font-size:1.15rem; margin-top:2px;">{fecha_act_fmt}</div><div class="metric-lbl-grid">{etiqueta_actualizacion}</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">{texto_antiguedad(ultima_act)}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{vencen_7_dias}</div><div class="metric-lbl-grid">Vencen en los próximos 7 días</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#ca8a04;">Requieren revisión</div></div>', unsafe_allow_html=True)
 
 filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
