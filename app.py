@@ -2053,11 +2053,10 @@ presupuesto_mediano = (
     if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
     else 0.0
 )
-ahora_local = pd.Timestamp.now(tz="Europe/Madrid").tz_localize(None)
-limite_actividad_reciente = ahora_local - pd.Timedelta(days=7)
+limite_actividad_reciente = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=7)
 if not df_indicadores.empty and "fecha_act_dt" in df_indicadores.columns:
     fechas_actividad = pd.to_datetime(
-        df_indicadores["fecha_act_dt"], errors="coerce"
+        df_indicadores["fecha_act_dt"], errors="coerce", utc=True
     )
     actividad_reciente = int(
         (fechas_actividad.notna() & (fechas_actividad >= limite_actividad_reciente)).sum()
