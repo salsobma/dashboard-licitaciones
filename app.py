@@ -2064,7 +2064,7 @@ with kpi1:
 with kpi2:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(volumen_total)}</div><div class="metric-lbl-grid">Volumen Total (sin IVA)</div></div>', unsafe_allow_html=True)
 with kpi3:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_mediano)}</div><div class="metric-lbl-grid">Presupuesto Mediano (sin IVA)</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_mediano)}</div><div class="metric-lbl-grid">Presupuesto típico (mediana) · sin IVA</div></div>', unsafe_allow_html=True)
 with kpi4:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{cantidad_favoritos}</div><div class="metric-lbl-grid">Licitaciones favoritas</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#ca8a04;">Marcadas para seguimiento</div></div>', unsafe_allow_html=True)
 
