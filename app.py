@@ -2072,7 +2072,7 @@ with kpi2:
 with kpi3:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_mediano)}</div><div class="metric-lbl-grid">Presupuesto típico (mediana) · sin IVA</div></div>', unsafe_allow_html=True)
 with kpi4:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{actividad_reciente}</div><div class="metric-lbl-grid">Actividad reciente</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">Actualizadas en los últimos 7 días</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{actividad_reciente}</div><div class="metric-lbl-grid">Actividad reciente</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">Licitaciones actualizadas en los últimos 7 días</div></div>', unsafe_allow_html=True)
 
 filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
