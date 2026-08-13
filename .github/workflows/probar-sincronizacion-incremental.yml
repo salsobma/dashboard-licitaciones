@@ -2,6 +2,9 @@ name: Probar sincronizacion incremental
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - pruebas-sincronizacion-incremental
 
 permissions:
   contents: read
