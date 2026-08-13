@@ -844,10 +844,10 @@ def formato_eur(valor):
         return "No especificado"
     return f"{float(valor):,.2f}".translate(str.maketrans({",": ".", ".": ","})) + " €"
 
-def calcular_baja(pbl_con_iva, adjudicacion_con_iva):
+def calcular_baja(pbl, adjudicacion):
     try:
-        pbl = float(pbl_con_iva)
-        adjudicacion = float(adjudicacion_con_iva)
+        pbl = float(pbl)
+        adjudicacion = float(adjudicacion)
     except (TypeError, ValueError):
         return None, None
     if (
@@ -1058,6 +1058,7 @@ def normalizar_estado_vigente(tabla):
         campo for campo in (
             "adjudicatario",
             "fecha_adjudicacion",
+            "importe_adjudicacion_sin_iva",
             "importe_adjudicacion_con_iva",
         )
         if campo in resultado.columns
@@ -1362,7 +1363,12 @@ def _fila_desde_entrada_feed(entrada):
     proyecto = status.find("cac:ProcurementProject", NAMESPACES_ATOM)
     if proyecto is None:
         return None
-    adjudicatario, fecha_adjudicacion, importe_adjudicacion_con_iva = extraer_adjudicacion(status)
+    (
+        adjudicatario,
+        fecha_adjudicacion,
+        importe_adjudicacion_sin_iva,
+        importe_adjudicacion_con_iva,
+    ) = extraer_adjudicacion(status)
 
     def numero(ruta):
         valor = _texto_xml(proyecto, ruta)
@@ -1454,6 +1460,7 @@ def _fila_desde_entrada_feed(entrada):
         "fecha_actualizacion": _texto_xml(entrada, "atom:updated"),
         "adjudicatario": adjudicatario,
         "fecha_adjudicacion": fecha_adjudicacion,
+        "importe_adjudicacion_sin_iva": importe_adjudicacion_sin_iva,
         "importe_adjudicacion_con_iva": importe_adjudicacion_con_iva,
         "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
         "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
@@ -2335,9 +2342,9 @@ def render_grid_tarjetas(df_vista, key_prefix):
                     """, unsafe_allow_html=True)
                     
                     if r.get("estado") in {"ADJ", "RES", "PARCIAL"}:
-                        importe_adjudicado = r.get("importe_adjudicacion_con_iva")
+                        importe_adjudicado = r.get("importe_adjudicacion_sin_iva")
                         baja_importe, baja_porcentaje = calcular_baja(
-                            r.get("pbl_con_iva"), importe_adjudicado
+                            r.get("pbl_sin_iva"), importe_adjudicado
                         )
                         baja_valor = formato_eur(baja_importe) if baja_importe is not None else "No disponible"
                         baja_detalle = (
@@ -2351,7 +2358,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                         with ma1:
                             st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{formato_eur(r.get("pbl_sin_iva"))}</div><div class="metric-lbl-grid">PBL SIN IVA</div></div>', unsafe_allow_html=True)
                         with ma2:
-                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{formato_eur(importe_adjudicado)}</div><div class="metric-lbl-grid">ADJUDICACIÓN CON IVA</div></div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{formato_eur(importe_adjudicado)}</div><div class="metric-lbl-grid">ADJUDICACIÓN SIN IVA</div></div>', unsafe_allow_html=True)
                         with ma3:
                             st.markdown(f'<div class="metric-box-grid card-metric"><div class="metric-val-grid" style="font-size:0.82rem;">{baja_valor}</div><div class="metric-lbl-grid">BAJA</div><div style="margin-top:4px;font-size:0.72rem;font-weight:700;color:#198754;">{baja_detalle}</div></div>', unsafe_allow_html=True)
 
@@ -2734,8 +2741,10 @@ else:
         df_graficos["pbl_sin_iva"] = pd.to_numeric(
             df_graficos["pbl_sin_iva"], errors="coerce"
         ).fillna(0)
-        df_graficos["importe_adjudicacion_con_iva"] = pd.to_numeric(
-            df_graficos["importe_adjudicacion_con_iva"], errors="coerce"
+        if "importe_adjudicacion_sin_iva" not in df_graficos.columns:
+            df_graficos["importe_adjudicacion_sin_iva"] = np.nan
+        df_graficos["importe_adjudicacion_sin_iva"] = pd.to_numeric(
+            df_graficos["importe_adjudicacion_sin_iva"], errors="coerce"
         ).fillna(0)
 
         color_azul = "#2563eb"
@@ -2844,11 +2853,11 @@ else:
             df_graficos[
                 df_graficos["adjudicatario"].notna()
                 & df_graficos["adjudicatario"].astype(str).str.strip().ne("")
-                & (df_graficos["importe_adjudicacion_con_iva"] > 0)
+                & (df_graficos["importe_adjudicacion_sin_iva"] > 0)
             ]
-            .groupby("adjudicatario", as_index=False)["importe_adjudicacion_con_iva"]
+            .groupby("adjudicatario", as_index=False)["importe_adjudicacion_sin_iva"]
             .sum()
-            .sort_values("importe_adjudicacion_con_iva", ascending=False)
+            .sort_values("importe_adjudicacion_sin_iva", ascending=False)
             .head(10)
         )
         por_comunidad = agrupar_licitaciones("comunidad_grafico")
@@ -2911,9 +2920,9 @@ else:
         grafico_presupuesto_adjudicatario = grafico_horizontal(
             presupuesto_adjudicatario,
             "adjudicatario",
-            "importe_adjudicacion_con_iva",
+            "importe_adjudicacion_sin_iva",
             "Adjudicatario",
-            "Importe adjudicado acumulado con IVA (€)",
+            "Importe adjudicado acumulado sin IVA (€)",
             "#0d9488",
         )
         grafico_comunidades = grafico_horizontal(

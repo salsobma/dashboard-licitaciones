@@ -21,9 +21,10 @@ def texto_xml(elemento: ET.Element | None, ruta: str) -> str | None:
     return nodo.text.strip() if nodo is not None and nodo.text else None
 
 
-def extraer_adjudicacion(status: ET.Element) -> tuple[str | None, str | None, float | None]:
+def extraer_adjudicacion(status: ET.Element) -> tuple[str | None, str | None, float | None, float | None]:
     nombres = []
     fechas = []
+    importes_sin_iva = []
     importes_con_iva = []
     for resultado in status.findall("cac:TenderResult", NAMESPACES):
         nombre = texto_xml(resultado, "cac:WinningParty/cac:PartyName/cbc:Name")
@@ -33,6 +34,14 @@ def extraer_adjudicacion(status: ET.Element) -> tuple[str | None, str | None, fl
         if fecha:
             fechas.append(fecha)
         for proyecto in resultado.findall("cac:AwardedTenderedProject", NAMESPACES):
+            importe_sin_iva = texto_xml(
+                proyecto, "cac:LegalMonetaryTotal/cbc:TaxExclusiveAmount"
+            )
+            if importe_sin_iva:
+                try:
+                    importes_sin_iva.append(float(importe_sin_iva))
+                except ValueError:
+                    pass
             importe = texto_xml(proyecto, "cac:LegalMonetaryTotal/cbc:PayableAmount")
             if importe:
                 try:
@@ -42,6 +51,7 @@ def extraer_adjudicacion(status: ET.Element) -> tuple[str | None, str | None, fl
     return (
         " · ".join(nombres) if nombres else None,
         max(fechas) if fechas else None,
+        sum(importes_sin_iva) if importes_sin_iva else None,
         sum(importes_con_iva) if importes_con_iva else None,
     )
 
@@ -56,7 +66,12 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
     proyecto = status.find("cac:ProcurementProject", NAMESPACES)
     if proyecto is None:
         return None
-    adjudicatario, fecha_adjudicacion, importe_adjudicacion_con_iva = extraer_adjudicacion(status)
+    (
+        adjudicatario,
+        fecha_adjudicacion,
+        importe_adjudicacion_sin_iva,
+        importe_adjudicacion_con_iva,
+    ) = extraer_adjudicacion(status)
     expediente = texto_xml(status, "cbc:ContractFolderID")
     estado = texto_xml(status, "cbc-place-ext:ContractFolderStatusCode")
     if estado == "EV" and status.findall("cac:TenderResult", NAMESPACES):
@@ -136,6 +151,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "fecha_actualizacion": texto_xml(entrada, "atom:updated"),
         "adjudicatario": adjudicatario,
         "fecha_adjudicacion": fecha_adjudicacion,
+        "importe_adjudicacion_sin_iva": importe_adjudicacion_sin_iva,
         "importe_adjudicacion_con_iva": importe_adjudicacion_con_iva,
         "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
         "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
