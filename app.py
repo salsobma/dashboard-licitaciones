@@ -1,5 +1,7 @@
 import html
 import hashlib
+import io
+import re
 # Revisión de despliegue: filtro del Radar protegido ante resultados vacíos.
 import streamlit as st
 import streamlit.components.v1 as components
@@ -21,6 +23,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from google import genai
 from google.genai import types
+from pypdf import PdfReader
 from feed_parser import extraer_adjudicacion
 
 # --- CONFIGURACIÓN DE PÁGINA ---
@@ -457,6 +460,152 @@ TEXTO / ENLACES DISPONIBLES DE LA PLATAFORMA Y PLIEGOS:
     except Exception as exc:
         return None, f"❌ Error: {str(exc)}"
 
+
+# --- RESUMEN DOCUMENTAL SIN IA ---
+PATRONES_RESUMEN = {
+    "criterios": (
+        "criterios de adjudicacion",
+        "criterios de valoracion",
+        "criterios evaluables",
+        "juicio de valor",
+        "oferta economica",
+    ),
+    "solvencia": (
+        "solvencia economica",
+        "solvencia financiera",
+        "solvencia tecnica",
+        "solvencia profesional",
+        "volumen anual de negocios",
+        "trabajos similares",
+        "clasificacion del contratista",
+    ),
+}
+
+
+def _normalizar_busqueda(texto):
+    texto = unicodedata.normalize("NFKD", str(texto or ""))
+    texto = "".join(caracter for caracter in texto if not unicodedata.combining(caracter))
+    return re.sub(r"\s+", " ", texto).lower().strip()
+
+
+def _limpiar_texto_extraido(texto):
+    lineas = []
+    for linea in str(texto or "").replace("\x00", " ").splitlines():
+        linea = re.sub(r"[ \t]+", " ", linea).strip()
+        if linea:
+            lineas.append(linea)
+    return "\n".join(lineas)
+
+
+def _paginas_relevantes(paginas, patrones):
+    coincidencias = []
+    for indice, texto in enumerate(paginas):
+        normalizado = _normalizar_busqueda(texto)
+        if any(patron in normalizado for patron in patrones):
+            coincidencias.append(indice)
+    seleccion = set()
+    for indice in coincidencias:
+        seleccion.update(range(indice, min(indice + 3, len(paginas))))
+    return sorted(seleccion)[:10]
+
+
+def _agrupar_numeros_paginas(indices):
+    if not indices:
+        return ""
+    grupos = []
+    inicio = anterior = indices[0] + 1
+    for indice in indices[1:]:
+        pagina = indice + 1
+        if pagina == anterior + 1:
+            anterior = pagina
+            continue
+        grupos.append(str(inicio) if inicio == anterior else f"{inicio}–{anterior}")
+        inicio = anterior = pagina
+    grupos.append(str(inicio) if inicio == anterior else f"{inicio}–{anterior}")
+    return ", ".join(grupos)
+
+
+def _extraer_paginas_documento(url):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124 Safari/537.36",
+        "Accept": "application/pdf,text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+    }
+    respuesta = requests.get(url, headers=headers, timeout=25)
+    respuesta.raise_for_status()
+    contenido = respuesta.content
+    if len(contenido) > 30 * 1024 * 1024:
+        raise ValueError("el documento supera el límite de 30 MB")
+    tipo = respuesta.headers.get("content-type", "").lower()
+    if contenido.startswith(b"%PDF") or "application/pdf" in tipo:
+        lector = PdfReader(io.BytesIO(contenido))
+        if lector.is_encrypted:
+            try:
+                lector.decrypt("")
+            except Exception as error:
+                raise ValueError("PDF protegido") from error
+        return [_limpiar_texto_extraido(pagina.extract_text() or "") for pagina in lector.pages]
+    if "html" in tipo or b"<html" in contenido[:1000].lower():
+        sopa = BeautifulSoup(respuesta.text, "html.parser")
+        for nodo in sopa(["script", "style", "nav", "footer"]):
+            nodo.decompose()
+        return [_limpiar_texto_extraido(sopa.get_text("\n", strip=True))]
+    raise ValueError("formato de documento no compatible")
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def extraer_resumen_documental(documentos_json):
+    try:
+        documentos = json.loads(documentos_json) if documentos_json else []
+    except (TypeError, json.JSONDecodeError):
+        documentos = []
+    resultado = {"criterios": [], "solvencia": [], "avisos": []}
+    for documento in documentos[:8]:
+        url = url_externa_segura(documento.get("url"))
+        if not url:
+            continue
+        nombre = str(documento.get("nombre") or documento.get("tipo") or "Documento")
+        try:
+            paginas = _extraer_paginas_documento(url)
+            if not any(paginas):
+                resultado["avisos"].append(f"{nombre}: PDF sin texto extraíble; puede estar escaneado.")
+                continue
+            for bloque, patrones in PATRONES_RESUMEN.items():
+                indices = _paginas_relevantes(paginas, patrones)
+                if not indices:
+                    continue
+                texto = "\n\n".join(paginas[indice] for indice in indices).strip()
+                resultado[bloque].append({
+                    "documento": nombre,
+                    "paginas": _agrupar_numeros_paginas(indices),
+                    "texto": texto[:12000],
+                })
+        except Exception as error:
+            resultado["avisos"].append(f"{nombre}: {str(error)[:160]}.")
+    return resultado
+
+
+def mostrar_resumen_documental(resultado):
+    bloques = (
+        ("criterios", "Criterios de adjudicación"),
+        ("solvencia", "Solvencia técnica y económica"),
+    )
+    for clave, titulo in bloques:
+        st.markdown(f"#### {titulo}")
+        hallazgos = resultado.get(clave, [])
+        if not hallazgos:
+            st.info("No localizado automáticamente. Consulta los pliegos originales.")
+            continue
+        for hallazgo in hallazgos[:3]:
+            paginas = hallazgo.get("paginas") or "no identificadas"
+            st.caption(f"{hallazgo['documento']} · páginas {paginas}")
+            texto_html = html.escape(hallazgo["texto"])
+            st.markdown(
+                f'<div class="document-extract">{texto_html}</div>',
+                unsafe_allow_html=True,
+            )
+    for aviso in resultado.get("avisos", []):
+        st.caption(f"⚠️ {aviso}")
+
 # --- ESTILOS CSS ---
 st.markdown("""
 <style>
@@ -545,6 +694,12 @@ st.markdown("""
         margin: 10px 0 6px 0 !important; color: #1a252c !important;
         line-height: 1.35 !important; font-size: 0.95rem !important;
         min-height: 4.05em; display: block; overflow: visible;
+    }
+    .document-extract {
+        max-height: 420px; overflow-y: auto; padding: 0.75rem;
+        border: 1px solid #dbe3ec; border-radius: 8px; background: #f8fafc;
+        color: #334155; font-size: 0.78rem; line-height: 1.45;
+        white-space: pre-wrap; overflow-wrap: anywhere;
     }
 
     .row-widget.stHorizontal { align-items: stretch !important; }
@@ -1983,47 +2138,23 @@ def render_grid_tarjetas(df_vista, key_prefix):
                         else:
                             st.write("Sin documentos adjuntos directos.")
 
-                    with st.expander("🧠 Resumen Técnico IA"):
-                        raw_resumen = r.get('resumen_ia')
-                        
-                        tiene_resumen = False
-                        if pd.notnull(raw_resumen):
-                            s_val = str(raw_resumen).strip().lower()
-                            if s_val and s_val != 'nan' and s_val != 'none':
-                                tiene_resumen = True
-
-                        if tiene_resumen:
-                            try:
-                                if isinstance(raw_resumen, dict):
-                                    res_ia = raw_resumen
-                                else:
-                                    cleaned_r = str(raw_resumen).strip()
-                                    if cleaned_r.startswith("```json"):
-                                        cleaned_r = cleaned_r[7:]
-                                    if cleaned_r.endswith("```"):
-                                        cleaned_r = cleaned_r[:-3]
-                                    res_ia = json.loads(cleaned_r.strip())
-                                    
-                                if isinstance(res_ia.get('alcance_tecnico'), str) and res_ia.get('alcance_tecnico').strip().startswith('{'):
-                                    try:
-                                        nested = json.loads(res_ia.get('alcance_tecnico'))
-                                        if isinstance(nested, dict):
-                                            res_ia = nested
-                                    except:
-                                        pass
-
-                                st.markdown(f"🏗️ **Alcance Técnico:**\n{res_ia.get('alcance_tecnico', '• No especificado')}")
-                                st.divider()
-                                st.markdown(f"⚖️ **Criterios de Puntuación:**\n{res_ia.get('criterios_puntuacion', '• No especificado')}")
-                                st.markdown(f"💼 **Solvencia Requerida / Clasificación:**\n{res_ia.get('solvencia_requerida', '• No especificado')}")
-                                st.markdown(f"👨‍💼 **Equipo Técnico y Titulaciones:**\n{res_ia.get('equipo_y_titulaciones', '• No especificado')}")
-                                st.markdown(f"🛡️ **Seguro RC:**\n{res_ia.get('seguro_rc', '• No especificado')}")
-                                st.markdown(f"🏦 **Garantías y Depósitos:**\n{res_ia.get('garantia', '• No especificado')}")
-                                st.markdown(f"⚠️ **Condicionantes y Plazos:**\n{res_ia.get('condicionantes_destacados', '• No especificado')}")
-                            except Exception:
-                                st.markdown(f"🏗️ **Alcance Técnico:**\n{raw_resumen}")
+                    clave_resumen = f"resumen_documental_{token_acciones}"
+                    if st.button(
+                        "Resumen",
+                        key=f"boton_resumen_{token_acciones}",
+                        use_container_width=True,
+                    ):
+                        if not ES_PREMIUM:
+                            st.info("Resumen solo disponible para usuarios Premium.")
                         else:
-                            st.info("Resumen pendiente de análisis privado. La aplicación pública no ejecuta modelos de IA.")
+                            with st.spinner("Revisando los pliegos..."):
+                                st.session_state[clave_resumen] = extraer_resumen_documental(
+                                    r.get("documentos_adjuntos")
+                                )
+
+                    if ES_PREMIUM and clave_resumen in st.session_state:
+                        with st.expander("Ver resumen extraído", expanded=True):
+                            mostrar_resumen_documental(st.session_state[clave_resumen])
 
 
 
