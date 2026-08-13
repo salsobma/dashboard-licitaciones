@@ -2194,7 +2194,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                             st.write("Sin documentos adjuntos directos.")
 
                     if st.button(
-                        "Resumen IA",
+                        "🧠 Resumen IA",
                         key=f"boton_resumen_{token_acciones}",
                         use_container_width=True,
                     ):
