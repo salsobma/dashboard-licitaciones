@@ -559,7 +559,17 @@ def extraer_resumen_documental(documentos_json):
     except (TypeError, json.JSONDecodeError):
         documentos = []
     resultado = {"criterios": [], "solvencia": [], "avisos": []}
-    for documento in documentos[:8]:
+    pliegos_administrativos = [
+        documento
+        for documento in documentos
+        if str(documento.get("tipo") or "").strip().upper() == "PCAP"
+    ]
+    if not pliegos_administrativos:
+        resultado["avisos"].append(
+            "No se ha identificado un pliego administrativo (PCAP) entre los documentos publicados."
+        )
+        return resultado
+    for documento in pliegos_administrativos:
         url = url_externa_segura(documento.get("url"))
         if not url:
             continue
