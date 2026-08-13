@@ -542,8 +542,9 @@ st.markdown("""
     .data-source a:hover { text-decoration: underline !important; }
     .legal-note { margin-top: 1.5rem; padding: 0.9rem 1rem; border-top: 1px solid #dbe3ec; color: #64748b; font-size: 0.78rem; line-height: 1.45; }
     .card-title {
-        margin: 10px 0 6px 0; color: #1a252c; line-height: 1.35;
-        font-size: 0.95rem; min-height: 4.05em; display: -webkit-box;
+        margin: 10px 0 6px 0 !important; color: #1a252c !important;
+        line-height: 1.35 !important; font-size: 0.95rem !important;
+        min-height: 4.05em; max-height: 4.05em; display: -webkit-box;
         -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
         cursor: help;
     }
