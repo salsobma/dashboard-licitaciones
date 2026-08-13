@@ -2061,7 +2061,7 @@ else:
         st.caption(
             "Cambios publicados recientemente en el feed oficial de la Plataforma de "
             "Contratación del Sector Público. Actualización automática diaria a las "
-            "09:07, 13:07, 17:07 y 21:07 (hora de Madrid)."
+            "09:00, 13:00, 17:00 y 21:00 (hora de Madrid)."
         )
         try:
             if error_feed_catalogo:

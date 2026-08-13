@@ -3,7 +3,7 @@ name: Actualizar feed reciente
 on:
   workflow_dispatch:
   schedule:
-    - cron: "7 9,13,17,21 * * *"
+    - cron: "0 9,13,17,21 * * *"
       timezone: "Europe/Madrid"
 
 permissions:

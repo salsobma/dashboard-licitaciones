@@ -1,7 +1,7 @@
 # Feed automático
 
-El feed reciente se descarga y valida mediante GitHub Actions a las 09:07,
-13:07, 17:07 y 21:07 en la zona horaria `Europe/Madrid`.
+El feed reciente se descarga y valida mediante GitHub Actions a las 09:00,
+13:00, 17:00 y 21:00 en la zona horaria `Europe/Madrid`.
 
 `actualizar_feed_cache.py` descarga hasta cuatro páginas ATOM, valida todas las
 respuestas y genera `feed_cache/feed.json`. Los archivos existentes solo se
