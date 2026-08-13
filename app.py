@@ -2012,10 +2012,6 @@ if ES_PREMIUM and LISTS_CONFIGURADO:
     except requests.RequestException:
         favoritos_actuales = st.session_state.get("favoritos_sesion", {})
 
-cantidad_favoritos = int(
-    df_catalogo_favoritos["id"].astype(str).isin(favoritos_actuales).sum()
-)
-
 if vista_principal in {"⭐ Favoritos", "📅 Calendario"}:
     df_indicadores = df_catalogo_favoritos[
         df_catalogo_favoritos["id"].astype(str).isin(favoritos_actuales)
@@ -2057,6 +2053,17 @@ presupuesto_mediano = (
     if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
     else 0.0
 )
+ahora_local = pd.Timestamp.now(tz="Europe/Madrid").tz_localize(None)
+limite_actividad_reciente = ahora_local - pd.Timedelta(days=7)
+if not df_indicadores.empty and "fecha_act_dt" in df_indicadores.columns:
+    fechas_actividad = pd.to_datetime(
+        df_indicadores["fecha_act_dt"], errors="coerce"
+    )
+    actividad_reciente = int(
+        (fechas_actividad.notna() & (fechas_actividad >= limite_actividad_reciente)).sum()
+    )
+else:
+    actividad_reciente = 0
 
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 with kpi1:
@@ -2066,7 +2073,7 @@ with kpi2:
 with kpi3:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_mediano)}</div><div class="metric-lbl-grid">Presupuesto típico (mediana) · sin IVA</div></div>', unsafe_allow_html=True)
 with kpi4:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{cantidad_favoritos}</div><div class="metric-lbl-grid">Licitaciones favoritas</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#ca8a04;">Marcadas para seguimiento</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{actividad_reciente}</div><div class="metric-lbl-grid">Actividad reciente</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">Actualizadas en los últimos 7 días</div></div>', unsafe_allow_html=True)
 
 filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
