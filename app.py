@@ -509,6 +509,46 @@ def _paginas_relevantes(paginas, patrones):
     return sorted(seleccion)[:10]
 
 
+def _extraer_fragmentos_concretos(paginas, indices, bloque, patrones):
+    """Extrae ventanas breves con datos verificables, no páginas completas."""
+    senales_bloque = {
+        "criterios": (
+            "punto", "porcentaje", "formula", "precio", "economica",
+            "juicio de valor", "memoria", "mejora", "umbral", "anormal",
+        ),
+        "solvencia": (
+            "volumen", "negocio", "importe", "euro", "trabajo", "servicio",
+            "ano", "experiencia", "clasificacion", "grupo", "subgrupo",
+        ),
+    }
+    fragmentos = []
+    paginas_usadas = set()
+    vistos = set()
+    for indice in indices:
+        lineas = paginas[indice].splitlines()
+        for posicion, linea in enumerate(lineas):
+            normalizada = _normalizar_busqueda(linea)
+            coincide_titulo = any(patron in normalizada for patron in patrones)
+            contiene_dato = bool(re.search(r"\d|%|€", linea)) and any(
+                senal in normalizada for senal in senales_bloque[bloque]
+            )
+            if not (coincide_titulo or contiene_dato):
+                continue
+            inicio = max(0, posicion - 1)
+            fin = min(len(lineas), posicion + (7 if coincide_titulo else 3))
+            fragmento = "\n".join(lineas[inicio:fin]).strip()
+            fragmento = fragmento[:1100].strip()
+            clave = _normalizar_busqueda(fragmento)[:220]
+            if not fragmento or clave in vistos:
+                continue
+            vistos.add(clave)
+            fragmentos.append(fragmento)
+            paginas_usadas.add(indice)
+            if len(fragmentos) >= 7:
+                return fragmentos, sorted(paginas_usadas)
+    return fragmentos, sorted(paginas_usadas)
+
+
 def _agrupar_numeros_paginas(indices):
     if not indices:
         return ""
@@ -583,11 +623,15 @@ def extraer_resumen_documental(documentos_json):
                 indices = _paginas_relevantes(paginas, patrones)
                 if not indices:
                     continue
-                texto = "\n\n".join(paginas[indice] for indice in indices).strip()
+                fragmentos, paginas_usadas = _extraer_fragmentos_concretos(
+                    paginas, indices, bloque, patrones
+                )
+                if not fragmentos:
+                    continue
                 resultado[bloque].append({
                     "documento": nombre,
-                    "paginas": _agrupar_numeros_paginas(indices),
-                    "texto": texto[:12000],
+                    "paginas": _agrupar_numeros_paginas(paginas_usadas),
+                    "texto": "\n\n• ".join([f"• {fragmentos[0]}"] + fragmentos[1:]),
                 })
         except Exception as error:
             resultado["avisos"].append(f"{nombre}: {str(error)[:160]}.")
