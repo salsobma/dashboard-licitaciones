@@ -1992,8 +1992,8 @@ opciones_vista = [
     "🗺️ Mapa",
 ]
 if ES_PREMIUM and LISTS_CONFIGURADO:
-    opciones_vista.insert(0, "⭐ Favoritos")
-    opciones_vista.insert(1, "📅 Calendario")
+    opciones_vista.append("⭐ Favoritos")
+    opciones_vista.append("📅 Calendario")
 vista_principal = st.segmented_control(
     "Vista del dashboard",
     opciones_vista,
