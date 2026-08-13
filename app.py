@@ -544,11 +544,8 @@ st.markdown("""
     .card-title {
         margin: 10px 0 6px 0 !important; color: #1a252c !important;
         line-height: 1.35 !important; font-size: 0.95rem !important;
-        min-height: 4.05em; max-height: 4.05em; display: -webkit-box;
-        -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-        cursor: help;
+        min-height: 4.05em; display: block; overflow: visible;
     }
-    .card-title-mobile { display: none; }
 
     .row-widget.stHorizontal { align-items: stretch !important; }
     div[data-testid="stVerticalBlock"]:has(> div.stContainer) { height: 100%; }
@@ -565,16 +562,6 @@ st.markdown("""
         .company-card { padding: 1rem !important; }
         .company-actions { flex-direction: column !important; }
         .company-action { width: 100% !important; }
-        .card-title { cursor: default; }
-        .card-title-mobile {
-            display: block; margin: -1px 0 7px; color: #475569;
-            font-size: 0.76rem; line-height: 1.35;
-        }
-        .card-title-mobile summary {
-            color: #0b5ed7; cursor: pointer; font-weight: 700;
-            list-style-position: inside;
-        }
-        .card-title-mobile p { margin: 5px 0 0; color: #334155; }
         div[data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; max-width: 100% !important; flex: 0 0 auto !important; }\n        div[data-testid="stHorizontalBlock"], .metric-box-grid, div[data-testid="stExpander"] { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
         h1 { font-size: 1.8rem !important; }
     }
@@ -1940,10 +1927,6 @@ def render_grid_tarjetas(df_vista, key_prefix):
                     <h5 class="card-title" title="{titulo_safe}">
                         {titulo_safe}
                     </h5>
-                    <details class="card-title-mobile">
-                        <summary>Ver título completo</summary>
-                        <p>{titulo_safe}</p>
-                    </details>
                     <p style="margin: 0; font-size: 0.8rem; color: #495057; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                         🏛️ <b>{organo_safe}</b>
                     </p>
