@@ -779,6 +779,11 @@ st.markdown("""
     .deadline-badge.urgent { background: #ea580c; }
     .deadline-badge.critical { background: #dc2626; }
     .deadline-badge.expired { background: #6c757d; }
+    div[class*="st-key-vencimiento_proximo_"] [data-testid="stHorizontalBlock"] { align-items: stretch !important; }
+    div[class*="st-key-vencimiento_proximo_"] [data-testid="stLinkButton"],
+    div[class*="st-key-vencimiento_proximo_"] [data-testid="stLinkButton"] a { height: 100% !important; }
+    div[class*="st-key-vencimiento_proximo_"] [data-testid="stLinkButton"] a { min-height: 58px !important; display: flex !important; align-items: center !important; justify-content: center !important; border-radius: 8px !important; }
+    div[class*="st-key-vencimiento_proximo_"] .deadline-badge { width: 100%; height: 58px; min-width: 0; box-sizing: border-box; }
     @media (hover: none) { .calendar-event-tooltip { display: none !important; } }
 
     .row-widget.stHorizontal { align-items: stretch !important; }
@@ -796,6 +801,8 @@ st.markdown("""
         .company-card { padding: 1rem !important; }
         .company-actions { flex-direction: column !important; }
         .company-action { width: 100% !important; }
+        div[class*="st-key-vencimiento_proximo_"] [data-testid="stHorizontalBlock"] { display: grid !important; grid-template-columns: 1fr 1fr !important; }
+        div[class*="st-key-vencimiento_proximo_"] [data-testid="column"]:first-child { grid-column: 1 / -1; }
         div[data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; max-width: 100% !important; flex: 0 0 auto !important; }\n        div[data-testid="stHorizontalBlock"], .metric-box-grid, div[data-testid="stExpander"] { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
         h1 { font-size: 1.8rem !important; }
     }
@@ -2445,7 +2452,7 @@ else:
     elif vista_principal == "📅 Calendario":
         st.subheader("📅 Calendario de vencimientos")
         st.caption(
-            "Fechas límite de las licitaciones favoritas. Puedes descargar los "
+            "Fechas límite de las licitaciones favoritas. Puedes agregar los "
             "eventos para Outlook, Google Calendar o Apple Calendar."
         )
         df_calendario = df_catalogo_favoritos[
@@ -2467,7 +2474,7 @@ else:
             col_descarga, col_leyenda = st.columns([1, 2])
             with col_descarga:
                 st.download_button(
-                    f"📅 Descargar calendario ({total_eventos})",
+                    "📅 Agregar eventos a calendario",
                     data=ics_total,
                     file_name="vencimientos_landai.ics",
                     mime="text/calendar; charset=utf-8",
@@ -2519,20 +2526,23 @@ else:
                     "urgent" if dias_restantes <= 7 else
                     "watch" if dias_restantes <= 15 else "safe"
                 )
-                with st.container(border=True):
-                    fecha_col, detalle_col, enlace_col = st.columns([1.4, 4.6, 1])
+                token_vencimiento = hashlib.sha1(
+                    str(licitacion.get("id") or licitacion.get("expediente") or "").encode("utf-8")
+                ).hexdigest()[:12]
+                with st.container(border=True, key=f"vencimiento_proximo_{token_vencimiento}"):
+                    detalle_col, fecha_col, enlace_col = st.columns([4.6, 1.25, 1.25])
+                    with detalle_col:
+                        st.markdown(
+                            f"**{html.escape(str(licitacion.get('titulo') or 'Sin título'))}**  \n"
+                            f"Exp. {html.escape(str(licitacion.get('expediente') or 'N/A'))} · "
+                            f"{html.escape(str(licitacion.get('organo_contratante') or 'Organismo no disponible'))}"
+                        )
                     with fecha_col:
                         st.markdown(
                             f'<div class="deadline-badge {clase_plazo}">'
                             f'{fecha.strftime("%d/%m/%Y · %H:%M")}<br>'
                             f'{html.escape(texto_dias_restantes(fecha))}</div>',
                             unsafe_allow_html=True,
-                        )
-                    with detalle_col:
-                        st.markdown(
-                            f"**{html.escape(str(licitacion.get('titulo') or 'Sin título'))}**  \n"
-                            f"Exp. {html.escape(str(licitacion.get('expediente') or 'N/A'))} · "
-                            f"{html.escape(str(licitacion.get('organo_contratante') or 'Organismo no disponible'))}"
                         )
                     with enlace_col:
                         if enlace:
