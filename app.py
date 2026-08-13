@@ -23,7 +23,6 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from google import genai
 from google.genai import types
-from pypdf import PdfReader
 from feed_parser import extraer_adjudicacion
 
 # --- CONFIGURACIÓN DE PÁGINA ---
@@ -566,6 +565,8 @@ def _agrupar_numeros_paginas(indices):
 
 
 def _extraer_paginas_documento(url):
+    from pypdf import PdfReader
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124 Safari/537.36",
         "Accept": "application/pdf,text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
@@ -2192,23 +2193,15 @@ def render_grid_tarjetas(df_vista, key_prefix):
                         else:
                             st.write("Sin documentos adjuntos directos.")
 
-                    clave_resumen = f"resumen_documental_{token_acciones}"
                     if st.button(
-                        "Resumen",
+                        "Resumen IA",
                         key=f"boton_resumen_{token_acciones}",
                         use_container_width=True,
                     ):
                         if not ES_PREMIUM:
-                            st.info("Resumen solo disponible para usuarios Premium.")
+                            st.info("Solo para usuarios Premium.")
                         else:
-                            with st.spinner("Revisando los pliegos..."):
-                                st.session_state[clave_resumen] = extraer_resumen_documental(
-                                    r.get("documentos_adjuntos")
-                                )
-
-                    if ES_PREMIUM and clave_resumen in st.session_state:
-                        with st.expander("Ver resumen extraído", expanded=True):
-                            mostrar_resumen_documental(st.session_state[clave_resumen])
+                            st.info("Próximamente.")
 
 
 
