@@ -757,16 +757,21 @@ st.markdown("""
         text-align: left;
         overflow-wrap: break-word; cursor: help;
     }
-    .card-title:focus {
+    .card-title:hover, .card-title:focus {
         max-height: none; -webkit-line-clamp: unset; line-clamp: unset;
         outline: 2px solid #93c5fd; outline-offset: 2px;
     }
-    div[data-testid="stExpander"] details summary {
-        position: relative; justify-content: center !important;
+    details summary {
+        position: relative !important; display: flex !important;
+        justify-content: center !important;
         text-align: center !important;
     }
-    div[data-testid="stExpander"] details summary svg {
-        position: absolute; left: 0.85rem;
+    details summary p {
+        width: 100% !important; margin: 0 !important;
+        text-align: center !important;
+    }
+    details summary svg {
+        position: absolute !important; left: 0.85rem !important;
     }
     .document-extract {
         max-height: 420px; overflow-y: auto; padding: 0.75rem;
