@@ -844,12 +844,15 @@ st.markdown("""
         --muted: #64748b;
     }
     html, body, [class*="css"] { font-family: "DM Sans", "Segoe UI", sans-serif; }
+    [data-testid="stHeader"], [data-testid="stToolbar"],
+    [data-testid="stDecoration"], #MainMenu { display: none !important; }
     .stApp { background: var(--canvas); color: #172033; }
     [data-testid="stAppViewContainer"] > .main { background: var(--canvas); }
-    .block-container { max-width: 1500px; padding-top: 1.15rem; }
+    .block-container { max-width: 1580px; padding: 0.75rem 1.4rem 2rem; }
     [data-testid="stSidebar"] {
         background: #ffffff;
         border-right: 1px solid var(--line);
+        min-width: 310px !important; max-width: 310px !important;
     }
     [data-testid="stSidebar"] [data-testid="stSidebarContent"] {
         padding-top: 1.1rem;
@@ -859,8 +862,9 @@ st.markdown("""
     }
     [data-testid="stSidebar"] label p { color: #27364a; font-weight: 650; }
     .licitai-header {
-        display: flex; align-items: center; min-height: 58px; gap: 18px;
-        padding: 0.2rem 0 0.9rem; margin-bottom: 0.25rem;
+        display: flex; align-items: center; min-height: 68px; gap: 18px;
+        padding: 0.15rem 190px 0.8rem 0; margin-bottom: 0.25rem;
+        border-bottom: 1px solid var(--line);
     }
     .licitai-brand-link { display: inline-flex; align-items: center; }
     .licitai-logo { display: block; width: 154px; max-height: 42px; object-fit: contain; }
@@ -870,16 +874,41 @@ st.markdown("""
         color: var(--licitai-blue); font-size: 1.55rem; letter-spacing: -0.035em;
     }
     .licitai-product span { color: #526177; font-size: 0.82rem; margin-top: 0.2rem; }
+    .licitai-status {
+        margin-left: auto; display: flex; flex-direction: column; align-items: flex-end;
+        color: #657287; font-size: .68rem; line-height: 1.25;
+    }
+    .licitai-status strong { color: #35445a; font-size: .73rem; font-weight: 650; }
     .st-key-acceso_premium_cta {
         position: fixed; top: 74px; right: 34px; z-index: 999; width: 165px;
     }
     .company-card { display: none !important; }
     .data-source { margin-top: 0.25rem; }
     div[data-testid="stSegmentedControl"] {
-        padding: 0.25rem; background: #fff; border: 1px solid var(--line);
-        border-radius: 12px; box-shadow: 0 2px 8px rgba(16,47,83,.04);
+        width:100%; padding: 0; background: #fff; border: 1px solid var(--line);
+        border-radius: 0; box-shadow: 0 2px 8px rgba(16,47,83,.04);
     }
-    div[data-testid="stSegmentedControl"] button { min-height: 42px; border-radius: 9px; }
+    div[data-testid="stElementContainer"]:has(div[data-testid="stSegmentedControl"]),
+    div[data-testid="stLayoutWrapper"]:has(div[data-testid="stSegmentedControl"]) {
+        width:100% !important; max-width:none !important;
+    }
+    div[data-testid="stSegmentedControl"] [role="radiogroup"] {
+        width:100%; display:grid !important; grid-template-columns:repeat(5,minmax(0,1fr));
+    }
+    div[data-testid="stSegmentedControl"] > div,
+    div[data-testid="stSegmentedControl"] [data-baseweb="button-group"] {
+        width:100% !important; max-width:none !important;
+    }
+    div[data-testid="stSegmentedControl"] div:has(> button[role="radio"]) {
+        width:100% !important; max-width:none !important;
+        display:grid !important; grid-template-columns:repeat(5,minmax(0,1fr));
+    }
+    div[data-testid="stSegmentedControl"] button {
+        min-height: 48px; width:100%; border-radius:0 !important; border:0 !important;
+    }
+    div[data-testid="stSegmentedControl"] button[aria-checked="true"] {
+        background:#f4f8ff !important; box-shadow:inset 0 -3px 0 var(--licitai-blue);
+    }
     .metric-box-grid {
         border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 4px 14px rgba(16,47,83,.055);
         background: var(--surface);
@@ -894,6 +923,14 @@ st.markdown("""
         border-color: var(--line) !important; border-radius: 12px !important;
         box-shadow: 0 4px 14px rgba(16,47,83,.05);
     }
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        background:#fff; border-radius:12px;
+    }
+    div[class*="st-key-card_"] {
+        background:#fff !important; border:1px solid var(--line) !important;
+        border-radius:12px !important; box-shadow:0 4px 14px rgba(16,47,83,.05);
+    }
+    div[class*="st-key-card_"] > div { background:#fff !important; }
     .card-title { color: #12213a !important; font-size: 1rem !important; text-align: left; }
     .card-metric {
         height: 82px !important; min-height: 82px; box-shadow: none !important;
@@ -923,12 +960,18 @@ st.markdown("""
         font-size: .78rem; font-weight: 700;
     }
     .card-actions a:hover { background: #eaf3ff; border-color: #8bb5e8; }
+    div[class*="st-key-boton_resumen_"] { display:none !important; }
     @media (max-width: 768px) {
+        [data-testid="stSidebar"] { min-width: 285px !important; max-width: 285px !important; }
         .licitai-header { gap: 10px; }
         .licitai-logo { width: 110px; }
         .licitai-divider { height: 34px; }
         .licitai-product strong { font-size: 1.25rem; }
         .licitai-product span { font-size: .68rem; }
+        .licitai-status { display:none; }
+        div[data-testid="stSegmentedControl"] [role="radiogroup"] {
+            grid-template-columns:repeat(3,minmax(0,1fr));
+        }
         .st-key-acceso_premium_cta { position: static; width: 100%; }
     }
 </style>
@@ -2066,6 +2109,14 @@ df_combinado = df_f.copy()
 # Los favoritos son una selección persistente y no deben desaparecer al cambiar filtros.
 df_catalogo_favoritos = df.copy()
 
+sincronizacion_base = metadata_sincronizacion.get(
+    "feed_incremental_sincronizado_en"
+) or metadata_sincronizacion.get("historico_sincronizado_en")
+novedad_base = (
+    df["fecha_act_dt"].max()
+    if not df.empty and "fecha_act_dt" in df.columns
+    else pd.NaT
+)
 logo_path = Path(__file__).resolve().parent / "static" / "brand" / "landa-horizontal-grafito.png"
 logo_base64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
 st.markdown(
@@ -2080,6 +2131,10 @@ st.markdown(
         <div class="licitai-product">
             <strong>LicitAI</strong>
             <span>Inteligencia aplicada a la contratación pública</span>
+        </div>
+        <div class="licitai-status">
+            <span>Datos actualizados</span>
+            <strong>{formato_fecha(sincronizacion_base)}</strong>
         </div>
     </header>
     """,
@@ -2140,37 +2195,11 @@ if not ES_PREMIUM:
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown(
-    '<p class="data-source"><b>Fuente de los datos:</b> '
-    '<a href="https://contrataciondelestado.es/" target="_blank" rel="noopener noreferrer">'
-    'Plataforma de Contratación del Sector Público</a>. '
-    'Consulta siempre la documentación oficial antes de preparar una oferta.</p>',
-    unsafe_allow_html=True,
-)
-
-sincronizacion_base = metadata_sincronizacion.get(
-    "feed_incremental_sincronizado_en"
-) or metadata_sincronizacion.get("historico_sincronizado_en")
-novedad_base = (
-    df["fecha_act_dt"].max()
-    if not df.empty and "fecha_act_dt" in df.columns
-    else pd.NaT
-)
-st.caption(
-    "**Última sincronización con la base de datos:** "
-    f"{formato_fecha(sincronizacion_base)}"
-)
-st.caption(
-    "**Última novedad registrada:** "
-    f"{formato_fecha(novedad_base)}"
-)
-
 opciones_vista = [
     "📡 Radar de licitaciones",
+    "⭐ Favoritos",
+    "📅 Calendario",
 ]
-if ES_PREMIUM and LISTS_CONFIGURADO:
-    opciones_vista.append("⭐ Favoritos")
-    opciones_vista.append("📅 Calendario")
 opciones_vista.extend(["📊 Gráficos", "🗺️ Mapa"])
 etiquetas_vista = {
     "📡 Radar de licitaciones": "Radar",
@@ -2371,13 +2400,13 @@ def render_grid_tarjetas(df_vista, key_prefix):
                 f'<b>Adjudicatario:</b> {adjudicatario_safe}</p>'
                 if r.get("estado") in {"ADJ", "RES"} else ""
             )
-            
+            licitacion_id = str(r.get("id") or "").strip()
+            token_acciones = hashlib.sha1(
+                f"{key_prefix}-{licitacion_id}".encode("utf-8")
+            ).hexdigest()[:12]
+
             with col:
-                with st.container(border=True):
-                    licitacion_id = str(r.get("id") or "").strip()
-                    token_acciones = hashlib.sha1(
-                        f"{key_prefix}-{licitacion_id}".encode("utf-8")
-                    ).hexdigest()[:12]
+                with st.container(border=True, key=f"card_{token_acciones}"):
                     with st.container(key=f"acciones_{token_acciones}"):
                         if ES_PREMIUM:
                             cabecera_col, fav_col = st.columns([7, 0.8], gap="small")
@@ -2553,7 +2582,16 @@ if df_f.empty and df_radar_catalogo.empty:
 else:
     st.write("")
 
-    if vista_principal == "⭐ Favoritos":
+    if vista_principal in {"⭐ Favoritos", "📅 Calendario"} and not (
+        ES_PREMIUM and LISTS_CONFIGURADO
+    ):
+        st.subheader(etiquetas_vista[vista_principal])
+        st.info(
+            "Esta sección forma parte del acceso Premium. Inicia sesión para "
+            "consultar tus favoritos compartidos y sus vencimientos."
+        )
+
+    elif vista_principal == "⭐ Favoritos":
         st.subheader("Favoritos compartidos")
         st.caption(
             "Licitaciones seleccionadas desde el acceso Premium y sincronizadas "
@@ -2686,11 +2724,6 @@ else:
                             )
 
     elif vista_principal == "📡 Radar de licitaciones":
-        st.subheader("Radar de licitaciones")
-        st.caption(
-            "Catálogo consolidado de licitaciones de ingeniería de la Comunitat "
-            "Valenciana. Cada expediente aparece una sola vez con su estado oficial vigente."
-        )
         try:
             if error_feed_catalogo:
                 raise RuntimeError(error_feed_catalogo)
@@ -2699,10 +2732,9 @@ else:
 
             if not df.empty:
                 fecha_feed_fmt = formato_fecha(fecha_feed)
-                st.markdown(
-                    f"**{len(df_radar)} resultados con los filtros actuales** · "
-                    f"{len(df)} expedientes únicos en la base · "
-                    f"Feed oficial: {fecha_feed_fmt}"
+                st.caption(
+                    f"{len(df_radar)} resultados · {len(df)} expedientes en la base "
+                    f"· Feed oficial: {fecha_feed_fmt}"
                 )
 
                 if df_radar.empty:
@@ -2712,7 +2744,7 @@ else:
                     )
                 else:
                     criterio_radar = st.selectbox(
-                        "🔃 Ordenar tarjetas por:",
+                        "Ordenar tarjetas por",
                         [
                             "Actualización (Más reciente)",
                             "Actualización (Más antigua)",
@@ -2777,10 +2809,18 @@ else:
                     if st.session_state.pagina_radar > paginas_radar:
                         st.session_state.pagina_radar = paginas_radar
 
+                    inicio_radar = (
+                        st.session_state.pagina_radar - 1
+                    ) * items_radar
+                    fin_radar = inicio_radar + items_radar
+                    render_grid_tarjetas(
+                        df_radar.iloc[inicio_radar:fin_radar],
+                        "radar",
+                    )
                     rad_ant, rad_info, rad_sig = st.columns([1, 2, 1])
                     with rad_ant:
                         if st.button(
-                            "⬅️ Anterior", key="radar_anterior",
+                            "Anterior", key="radar_anterior",
                             use_container_width=True,
                             disabled=st.session_state.pagina_radar <= 1,
                         ):
@@ -2790,26 +2830,17 @@ else:
                         st.markdown(
                             f"<p style='text-align:center;font-weight:600;margin-top:6px;'>"
                             f"Página {st.session_state.pagina_radar} de {paginas_radar} "
-                            f"(Total: {total_radar} actualizaciones)</p>",
+                            f"· {total_radar} resultados</p>",
                             unsafe_allow_html=True,
                         )
                     with rad_sig:
                         if st.button(
-                            "Siguiente ➡️", key="radar_siguiente",
+                            "Siguiente", key="radar_siguiente",
                             use_container_width=True,
                             disabled=st.session_state.pagina_radar >= paginas_radar,
                         ):
                             st.session_state.pagina_radar += 1
                             st.rerun()
-
-                    inicio_radar = (
-                        st.session_state.pagina_radar - 1
-                    ) * items_radar
-                    fin_radar = inicio_radar + items_radar
-                    render_grid_tarjetas(
-                        df_radar.iloc[inicio_radar:fin_radar],
-                        "radar",
-                    )
             else:
                 st.info("La base consolidada no contiene licitaciones en este momento.")
         except Exception as error_feed:
