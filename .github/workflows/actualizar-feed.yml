@@ -12,10 +12,10 @@ on:
           - incremental
           - auditoria_anual
   schedule:
-    - cron: "0 9,13,17,21 * * *"
-      timezone: "Europe/Madrid"
+    # GitHub interpreta el cron en UTC. En horario de verano peninsular
+    # estas horas corresponden a las 09:00, 13:00, 17:00 y 21:00.
+    - cron: "0 7,11,15,19 * * *"
     - cron: "30 3 * * 0"
-      timezone: "Europe/Madrid"
 
 permissions:
   contents: write

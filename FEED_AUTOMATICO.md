@@ -1,7 +1,8 @@
 # Feed automático
 
-El feed reciente se descarga y valida mediante GitHub Actions a las 09:00,
-13:00, 17:00 y 21:00 en la zona horaria `Europe/Madrid`.
+El feed reciente se descarga y valida mediante GitHub Actions con el cron UTC
+`0 7,11,15,19 * * *`. Durante el horario de verano peninsular corresponde a
+las 09:00, 13:00, 17:00 y 21:00 en España.
 
 `actualizar_feed_cache.py` descarga hasta cuatro páginas ATOM, valida todas las
 respuestas y genera `feed_cache/feed.json`. Los archivos existentes solo se
