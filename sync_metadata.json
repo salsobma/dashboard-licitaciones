@@ -1,20 +1,20 @@
 {
   "historico_sincronizado_en": "2026-08-13T10:19:18+02:00",
-  "feed_incremental_sincronizado_en": "2026-08-15T17:45:40.799575+02:00",
-  "feed_incremental_actualizado_hasta": "2026-08-14T20:37:47.939+02:00",
+  "feed_incremental_sincronizado_en": "2026-08-15T21:45:56.836248+02:00",
+  "feed_incremental_actualizado_hasta": "2026-08-15T20:02:44.857+02:00",
   "feed_incremental_ultima_ejecucion": {
     "modo": "incremental",
-    "sincronizado_en": "2026-08-15T17:45:40.799575+02:00",
-    "feed_actualizado": "2026-08-14T20:37:47.939+02:00",
+    "sincronizado_en": "2026-08-15T21:45:56.836248+02:00",
+    "feed_actualizado": "2026-08-15T20:02:44.857+02:00",
     "checkpoint_anterior": "2026-08-14T18:37:47.939000+00:00",
     "paginas": 9,
-    "versiones_leidas": 4150,
-    "ids_revisados": 4150,
-    "insertadas": 0,
+    "versiones_leidas": 4328,
+    "ids_revisados": 4299,
+    "insertadas": 1,
     "actualizadas": 0,
     "bajas": 0,
-    "descartadas_filtro": 4123,
-    "total": 1639,
+    "descartadas_filtro": 4271,
+    "total": 1640,
     "duplicados": 0
   }
 }
