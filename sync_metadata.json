@@ -1,10 +1,10 @@
 {
   "historico_sincronizado_en": "2026-08-13T10:19:18+02:00",
-  "feed_incremental_sincronizado_en": "2026-08-15T13:44:09.339547+02:00",
+  "feed_incremental_sincronizado_en": "2026-08-15T17:45:40.799575+02:00",
   "feed_incremental_actualizado_hasta": "2026-08-14T20:37:47.939+02:00",
   "feed_incremental_ultima_ejecucion": {
     "modo": "incremental",
-    "sincronizado_en": "2026-08-15T13:44:09.339547+02:00",
+    "sincronizado_en": "2026-08-15T17:45:40.799575+02:00",
     "feed_actualizado": "2026-08-14T20:37:47.939+02:00",
     "checkpoint_anterior": "2026-08-14T18:37:47.939000+00:00",
     "paginas": 9,
