@@ -28,8 +28,12 @@ FEED_URL = (
 FEED_URL_ALTERNATIVA = FEED_URL.replace(
     "contrataciondelsectorpublico.gob.es", "contrataciondelestado.es"
 )
+FEED_CONTRATOS_MENORES_URL = (
+    "https://contrataciondelsectorpublico.gob.es/sindicacion/"
+    "sindicacion_1143/contratosMenoresPerfilesContratantes.atom"
+)
 SOLAPE_HORAS = 48
-MAX_PAGINAS_SEGURIDAD = 200
+MAX_PAGINAS_SEGURIDAD = 500
 DOMINIOS_PERMITIDOS = {
     "contrataciondelsectorpublico.gob.es",
     "contrataciondelestado.es",
@@ -62,6 +66,7 @@ COLUMNAS_FUENTE = (
     "importe_adjudicacion_con_iva",
     "url_licitacion",
     "documentos_adjuntos",
+    "origen",
 )
 
 
@@ -102,6 +107,11 @@ def descargar_pagina(url: str) -> tuple[bytes, ET.Element, str]:
                 contenido = respuesta.content
                 if b"Web Application Firewall" in contenido[:4096]:
                     raise RuntimeError("el cortafuegos rechazo temporalmente la consulta")
+                if b"<feed" not in contenido[:4096] and b"<?xml" not in contenido[:4096]:
+                    tipo = respuesta.headers.get("content-type", "desconocido")
+                    raise RuntimeError(
+                        f"la plataforma no devolvio un feed XML ({tipo})"
+                    )
                 raiz = ET.fromstring(contenido)
                 if raiz.tag != "{http://www.w3.org/2005/Atom}feed":
                     raise RuntimeError("la respuesta no contiene un feed ATOM valido")
@@ -198,14 +208,17 @@ def obtener_checkpoint(
     conexion: sqlite3.Connection,
     metadata_path: Path = METADATA_PATH,
     desde_inicio: bool = False,
+    clave_metadata: str = "feed_incremental_actualizado_hasta",
+    origen: str = "perfil_plataforma",
 ) -> datetime:
     if desde_inicio:
         return datetime(datetime.now().year, 1, 1, tzinfo=ZoneInfo("UTC"))
     metadata = leer_metadata(metadata_path)
-    checkpoint = fecha_utc(metadata.get("feed_incremental_actualizado_hasta"))
+    checkpoint = fecha_utc(metadata.get(clave_metadata))
     if checkpoint is None:
         maximo = conexion.execute(
-            "SELECT MAX(fecha_actualizacion) FROM licitaciones"
+            "SELECT MAX(fecha_actualizacion) FROM licitaciones WHERE origen = ?",
+            (origen,),
         ).fetchone()[0]
         checkpoint = fecha_utc(maximo)
     if checkpoint is None:
@@ -213,9 +226,13 @@ def obtener_checkpoint(
     return checkpoint
 
 
-def descargar_incremento(checkpoint: datetime):
+def descargar_incremento(
+    checkpoint: datetime,
+    feed_url: str = FEED_URL,
+    origen: str = "perfil_plataforma",
+):
     limite = checkpoint - timedelta(hours=SOLAPE_HORAS)
-    siguiente = FEED_URL
+    siguiente = feed_url
     visitadas: set[str] = set()
     filas: list[dict[str, object]] = []
     bajas: list[dict[str, str | None]] = []
@@ -234,6 +251,7 @@ def descargar_incremento(checkpoint: datetime):
         for entrada in raiz.findall("atom:entry", NAMESPACES):
             fila = fila_desde_entrada(entrada)
             if fila:
+                fila["origen"] = origen
                 filas.append(fila)
                 fecha = fecha_utc(fila.get("fecha_actualizacion"))
                 if fecha:
@@ -263,6 +281,7 @@ def inicializar_esquema(conexion: sqlite3.Connection) -> None:
     migraciones = {
         "fecha_publicacion": "TEXT",
         "importe_adjudicacion_sin_iva": "REAL",
+        "origen": "TEXT NOT NULL DEFAULT 'perfil_plataforma'",
     }
     for columna, tipo in migraciones.items():
         if columna not in columnas:
@@ -278,8 +297,29 @@ def sincronizar(
     maestro = cargar_maestro()
     with sqlite3.connect(db_path) as conexion:
         inicializar_esquema(conexion)
-        checkpoint = obtener_checkpoint(conexion, metadata_path, desde_inicio=desde_inicio)
+        checkpoint = obtener_checkpoint(
+            conexion,
+            metadata_path,
+            desde_inicio=desde_inicio,
+        )
+        checkpoint_menores = obtener_checkpoint(
+            conexion,
+            metadata_path,
+            desde_inicio=desde_inicio,
+            clave_metadata="feed_menores_actualizado_hasta",
+            origen="contrato_menor",
+        )
         filas, bajas, paginas, fecha_feed = descargar_incremento(checkpoint)
+        filas_menores, bajas_menores, paginas_menores, fecha_feed_menores = (
+            descargar_incremento(
+                checkpoint_menores,
+                feed_url=FEED_CONTRATOS_MENORES_URL,
+                origen="contrato_menor",
+            )
+        )
+        filas.extend(filas_menores)
+        bajas.extend(bajas_menores)
+        paginas.extend(paginas_menores)
 
         # Una misma sindicacion puede contener varias versiones del mismo ID.
         ultimas: dict[str, dict[str, object]] = {}
@@ -370,6 +410,7 @@ def sincronizar(
         "sincronizado_en": ahora,
         "feed_actualizado": fecha_feed,
         "checkpoint_anterior": checkpoint.isoformat(),
+        "checkpoint_menores_anterior": checkpoint_menores.isoformat(),
         "paginas": len(paginas),
         "versiones_leidas": len(filas),
         "ids_revisados": len(ultimas),
@@ -379,6 +420,8 @@ def sincronizar(
         "descartadas_filtro": descartadas,
         "total": total,
         "duplicados": duplicados,
+        "feed_menores_actualizado": fecha_feed_menores,
+        "versiones_menores_leidas": len(filas_menores),
     }
     if guardar_metadata:
         metadata = leer_metadata(metadata_path)
@@ -387,6 +430,8 @@ def sincronizar(
                 "feed_incremental_sincronizado_en": ahora,
                 "feed_incremental_actualizado_hasta": fecha_feed,
                 "feed_incremental_ultima_ejecucion": resultado,
+                "feed_menores_sincronizado_en": ahora,
+                "feed_menores_actualizado_hasta": fecha_feed_menores,
             }
         )
         metadata_path.write_text(

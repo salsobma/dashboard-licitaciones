@@ -1682,16 +1682,22 @@ def cargar_datos(db_mtime):
     with sqlite3.connect(uri, uri=True, timeout=10) as conn:
         df = pd.read_sql_query("SELECT * FROM licitaciones", conn)
 
+    if "origen" not in df.columns:
+        df["origen"] = "perfil_plataforma"
+    df["origen"] = df["origen"].fillna("perfil_plataforma")
     df['fecha_limite_dt'] = pd.to_datetime(df['fecha_limite'].astype(str).str.slice(0, 10), errors='coerce', utc=True)
     df['fecha_act_dt'] = pd.to_datetime(df['fecha_actualizacion'], errors='coerce', utc=True)
     df['tipo_contrato_desc'] = df['tipo_contrato'].map(MAPA_TIPOS).fillna('Otros')
     return normalizar_estado_vigente(df)
 
 try:
-    df = cargar_datos(os.path.getmtime(DB_PATH))
+    df_total = cargar_datos(os.path.getmtime(DB_PATH))
 except Exception as e:
     st.error(f"❌ No se pudo conectar a la base de datos en {DB_PATH}. Error: {e}")
     st.stop()
+
+df_menores = df_total[df_total["origen"] == "contrato_menor"].copy()
+df = df_total[df_total["origen"] != "contrato_menor"].copy()
 
 metadata_sincronizacion = cargar_metadata_sincronizacion()
 metadata_feed_catalogo = metadata_sincronizacion.get(
@@ -1700,10 +1706,13 @@ metadata_feed_catalogo = metadata_sincronizacion.get(
 fecha_feed_catalogo = metadata_sincronizacion.get(
     "feed_incremental_actualizado_hasta"
 )
+fecha_feed_menores = metadata_sincronizacion.get(
+    "feed_menores_actualizado_hasta"
+)
 df_radar_catalogo = df.copy()
 df_bajas_catalogo = pd.DataFrame()
 error_feed_catalogo = None
-df_catalogo_filtros = df.copy()
+df_catalogo_filtros = pd.concat([df, df_menores], ignore_index=True, sort=False)
 max_pbl_value = df_catalogo_filtros['pbl_sin_iva'].max()
 max_pbl_db = float(max_pbl_value) if pd.notnull(max_pbl_value) and max_pbl_value > 0 else 200000.0
 
@@ -1822,6 +1831,46 @@ if adjudicatario_sel: df_f = df_f[df_f['adjudicatario'].isin(adjudicatario_sel)]
 if cpv_2dig.strip():
     prefijo = cpv_2dig.strip()
     df_f = df_f[df_f['cpv'].apply(lambda x: any(c.strip().startswith(prefijo) for c in str(x).split(',')) if x else False)]
+
+# Los contratos menores ya están adjudicados: comparten los filtros temáticos y
+# geográficos, pero no el estado "En plazo" ni la fecha límite de presentación.
+df_menores_f = df_menores.copy()
+if busqueda_texto.strip():
+    q_menores = busqueda_texto.lower().strip()
+    df_menores_f = df_menores_f[
+        df_menores_f['titulo'].str.lower().str.contains(q_menores, na=False, regex=False)
+        | df_menores_f['expediente'].str.lower().str.contains(q_menores, na=False, regex=False)
+        | df_menores_f['organo_contratante'].str.lower().str.contains(q_menores, na=False, regex=False)
+    ]
+if tipo_sel:
+    df_menores_f = df_menores_f[df_menores_f['tipo_contrato_desc'].isin(tipo_sel)]
+importe_menor = pd.to_numeric(
+    df_menores_f['importe_adjudicacion_sin_iva'], errors='coerce'
+).fillna(pd.to_numeric(df_menores_f['pbl_sin_iva'], errors='coerce')).fillna(0)
+df_menores_f = df_menores_f[
+    (importe_menor >= pbl_min_val) & (importe_menor <= pbl_max_val)
+]
+if ccaa_sel:
+    df_menores_f = df_menores_f[df_menores_f['comunidad_autonoma'].isin(ccaa_sel)]
+if prov_sel:
+    df_menores_f = df_menores_f[df_menores_f['provincia'].isin(prov_sel)]
+if muni_sel:
+    df_menores_f = df_menores_f[df_menores_f['municipio'].isin(muni_sel)]
+if organo_sel:
+    df_menores_f = df_menores_f[df_menores_f['organo_contratante'].isin(organo_sel)]
+if adjudicatario_sel:
+    df_menores_f = df_menores_f[df_menores_f['adjudicatario'].isin(adjudicatario_sel)]
+if cpv_2dig.strip():
+    prefijo_menores = cpv_2dig.strip()
+    df_menores_f = df_menores_f[
+        df_menores_f['cpv'].apply(
+            lambda valor: any(
+                codigo.strip().startswith(prefijo_menores)
+                for codigo in str(valor).split(',')
+            ) if valor else False
+        )
+    ]
+df_menores_f["movimiento"] = "Contrato menor"
 
 def aplicar_filtros_al_feed(df_entrada):
     filtrado = df_entrada.copy()
@@ -1988,6 +2037,7 @@ st.caption(
 
 opciones_vista = [
     "📡 Radar de licitaciones",
+    "🧾 Contratos menores",
     "📊 Gráficos",
     "🗺️ Mapa",
 ]
@@ -2029,6 +2079,9 @@ if vista_principal in {"⭐ Favoritos", "📅 Calendario"}:
 elif vista_principal == "📡 Radar de licitaciones":
     df_indicadores = df_f
     etiqueta_cantidad = "Licitaciones filtradas"
+elif vista_principal == "🧾 Contratos menores":
+    df_indicadores = df_menores_f
+    etiqueta_cantidad = "Contratos menores filtrados"
 elif vista_principal == "📊 Gráficos":
     df_indicadores = df_f
     etiqueta_cantidad = "Licitaciones filtradas"
@@ -2042,13 +2095,24 @@ ultima_act = (
     else pd.NaT
 )
 volumen_total = (
-    pd.to_numeric(df_indicadores["pbl_sin_iva"], errors="coerce").fillna(0).sum()
+    pd.to_numeric(
+        df_indicadores[
+            "importe_adjudicacion_sin_iva"
+            if vista_principal == "🧾 Contratos menores"
+            else "pbl_sin_iva"
+        ],
+        errors="coerce",
+    ).fillna(0).sum()
     if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
     else 0.0
 )
 presupuesto_mediano = (
     pd.to_numeric(
-        df_indicadores["pbl_sin_iva"], errors="coerce"
+        df_indicadores[
+            "importe_adjudicacion_sin_iva"
+            if vista_principal == "🧾 Contratos menores"
+            else "pbl_sin_iva"
+        ], errors="coerce"
     ).dropna().median()
     if not df_indicadores.empty and "pbl_sin_iva" in df_indicadores.columns
     else 0.0
@@ -2068,9 +2132,11 @@ kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 with kpi1:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{len(df_indicadores)}</div><div class="metric-lbl-grid">{etiqueta_cantidad}</div></div>', unsafe_allow_html=True)
 with kpi2:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(volumen_total)}</div><div class="metric-lbl-grid">Volumen Total (sin IVA)</div></div>', unsafe_allow_html=True)
+    etiqueta_volumen = "Importe adjudicado (sin IVA)" if vista_principal == "🧾 Contratos menores" else "Volumen Total (sin IVA)"
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(volumen_total)}</div><div class="metric-lbl-grid">{etiqueta_volumen}</div></div>', unsafe_allow_html=True)
 with kpi3:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_mediano)}</div><div class="metric-lbl-grid">Presupuesto típico (mediana) · sin IVA</div></div>', unsafe_allow_html=True)
+    etiqueta_mediana = "Adjudicación típica (mediana) · sin IVA" if vista_principal == "🧾 Contratos menores" else "Presupuesto típico (mediana) · sin IVA"
+    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_mediano)}</div><div class="metric-lbl-grid">{etiqueta_mediana}</div></div>', unsafe_allow_html=True)
 with kpi4:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{actividad_reciente}</div><div class="metric-lbl-grid">Actividad reciente</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">Licitaciones actualizadas en los últimos 7 días</div></div>', unsafe_allow_html=True)
 
@@ -2078,13 +2144,18 @@ filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
 if tipo_sel: filtros_activos.append('Tipo: ' + ', '.join(tipo_sel))
 if cpv_2dig.strip(): filtros_activos.append('CPV: ' + cpv_2dig.strip())
-if estados_sel: filtros_activos.append('Estado: ' + ', '.join(opciones_estado[e] for e in estados_sel))
+if estados_sel and vista_principal != "🧾 Contratos menores":
+    filtros_activos.append('Estado: ' + ', '.join(opciones_estado[e] for e in estados_sel))
 if ccaa_sel: filtros_activos.append('CC. AA.: ' + ', '.join(ccaa_sel))
 if prov_sel: filtros_activos.append('Provincia: ' + ', '.join(prov_sel))
 if muni_sel: filtros_activos.append('Municipio: ' + ', '.join(muni_sel))
 if pbl_min_val > 0 or pbl_max_val < max_pbl_db:
     filtros_activos.append(f'PBL sin IVA: {formato_eur(pbl_min_val)} – {formato_eur(pbl_max_val)}')
-if fecha_rango and len(fecha_rango) == 2:
+if (
+    fecha_rango
+    and len(fecha_rango) == 2
+    and vista_principal != "🧾 Contratos menores"
+):
     filtros_activos.append(f'Fecha límite: {fecha_rango[0].strftime("%d/%m/%Y")} – {fecha_rango[1].strftime("%d/%m/%Y")}')
 if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
 if adjudicatario_sel: filtros_activos.append('Adjudicatario: ' + ', '.join(adjudicatario_sel))
@@ -2343,7 +2414,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
 
 
 
-if df_f.empty and df_radar_catalogo.empty:
+if df_f.empty and df_radar_catalogo.empty and df_menores_f.empty:
     st.warning("⚠️ No se ha encontrado ninguna licitación que coincida con los filtros aplicados. Prueba a relajar los criterios de búsqueda.")
 else:
     st.write("")
@@ -2479,6 +2550,96 @@ else:
                                 enlace,
                                 use_container_width=True,
                             )
+
+    elif vista_principal == "🧾 Contratos menores":
+        st.subheader("🧾 Contratos menores")
+        st.caption(
+            "Contratos menores de ingeniería de la Comunitat Valenciana ya "
+            "adjudicados. No son oportunidades abiertas para presentar oferta."
+        )
+        st.markdown(
+            f"**{len(df_menores_f)} resultados con los filtros actuales** · "
+            f"{len(df_menores)} contratos menores en la base · "
+            f"Feed oficial: {formato_fecha(fecha_feed_menores)}"
+        )
+        if df_menores_f.empty:
+            st.info(
+                "No hay contratos menores que coincidan con los filtros "
+                "temáticos y geográficos actuales."
+            )
+        else:
+            criterio_menores = st.selectbox(
+                "🔃 Ordenar contratos por:",
+                [
+                    "Publicación (Más reciente)",
+                    "Fecha de adjudicación (Más reciente)",
+                    "Importe adjudicado (Mayor a menor)",
+                    "Importe adjudicado (Menor a mayor)",
+                ],
+                key="select_orden_menores",
+            )
+            df_menores_vista = df_menores_f.copy()
+            if criterio_menores.startswith("Fecha de adjudicación"):
+                df_menores_vista["fecha_adjudicacion_dt"] = pd.to_datetime(
+                    df_menores_vista["fecha_adjudicacion"], errors="coerce"
+                )
+                df_menores_vista = df_menores_vista.sort_values(
+                    "fecha_adjudicacion_dt", ascending=False, na_position="last"
+                )
+            elif criterio_menores.startswith("Importe adjudicado"):
+                df_menores_vista["importe_orden"] = pd.to_numeric(
+                    df_menores_vista["importe_adjudicacion_sin_iva"],
+                    errors="coerce",
+                )
+                df_menores_vista = df_menores_vista.sort_values(
+                    "importe_orden",
+                    ascending=criterio_menores.endswith("Menor a mayor)"),
+                    na_position="last",
+                )
+            else:
+                df_menores_vista = df_menores_vista.sort_values(
+                    "fecha_act_dt", ascending=False, na_position="last"
+                )
+
+            items_menores = 12
+            total_menores = len(df_menores_vista)
+            paginas_menores = max(
+                1, (total_menores + items_menores - 1) // items_menores
+            )
+            pagina_menores = min(
+                st.session_state.get("pagina_menores", 1), paginas_menores
+            )
+            st.session_state["pagina_menores"] = pagina_menores
+            men_ant, men_info, men_sig = st.columns([1, 2, 1])
+            with men_ant:
+                if st.button(
+                    "⬅️ Anterior", key="menores_anterior",
+                    use_container_width=True, disabled=pagina_menores <= 1,
+                ):
+                    st.session_state["pagina_menores"] -= 1
+                    st.rerun()
+            with men_info:
+                st.markdown(
+                    f"<p style='text-align:center;font-weight:600;margin-top:6px;'>"
+                    f"Página {pagina_menores} de {paginas_menores} "
+                    f"(Total: {total_menores} contratos)</p>",
+                    unsafe_allow_html=True,
+                )
+            with men_sig:
+                if st.button(
+                    "Siguiente ➡️", key="menores_siguiente",
+                    use_container_width=True,
+                    disabled=pagina_menores >= paginas_menores,
+                ):
+                    st.session_state["pagina_menores"] += 1
+                    st.rerun()
+            inicio_menores = (pagina_menores - 1) * items_menores
+            render_grid_tarjetas(
+                df_menores_vista.iloc[
+                    inicio_menores:inicio_menores + items_menores
+                ],
+                "menores",
+            )
 
     elif vista_principal == "📡 Radar de licitaciones":
         st.subheader("📡 Radar de licitaciones")
