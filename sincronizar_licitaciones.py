@@ -210,6 +210,7 @@ def obtener_checkpoint(
     desde_inicio: bool = False,
     clave_metadata: str = "feed_incremental_actualizado_hasta",
     origen: str = "perfil_plataforma",
+    dias_iniciales: int | None = None,
 ) -> datetime:
     if desde_inicio:
         return datetime(datetime.now().year, 1, 1, tzinfo=ZoneInfo("UTC"))
@@ -222,7 +223,12 @@ def obtener_checkpoint(
         ).fetchone()[0]
         checkpoint = fecha_utc(maximo)
     if checkpoint is None:
-        checkpoint = datetime(datetime.now().year, 1, 1, tzinfo=ZoneInfo("UTC"))
+        if dias_iniciales is None:
+            checkpoint = datetime(datetime.now().year, 1, 1, tzinfo=ZoneInfo("UTC"))
+        else:
+            checkpoint = datetime.now(ZoneInfo("UTC")) - timedelta(
+                days=dias_iniciales
+            )
     return checkpoint
 
 
@@ -305,9 +311,13 @@ def sincronizar(
         checkpoint_menores = obtener_checkpoint(
             conexion,
             metadata_path,
-            desde_inicio=desde_inicio,
+            # La primera carga usa la ventana reciente. El histórico de menores
+            # se incorporará desde los archivos mensuales, que evitan recorrer
+            # cientos de enlaces diarios y los bloqueos del WAF oficial.
+            desde_inicio=False,
             clave_metadata="feed_menores_actualizado_hasta",
             origen="contrato_menor",
+            dias_iniciales=2,
         )
         filas, bajas, paginas, fecha_feed = descargar_incremento(checkpoint)
         filas_menores, bajas_menores, paginas_menores, fecha_feed_menores = (
