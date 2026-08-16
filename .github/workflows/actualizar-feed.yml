@@ -1,6 +1,9 @@
 name: Sincronizar radar de licitaciones
 
 on:
+  push:
+    branches:
+      - feature/contratos-menores
   workflow_dispatch:
     inputs:
       modo:
