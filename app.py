@@ -845,7 +845,9 @@ MAPA_ESTADOS = {
     'ADJ': ('Adjudicada', 'badge-adj'),
     'RES': ('Resuelta', 'badge-res'),
     'DES': ('Desierta', 'badge-res'),
-    'REN': ('Desistida / renunciada', 'badge-res'),
+    'DESIST': ('Desistida', 'badge-res'),
+    'RENUNC': ('Renunciada', 'badge-res'),
+    'FIN_MIX': ('Finalizada sin adjudicación · resultado mixto', 'badge-res'),
     'RES_MIX': ('Resultado mixto por lotes', 'badge-res'),
     'ANUL': ('Anulada', 'badge-res'),
     'CERR': ('Cerrada / Archivada', 'badge-res'),
@@ -1121,11 +1123,32 @@ def normalizar_estado_vigente(tabla):
     desiertas = codigos_resultado.apply(
         lambda codigos: bool(codigos) and codigos <= {"3", "6", "7"}
     )
-    renunciadas = codigos_resultado.apply(lambda codigos: bool(codigos) and codigos <= {"4", "5"})
-    conocidas = adjudicadas | desiertas | renunciadas
+    desistidas = codigos_resultado.apply(lambda codigos: codigos == {"4"})
+    renunciadas = codigos_resultado.apply(lambda codigos: codigos == {"5"})
+    finalizadas_mixtas = codigos_resultado.apply(lambda codigos: codigos == {"4", "5"})
+    evidencia_adjudicacion = (
+        resultado.get("adjudicatario", pd.Series(index=resultado.index, dtype="object"))
+        .fillna("").astype(str).str.strip().ne("")
+        & (
+            resultado.get("fecha_adjudicacion", pd.Series(index=resultado.index, dtype="object"))
+            .fillna("").astype(str).str.strip().ne("")
+            | pd.to_numeric(
+                resultado.get(
+                    "importe_adjudicacion_sin_iva",
+                    pd.Series(index=resultado.index, dtype="float64"),
+                ),
+                errors="coerce",
+            ).notna()
+        )
+    )
+    adjudicadas_sin_codigo = resueltas & codigos_resultado.apply(lambda codigos: not codigos) & evidencia_adjudicacion
+    conocidas = adjudicadas | desiertas | desistidas | renunciadas | finalizadas_mixtas
     resultado.loc[resueltas & adjudicadas, "estado"] = "ADJ"
+    resultado.loc[adjudicadas_sin_codigo, "estado"] = "ADJ"
     resultado.loc[resueltas & desiertas, "estado"] = "DES"
-    resultado.loc[resueltas & renunciadas, "estado"] = "REN"
+    resultado.loc[resueltas & desistidas, "estado"] = "DESIST"
+    resultado.loc[resueltas & renunciadas, "estado"] = "RENUNC"
+    resultado.loc[resueltas & finalizadas_mixtas, "estado"] = "FIN_MIX"
     resultado.loc[resueltas & ~conocidas & codigos_resultado.apply(bool), "estado"] = "RES_MIX"
     publicadas = resultado["estado_fuente"].eq("PUB")
     textos_fecha = resultado.get(
@@ -1150,7 +1173,7 @@ def normalizar_estado_vigente(tabla):
         if estado in {"EV", "VENC"}: return ("EV",)
         if estado == "ADJ": return ("ADJ",)
         if estado == "DES": return ("DES",)
-        if estado in {"REN", "ANUL", "CERR"}: return ("FIN",)
+        if estado in {"DESIST", "RENUNC", "FIN_MIX", "ANUL", "CERR"}: return ("FIN",)
         if estado == "PRE": return ("PRE",)
         if fila.get("estado_fuente") == "RES":
             codigos = codigos_resultado.loc[fila.name]
