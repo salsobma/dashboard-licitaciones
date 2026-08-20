@@ -25,7 +25,12 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from google import genai
 from google.genai import types
-from feed_parser import extraer_adjudicacion, extraer_cpvs, extraer_ubicacion
+from feed_parser import (
+    extraer_adjudicacion,
+    extraer_cpvs,
+    extraer_resultados,
+    extraer_ubicacion,
+)
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -840,6 +845,9 @@ MAPA_ESTADOS = {
     'EV':  ('Evaluación', 'badge-ev'),
     'ADJ': ('Adjudicada', 'badge-adj'),
     'RES': ('Resuelta', 'badge-res'),
+    'DES': ('Desierta', 'badge-res'),
+    'REN': ('Desistida / renunciada', 'badge-res'),
+    'RES_MIX': ('Resultado mixto por lotes', 'badge-res'),
     'ANUL': ('Anulada', 'badge-res'),
     'CERR': ('Cerrada / Archivada', 'badge-res'),
 }
@@ -892,6 +900,17 @@ def formato_fecha(valor):
 def formato_fecha_corta(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y")
+
+
+def mascara_fechas_entre(valores, inicio, fin, incluir_sin_fecha=False):
+    """Compara fechas con tipos homogéneos en todas las versiones de pandas."""
+    fechas = pd.to_datetime(
+        valores.fillna("").astype(str).str.slice(0, 10), errors="coerce"
+    )
+    inicio_ts = pd.Timestamp(inicio)
+    fin_exclusivo = pd.Timestamp(fin) + pd.Timedelta(days=1)
+    mascara = (fechas >= inicio_ts) & (fechas < fin_exclusivo)
+    return mascara | fechas.isna() if incluir_sin_fecha else mascara
 
 def cargar_metadata_sincronizacion():
     ruta = Path(__file__).resolve().parent / "sync_metadata.json"
@@ -1076,6 +1095,29 @@ def normalizar_estado_vigente(tabla):
     if resultado.empty or "estado" not in resultado.columns:
         return resultado
     resultado["estado_fuente"] = resultado["estado"]
+    # RES agrupa varios resultados oficiales. Los separamos sin alterar el
+    # estado fuente y sin aplicar esta lógica a los contratos menores.
+    ordinarias = resultado.get(
+        "origen", pd.Series("perfil_plataforma", index=resultado.index)
+    ).ne("contrato_menor")
+    resueltas = resultado["estado_fuente"].eq("RES") & ordinarias
+    codigos_resultado = resultado.get(
+        "resultado_codigos", pd.Series(index=resultado.index, dtype="object")
+    ).fillna("").astype(str).apply(
+        lambda valor: {codigo.strip() for codigo in valor.split(",") if codigo.strip()}
+    )
+    adjudicadas = codigos_resultado.apply(
+        lambda codigos: bool(codigos) and codigos <= {"1", "2", "8", "9", "11"}
+    )
+    desiertas = codigos_resultado.apply(
+        lambda codigos: bool(codigos) and codigos <= {"3", "6", "7"}
+    )
+    renunciadas = codigos_resultado.apply(lambda codigos: bool(codigos) and codigos <= {"4", "5"})
+    conocidas = adjudicadas | desiertas | renunciadas
+    resultado.loc[resueltas & adjudicadas, "estado"] = "ADJ"
+    resultado.loc[resueltas & desiertas, "estado"] = "DES"
+    resultado.loc[resueltas & renunciadas, "estado"] = "REN"
+    resultado.loc[resueltas & ~conocidas & codigos_resultado.apply(bool), "estado"] = "RES_MIX"
     publicadas = resultado["estado_fuente"].eq("PUB")
     textos_fecha = resultado.get(
         "fecha_limite", pd.Series(index=resultado.index, dtype="object")
@@ -1420,6 +1462,7 @@ def _fila_desde_entrada_feed(entrada):
         "organo_contratante": _texto_xml(party, "cac:PartyName/cbc:Name"),
         "tipo_contrato": _texto_xml(proyecto, "cbc:TypeCode"),
         "estado": _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode"),
+        "resultado_codigos": extraer_resultados(status),
         "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
         "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
         "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
@@ -1455,7 +1498,12 @@ def _bajas_desde_pagina_feed(raiz):
             for texto in eliminada.itertext()
             if texto and texto.strip()
         )
-        tipo = eliminada.attrib.get("type", "")
+        comentario_nodo = eliminada.find("at:comment", NAMESPACES_ATOM)
+        tipo = (
+            comentario_nodo.attrib.get("type", "")
+            if comentario_nodo is not None
+            else eliminada.attrib.get("type", "")
+        )
         detalle = f"{tipo} {comentario}".upper()
         estado = "ANUL" if "ANUL" in detalle else "CERR"
         bajas.append({
@@ -1896,14 +1944,10 @@ importe_licitacion = pd.to_numeric(
 df_f = df_f[(importe_licitacion >= pbl_min_val) & (importe_licitacion <= pbl_max_val)]
 
 if fecha_rango and len(fecha_rango) == 2:
-    fechas_licitacion = pd.to_datetime(
-        df_f[columna_fecha_filtro].astype(str).str.slice(0, 10), errors="coerce"
+    dentro_del_rango = mascara_fechas_entre(
+        df_f[columna_fecha_filtro], fecha_rango[0], fecha_rango[1],
+        incluir_sin_fecha=True,
     )
-    dentro_del_rango = (
-        (fechas_licitacion.dt.date >= fecha_rango[0])
-        & (fechas_licitacion.dt.date <= fecha_rango[1])
-    )
-    dentro_del_rango = dentro_del_rango | fechas_licitacion.isna()
     df_f = df_f[dentro_del_rango]
 
 if ccaa_sel: df_f = df_f[df_f['comunidad_autonoma'].isin(ccaa_sel)]
@@ -1935,13 +1979,10 @@ df_menores_f = df_menores_f[
     (importe_menor >= pbl_min_val) & (importe_menor <= pbl_max_val)
 ]
 if filtros_son_menores and fecha_rango and len(fecha_rango) == 2:
-    fechas_menores = pd.to_datetime(
-        df_menores_f["fecha_adjudicacion"].astype(str).str.slice(0, 10),
-        errors="coerce",
-    )
     df_menores_f = df_menores_f[
-        (fechas_menores.dt.date >= fecha_rango[0])
-        & (fechas_menores.dt.date <= fecha_rango[1])
+        mascara_fechas_entre(
+            df_menores_f["fecha_adjudicacion"], fecha_rango[0], fecha_rango[1]
+        )
     ]
 if ccaa_sel:
     df_menores_f = df_menores_f[df_menores_f['comunidad_autonoma'].isin(ccaa_sel)]
@@ -2001,11 +2042,10 @@ def aplicar_filtros_al_feed(df_entrada):
         & (filtrado["pbl_sin_iva"].fillna(0) <= pbl_max_val)
     ]
     if fecha_rango and len(fecha_rango) == 2:
-        dentro_del_rango = (
-            (filtrado["fecha_limite_dt"].dt.date >= fecha_rango[0])
-            & (filtrado["fecha_limite_dt"].dt.date <= fecha_rango[1])
+        dentro_del_rango = mascara_fechas_entre(
+            filtrado["fecha_limite_dt"], fecha_rango[0], fecha_rango[1],
+            incluir_sin_fecha=True,
         )
-        dentro_del_rango = dentro_del_rango | filtrado["fecha_limite_dt"].isna()
         filtrado = filtrado[dentro_del_rango]
     if ccaa_sel:
         filtrado = filtrado[

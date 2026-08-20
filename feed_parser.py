@@ -75,6 +75,16 @@ def extraer_adjudicacion(status: ET.Element) -> tuple[
     )
 
 
+def extraer_resultados(status: ET.Element) -> str | None:
+    """Conserva todos los resultados oficiales, incluidos los de cada lote."""
+    codigos = []
+    for resultado in status.findall("cac:TenderResult", NAMESPACES):
+        codigo = texto_xml(resultado, "cbc:ResultCode")
+        if codigo and codigo not in codigos:
+            codigos.append(codigo)
+    return ",".join(codigos) if codigos else None
+
+
 def extraer_cpvs(status: ET.Element, proyecto: ET.Element) -> list[str]:
     """Incluye el CPV general y los CPV declarados dentro de cada lote."""
     nodos = proyecto.findall(
@@ -163,6 +173,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
     ) = extraer_adjudicacion(status)
     expediente = texto_xml(status, "cbc:ContractFolderID")
     estado = texto_xml(status, "cbc-place-ext:ContractFolderStatusCode")
+    resultado_codigos = extraer_resultados(status)
 
     def numero(ruta: str) -> float | None:
         valor = texto_xml(proyecto, ruta)
@@ -215,6 +226,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "organo_contratante": texto_xml(party, "cac:PartyName/cbc:Name"),
         "tipo_contrato": texto_xml(proyecto, "cbc:TypeCode"),
         "estado": estado,
+        "resultado_codigos": resultado_codigos,
         "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
         "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
         "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
@@ -245,10 +257,16 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
 def bajas_desde_pagina(raiz: ET.Element) -> list[dict[str, str | None]]:
     bajas = []
     for eliminada in raiz.findall("at:deleted-entry", NAMESPACES):
+        comentario_nodo = eliminada.find("at:comment", NAMESPACES)
         comentario = " ".join(
             texto.strip() for texto in eliminada.itertext() if texto and texto.strip()
         )
-        detalle = f"{eliminada.attrib.get('type', '')} {comentario}".upper()
+        tipo = (
+            comentario_nodo.attrib.get("type", "")
+            if comentario_nodo is not None
+            else eliminada.attrib.get("type", "")
+        )
+        detalle = f"{tipo} {comentario}".upper()
         bajas.append({
             "id": eliminada.attrib.get("ref"),
             "fecha_actualizacion": eliminada.attrib.get("when"),

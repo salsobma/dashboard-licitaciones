@@ -6,6 +6,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import sincronizar_licitaciones as sync
+from feed_parser import NAMESPACES, bajas_desde_pagina, extraer_resultados
+import xml.etree.ElementTree as ET
 
 
 def fila_base(lic_id: str) -> dict[str, object]:
@@ -31,6 +33,33 @@ def fila_base(lic_id: str) -> dict[str, object]:
 
 
 class SincronizacionAuditableTest(unittest.TestCase):
+    def test_resultados_por_lote_se_conservan(self):
+        status = ET.fromstring(
+            f'''<ContractFolderStatus xmlns:cac="{NAMESPACES["cac"]}"
+                xmlns:cbc="{NAMESPACES["cbc"]}">
+                <cac:TenderResult><cbc:ResultCode>8</cbc:ResultCode></cac:TenderResult>
+                <cac:TenderResult><cbc:ResultCode>3</cbc:ResultCode></cac:TenderResult>
+                <cac:TenderResult><cbc:ResultCode>8</cbc:ResultCode></cac:TenderResult>
+            </ContractFolderStatus>'''
+        )
+        self.assertEqual(extraer_resultados(status), "8,3")
+
+    def test_baja_lee_tipo_del_comentario_atom(self):
+        raiz = ET.fromstring(
+            f'''<feed xmlns:at="{NAMESPACES["at"]}">
+                <at:deleted-entry ref="anulada" when="2026-08-20T10:00:00Z">
+                    <at:comment type="ANULADA" />
+                </at:deleted-entry>
+                <at:deleted-entry ref="cerrada" when="2026-08-20T10:00:00Z">
+                    <at:comment type="CERRADA" />
+                </at:deleted-entry>
+            </feed>'''
+        )
+        self.assertEqual(
+            [(baja["id"], baja["estado"]) for baja in bajas_desde_pagina(raiz)],
+            [("anulada", "ANUL"), ("cerrada", "CERR")],
+        )
+
     def test_auditoria_completa_empieza_en_inicio_de_cada_fuente(self):
         for origen in ("perfil_plataforma", "contrato_menor"):
             inicio = sync.INICIO_HISTORICO[origen]
