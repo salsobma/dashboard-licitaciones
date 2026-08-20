@@ -6,6 +6,7 @@ import sqlite3
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -54,6 +55,7 @@ COLUMNAS_FUENTE = (
     "codigo_postal",
     "municipio",
     "provincia",
+    "codigo_nuts",
     "comunidad_autonoma",
     "latitud",
     "longitud",
@@ -164,27 +166,18 @@ def cargar_maestro() -> dict[str, dict[str, object]]:
     return resultado
 
 
-def enriquecer_y_filtrar(
-    fila: dict[str, object], maestro: dict[str, dict[str, object]]
-) -> dict[str, object] | None:
-    if fila.get("origen") == "contrato_menor":
-        fecha_adjudicacion = str(fila.get("fecha_adjudicacion") or "")
-        try:
-            anyo_adjudicacion = int(fecha_adjudicacion[:4])
-        except ValueError:
-            return None
-        # El histórico comienza en 2025 y la pestaña muestra contratos realmente
-        # adjudicados, no expedientes desiertos sin empresa ni importe.
-        if (
-            anyo_adjudicacion < 2025
-            or not str(fila.get("adjudicatario") or "").strip()
-            or fila.get("importe_adjudicacion_sin_iva") is None
-        ):
-            return None
+def codigo_nuts(valor: object) -> str:
+    return "".join(c for c in str(valor or "").upper() if c.isalnum())
 
+
+def evaluar_y_enriquecer(
+    fila: dict[str, object], maestro: dict[str, dict[str, object]]
+) -> tuple[dict[str, object] | None, str | None]:
     cpvs = [codigo.strip() for codigo in str(fila.get("cpv") or "").split(",")]
+    if not any(cpvs):
+        return None, "sin_cpv"
     if not any(codigo.startswith("71") for codigo in cpvs):
-        return None
+        return None, "cpv_fuera_71"
 
     cp = codigo_postal(fila.get("codigo_postal"))
     ubicacion = maestro.get(cp)
@@ -199,7 +192,43 @@ def enriquecer_y_filtrar(
         "castello",
         "valencia",
     }
-    return fila if es_cv else None
+    nuts = codigo_nuts(fila.get("codigo_nuts"))
+    if not es_cv and nuts.startswith("ES52"):
+        fila["comunidad_autonoma"] = "Comunitat Valenciana"
+        if not str(fila.get("provincia") or "").strip():
+            fila["provincia"] = {
+                "ES521": "Alicante",
+                "ES522": "Castellón",
+                "ES523": "Valencia",
+            }.get(nuts[:5])
+        es_cv = True
+    if not es_cv:
+        tiene_evidencia = bool(provincia or comunidad or nuts or cp)
+        return None, (
+            "fuera_comunitat_valenciana"
+            if tiene_evidencia else "ubicacion_no_verificable"
+        )
+
+    if fila.get("origen") == "contrato_menor":
+        fecha_adjudicacion = str(fila.get("fecha_adjudicacion") or "")
+        try:
+            anyo_adjudicacion = int(fecha_adjudicacion[:4])
+        except ValueError:
+            return None, "fecha_adjudicacion_invalida"
+        if anyo_adjudicacion < 2025:
+            return None, "adjudicacion_anterior_2025"
+        if not str(fila.get("adjudicatario") or "").strip():
+            return None, "sin_adjudicatario"
+        if fila.get("importe_adjudicacion_sin_iva") is None:
+            return None, "sin_importe_adjudicacion"
+
+    return fila, None
+
+
+def enriquecer_y_filtrar(
+    fila: dict[str, object], maestro: dict[str, dict[str, object]]
+) -> dict[str, object] | None:
+    return evaluar_y_enriquecer(fila, maestro)[0]
 
 
 def valor_sqlite(valor: object) -> object:
@@ -302,11 +331,114 @@ def inicializar_esquema(conexion: sqlite3.Connection) -> None:
     migraciones = {
         "fecha_publicacion": "TEXT",
         "importe_adjudicacion_sin_iva": "REAL",
+        "codigo_nuts": "TEXT",
         "origen": "TEXT NOT NULL DEFAULT 'perfil_plataforma'",
     }
     for columna, tipo in migraciones.items():
         if columna not in columnas:
             conexion.execute(f"ALTER TABLE licitaciones ADD COLUMN {columna} {tipo}")
+    conexion.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cuarentena_licitaciones (
+            id TEXT NOT NULL,
+            origen TEXT NOT NULL,
+            motivo TEXT NOT NULL,
+            fecha_actualizacion TEXT,
+            expediente TEXT,
+            titulo TEXT,
+            cpv TEXT,
+            provincia TEXT,
+            codigo_nuts TEXT,
+            datos_json TEXT NOT NULL,
+            revisado_en TEXT NOT NULL,
+            PRIMARY KEY (id, origen)
+        )
+        """
+    )
+
+
+CAMPOS_UBICACION = (
+    "codigo_postal",
+    "municipio",
+    "provincia",
+    "codigo_nuts",
+    "comunidad_autonoma",
+    "latitud",
+    "longitud",
+)
+MOTIVOS_CUARENTENA = {
+    "ubicacion_no_verificable",
+    "fecha_adjudicacion_invalida",
+    "sin_adjudicatario",
+    "sin_importe_adjudicacion",
+}
+
+
+def heredar_ubicacion_anterior(
+    fila: dict[str, object], existente: tuple[object, ...] | None
+) -> bool:
+    if existente is None:
+        return False
+    # NUTS, provincia o código postal nuevos constituyen evidencia territorial
+    # propia. Solo heredamos cuando la actualización no trae ninguna de ellas.
+    if any(
+        str(fila.get(campo) or "").strip()
+        for campo in ("codigo_postal", "provincia", "codigo_nuts")
+    ):
+        return False
+    heredada = False
+    for campo in CAMPOS_UBICACION:
+        indice = COLUMNAS_FUENTE.index(campo)
+        if not str(fila.get(campo) or "").strip() and existente[indice] is not None:
+            fila[campo] = existente[indice]
+            heredada = True
+    return heredada
+
+
+def guardar_cuarentena(
+    conexion: sqlite3.Connection,
+    fila: dict[str, object],
+    motivo: str,
+    revisado_en: str,
+) -> None:
+    lic_id = str(fila.get("id") or "").strip()
+    if not lic_id:
+        return
+    datos = {
+        columna: valor_sqlite(fila.get(columna))
+        for columna in COLUMNAS_FUENTE
+    }
+    conexion.execute(
+        """
+        INSERT INTO cuarentena_licitaciones (
+            id, origen, motivo, fecha_actualizacion, expediente, titulo,
+            cpv, provincia, codigo_nuts, datos_json, revisado_en
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id, origen) DO UPDATE SET
+            motivo=excluded.motivo,
+            fecha_actualizacion=excluded.fecha_actualizacion,
+            expediente=excluded.expediente,
+            titulo=excluded.titulo,
+            cpv=excluded.cpv,
+            provincia=excluded.provincia,
+            codigo_nuts=excluded.codigo_nuts,
+            datos_json=excluded.datos_json,
+            revisado_en=excluded.revisado_en
+        """,
+        (
+            lic_id,
+            str(fila.get("origen") or ""),
+            motivo,
+            fila.get("fecha_actualizacion"),
+            fila.get("expediente"),
+            fila.get("titulo"),
+            fila.get("cpv"),
+            fila.get("provincia"),
+            fila.get("codigo_nuts"),
+            json.dumps(datos, ensure_ascii=False),
+            revisado_en,
+        ),
+    )
 
 
 def sincronizar(
@@ -361,16 +493,44 @@ def sincronizar(
         insertadas = 0
         actualizadas = 0
         descartadas = 0
+        sin_cambios = 0
+        versiones_anteriores = 0
+        ubicaciones_heredadas = 0
+        cuarentena_revisada = 0
+        motivos_descarte: Counter[str] = Counter()
+        revisado_en = datetime.now(ZoneInfo("Europe/Madrid")).isoformat()
         for fila in ultimas.values():
-            fila = enriquecer_y_filtrar(fila, maestro)
-            if fila is None:
-                descartadas += 1
-                continue
-            valores = tuple(valor_sqlite(fila.get(columna)) for columna in COLUMNAS_FUENTE)
+            lic_id = str(fila.get("id") or "").strip()
             existente = conexion.execute(
                 f"SELECT {','.join(COLUMNAS_FUENTE)} FROM licitaciones WHERE id = ?",
-                (fila["id"],),
+                (lic_id,),
             ).fetchone()
+            if heredar_ubicacion_anterior(fila, existente):
+                ubicaciones_heredadas += 1
+
+            fila_evaluada, motivo = evaluar_y_enriquecer(fila, maestro)
+            if fila_evaluada is None:
+                descartadas += 1
+                motivo = motivo or "motivo_desconocido"
+                motivos_descarte[motivo] += 1
+                if motivo in MOTIVOS_CUARENTENA:
+                    guardar_cuarentena(
+                        conexion, fila, motivo, revisado_en
+                    )
+                    cuarentena_revisada += 1
+                else:
+                    conexion.execute(
+                        "DELETE FROM cuarentena_licitaciones "
+                        "WHERE id = ? AND origen = ?",
+                        (lic_id, fila.get("origen")),
+                    )
+                continue
+            fila = fila_evaluada
+            conexion.execute(
+                "DELETE FROM cuarentena_licitaciones WHERE id = ? AND origen = ?",
+                (fila["id"], fila.get("origen")),
+            )
+            valores = tuple(valor_sqlite(fila.get(columna)) for columna in COLUMNAS_FUENTE)
             nueva_fecha = fecha_utc(fila.get("fecha_actualizacion"))
             fecha_anterior = (
                 fecha_utc(existente[COLUMNAS_FUENTE.index("fecha_actualizacion")])
@@ -378,8 +538,10 @@ def sincronizar(
                 else None
             )
             if existente and nueva_fecha and fecha_anterior and nueva_fecha < fecha_anterior:
+                versiones_anteriores += 1
                 continue
             if existente and tuple(existente) == valores:
+                sin_cambios += 1
                 continue
 
             marcadores = ",".join("?" for _ in COLUMNAS_FUENTE)
@@ -428,8 +590,16 @@ def sincronizar(
         duplicados = conexion.execute(
             "SELECT COUNT(*) FROM (SELECT id FROM licitaciones GROUP BY id HAVING COUNT(*) > 1)"
         ).fetchone()[0]
+        cuarentena_total = conexion.execute(
+            "SELECT COUNT(*) FROM cuarentena_licitaciones"
+        ).fetchone()[0]
+    conexion.close()
 
     ahora = datetime.now(ZoneInfo("Europe/Madrid")).isoformat()
+    conciliados = (
+        insertadas + actualizadas + sin_cambios
+        + versiones_anteriores + descartadas
+    )
     resultado = {
         "modo": "auditoria_anual" if desde_inicio else "incremental",
         "sincronizado_en": ahora,
@@ -441,8 +611,19 @@ def sincronizar(
         "ids_revisados": len(ultimas),
         "insertadas": insertadas,
         "actualizadas": actualizadas,
+        "sin_cambios": sin_cambios,
+        "versiones_anteriores_ignoradas": versiones_anteriores,
+        "ubicaciones_heredadas": ubicaciones_heredadas,
         "bajas": bajas_aplicadas,
         "descartadas_filtro": descartadas,
+        "descartadas_por_motivo": dict(sorted(motivos_descarte.items())),
+        "cuarentena_revisada": cuarentena_revisada,
+        "cuarentena_total": cuarentena_total,
+        "conciliacion": {
+            "ids_revisados": len(ultimas),
+            "ids_conciliados": conciliados,
+            "cuadra": conciliados == len(ultimas),
+        },
         "total": total,
         "duplicados": duplicados,
         "feed_menores_actualizado": fecha_feed_menores,

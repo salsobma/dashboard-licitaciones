@@ -79,6 +79,7 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
+          import json
           import sqlite3
 
           with sqlite3.connect("licitaciones.db") as conexion:
@@ -87,8 +88,27 @@ jobs:
                   "SELECT COUNT(*) FROM ("
                   "SELECT id FROM licitaciones GROUP BY id HAVING COUNT(*) > 1)"
               ).fetchone()[0]
-          print({"total": total, "duplicados": duplicados})
-          if total == 0 or duplicados:
+              integridad = conexion.execute("PRAGMA integrity_check").fetchone()[0]
+              cuarentena = conexion.execute(
+                  "SELECT COUNT(*) FROM cuarentena_licitaciones"
+              ).fetchone()[0]
+          metadata = json.loads(open("sync_metadata.json", encoding="utf-8").read())
+          resultado = metadata.get("feed_incremental_ultima_ejecucion", {})
+          conciliacion = resultado.get("conciliacion", {})
+          print({
+              "total": total,
+              "duplicados": duplicados,
+              "integridad": integridad,
+              "cuarentena": cuarentena,
+              "conciliacion": conciliacion,
+              "descartadas_por_motivo": resultado.get("descartadas_por_motivo", {}),
+          })
+          if (
+              total == 0
+              or duplicados
+              or integridad != "ok"
+              or not conciliacion.get("cuadra")
+          ):
               raise SystemExit("La base sincronizada no supera la validacion.")
           PY
 

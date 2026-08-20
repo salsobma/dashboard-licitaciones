@@ -4,18 +4,19 @@ import argparse
 import json
 import sqlite3
 import xml.etree.ElementTree as ET
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from feed_parser import NAMESPACES, fila_desde_entrada, texto_xml
+from feed_parser import NAMESPACES, fila_desde_entrada
 from sincronizar_licitaciones import (
     COLUMNAS_FUENTE,
     DB_PATH,
+    MOTIVOS_CUARENTENA,
     cargar_maestro,
-    clave_texto,
-    codigo_postal,
-    enriquecer_y_filtrar,
+    evaluar_y_enriquecer,
+    guardar_cuarentena,
     inicializar_esquema,
     valor_sqlite,
 )
@@ -42,10 +43,8 @@ def entradas_atom(ruta: Path):
             elemento.clear()
 
 
-def entrada_candidata(
-    entrada: ET.Element, maestro: dict[str, dict[str, object]]
-) -> bool:
-    """Descarta pronto el grueso del feed antes de extraer todos sus campos."""
+def motivo_descarte_preliminar(entrada: ET.Element) -> str | None:
+    """Evita extraer todos los campos de entradas claramente fuera de alcance."""
     status = entrada.find("cac-place-ext:ContractFolderStatus", NAMESPACES)
     proyecto = (
         status.find("cac:ProcurementProject", NAMESPACES)
@@ -53,36 +52,19 @@ def entrada_candidata(
         else None
     )
     if proyecto is None:
-        return False
-    cpvs = (
+        return "estructura_incompleta"
+    cpvs = [
         (nodo.text or "").strip()
         for nodo in proyecto.findall(
             "cac:RequiredCommodityClassification/cbc:ItemClassificationCode",
             NAMESPACES,
         )
-    )
+    ]
+    if not any(cpvs):
+        return "sin_cpv"
     if not any(cpv.startswith("71") for cpv in cpvs):
-        return False
-
-    provincia = clave_texto(
-        texto_xml(proyecto, "cac:RealizedLocation/cbc:CountrySubentity")
-    )
-    if provincia in {"alicante", "castellon", "castello", "valencia"}:
-        return True
-
-    cp = codigo_postal(
-        texto_xml(proyecto, "cac:RealizedLocation/cac:Address/cbc:PostalZone")
-    )
-    if not cp:
-        party = status.find(
-            "cac-place-ext:LocatedContractingParty/cac:Party", NAMESPACES
-        )
-        cp = codigo_postal(texto_xml(party, "cac:PostalAddress/cbc:PostalZone"))
-    ubicacion = maestro.get(cp)
-    return bool(
-        ubicacion
-        and "valenc" in clave_texto(ubicacion.get("comunidad_autonoma"))
-    )
+        return "cpv_fuera_71"
+    return None
 
 
 def ingestar(
@@ -114,28 +96,48 @@ def ingestar(
     validas = 0
     descartadas = 0
     errores = 0
+    motivos_descarte: Counter[str] = Counter()
+    revisado_en = datetime.now(ZoneInfo("Europe/Madrid")).isoformat()
     with sqlite3.connect(db_path) as conexion:
         inicializar_esquema(conexion)
         if reemplazar:
             conexion.execute("DELETE FROM licitaciones WHERE origen = ?", (ORIGEN,))
+            conexion.execute(
+                "DELETE FROM cuarentena_licitaciones WHERE origen = ?", (ORIGEN,)
+            )
             conexion.commit()
 
         for indice, archivo in enumerate(archivos, start=1):
             try:
                 for entrada in entradas_atom(archivo):
                     leidas += 1
-                    if not entrada_candidata(entrada, maestro):
+                    motivo_preliminar = motivo_descarte_preliminar(entrada)
+                    if motivo_preliminar:
                         descartadas += 1
+                        motivos_descarte[motivo_preliminar] += 1
                         continue
                     fila = fila_desde_entrada(entrada)
                     if fila is None:
                         errores += 1
+                        motivos_descarte["estructura_incompleta"] += 1
                         continue
                     fila["origen"] = ORIGEN
-                    fila = enriquecer_y_filtrar(fila, maestro)
-                    if fila is None:
+                    fila_evaluada, motivo = evaluar_y_enriquecer(fila, maestro)
+                    if fila_evaluada is None:
                         descartadas += 1
+                        motivo = motivo or "motivo_desconocido"
+                        motivos_descarte[motivo] += 1
+                        if motivo in MOTIVOS_CUARENTENA:
+                            guardar_cuarentena(
+                                conexion, fila, motivo, revisado_en
+                            )
                         continue
+                    fila = fila_evaluada
+                    conexion.execute(
+                        "DELETE FROM cuarentena_licitaciones "
+                        "WHERE id = ? AND origen = ?",
+                        (fila["id"], ORIGEN),
+                    )
                     valores = tuple(
                         valor_sqlite(fila.get(columna))
                         for columna in COLUMNAS_FUENTE
@@ -184,14 +186,26 @@ def ingestar(
             "AND comunidad_autonoma NOT LIKE '%Valenc%'",
             (ORIGEN,),
         ).fetchone()[0]
+        cuarentena_total = conexion.execute(
+            "SELECT COUNT(*) FROM cuarentena_licitaciones WHERE origen = ?",
+            (ORIGEN,),
+        ).fetchone()[0]
 
+    conciliadas = validas + descartadas + errores
     return {
         "finalizado_en": datetime.now(ZoneInfo("Europe/Madrid")).isoformat(),
         "archivos": len(archivos),
         "entradas_leidas": leidas,
         "entradas_validas": validas,
         "entradas_descartadas": descartadas,
+        "descartadas_por_motivo": dict(sorted(motivos_descarte.items())),
         "entradas_sin_datos": errores,
+        "cuarentena_total": cuarentena_total,
+        "conciliacion": {
+            "entradas_leidas": leidas,
+            "entradas_conciliadas": conciliadas,
+            "cuadra": conciliadas == leidas,
+        },
         "contratos_menores": total,
         "duplicados": duplicados,
         "fuera_cpv_71": fuera_cpv,
@@ -210,11 +224,22 @@ def main() -> None:
         action="store_true",
         help="Elimina antes los contratos menores existentes.",
     )
+    parser.add_argument(
+        "--informe",
+        type=Path,
+        default=Path(__file__).with_name("auditoria_contratos_menores.json"),
+        help="Ruta del informe JSON de cobertura.",
+    )
     args = parser.parse_args()
     resultado = ingestar(
         args.db.resolve(),
         [directorio.resolve() for directorio in args.directorios],
         reemplazar=args.reemplazar,
+    )
+    informe = args.informe.resolve()
+    informe.write_text(
+        json.dumps(resultado, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
     print(json.dumps(resultado, ensure_ascii=False, indent=2))
 

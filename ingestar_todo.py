@@ -52,6 +52,7 @@ def inicializar_db(db_path=DB_PATH):
         codigo_postal TEXT,
         municipio TEXT,
         provincia TEXT,
+        codigo_nuts TEXT,
         comunidad_autonoma TEXT,
         latitud REAL,
         longitud REAL,
@@ -83,6 +84,8 @@ def inicializar_db(db_path=DB_PATH):
         cursor.execute("ALTER TABLE licitaciones ADD COLUMN importe_adjudicacion_sin_iva REAL")
     if 'importe_adjudicacion_con_iva' not in cols:
         cursor.execute("ALTER TABLE licitaciones ADD COLUMN importe_adjudicacion_con_iva REAL")
+    if 'codigo_nuts' not in cols:
+        cursor.execute("ALTER TABLE licitaciones ADD COLUMN codigo_nuts TEXT")
         
     conn.commit()
     conn.close()
@@ -176,7 +179,7 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
                 titulo, tipo_contrato = None, None
                 pbl_sin_iva, pbl_con_iva, valor_estimado = None, None, None
                 cpvs = []
-                codigo_postal, municipio, provincia, ccaa = None, None, None, None
+                codigo_postal, municipio, provincia, codigo_nuts, ccaa = None, None, None, None, None
                 latitud, longitud = None, None
                 
                 if project_node is not None:
@@ -215,6 +218,10 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
 
                     if not provincia:
                         provincia = find_text(project_node, 'cac:RealizedLocation/cbc:CountrySubentity')
+                    codigo_nuts = find_text(
+                        project_node,
+                        'cac:RealizedLocation/cbc:CountrySubentityCode',
+                    )
 
                 fecha_limite = find_text(status_node, 'cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndDate')
                 hora_limite = find_text(status_node, 'cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndTime')
@@ -248,11 +255,11 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
                 INSERT INTO licitaciones (
                     id, id_licitacion_corta, expediente, titulo, organo_contratante, tipo_contrato, estado,
                     pbl_sin_iva, pbl_con_iva, valor_estimado, cpv, codigo_postal,
-                    municipio, provincia, comunidad_autonoma, latitud, longitud, fecha_limite, fecha_actualizacion,
+                    municipio, provincia, codigo_nuts, comunidad_autonoma, latitud, longitud, fecha_limite, fecha_actualizacion,
                     adjudicatario, fecha_adjudicacion, importe_adjudicacion_sin_iva,
                     importe_adjudicacion_con_iva,
                     url_licitacion, documentos_adjuntos
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     estado=excluded.estado,
                     fecha_actualizacion=excluded.fecha_actualizacion,
@@ -266,6 +273,7 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
                     importe_adjudicacion_con_iva=excluded.importe_adjudicacion_con_iva,
                     municipio=excluded.municipio,
                     provincia=excluded.provincia,
+                    codigo_nuts=excluded.codigo_nuts,
                     comunidad_autonoma=excluded.comunidad_autonoma,
                     latitud=excluded.latitud,
                     longitud=excluded.longitud,
@@ -280,7 +288,7 @@ def procesar_todos_los_atoms(db_path=DB_PATH):
                 """, (
                     lic_id, id_corta, expediente, titulo, organo, tipo_contrato, estado,
                     pbl_sin_iva, pbl_con_iva, valor_estimado, ",".join(cpvs),
-                    codigo_postal, municipio, provincia, ccaa, latitud, longitud, fecha_limite, fecha_act,
+                    codigo_postal, municipio, provincia, codigo_nuts, ccaa, latitud, longitud, fecha_limite, fecha_act,
                     adjudicatario, fecha_adjudicacion, importe_adjudicacion_sin_iva,
                     importe_adjudicacion_con_iva,
                     url_licitacion, json.dumps(documentos, ensure_ascii=False)

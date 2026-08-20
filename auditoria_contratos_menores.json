@@ -1,0 +1,25 @@
+{
+  "finalizado_en": "2026-08-20T18:58:58.801778+02:00",
+  "archivos": 1779,
+  "entradas_leidas": 886562,
+  "entradas_validas": 5021,
+  "entradas_descartadas": 881541,
+  "descartadas_por_motivo": {
+    "adjudicacion_anterior_2025": 751,
+    "cpv_fuera_71": 437466,
+    "fuera_comunitat_valenciana": 20612,
+    "sin_adjudicatario": 11,
+    "sin_cpv": 422701
+  },
+  "entradas_sin_datos": 0,
+  "cuarentena_total": 9,
+  "conciliacion": {
+    "entradas_leidas": 886562,
+    "entradas_conciliadas": 886562,
+    "cuadra": true
+  },
+  "contratos_menores": 4913,
+  "duplicados": 0,
+  "fuera_cpv_71": 0,
+  "fuera_comunitat_valenciana": 0
+}

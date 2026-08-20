@@ -168,6 +168,9 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "codigo_postal": codigo_postal,
         "municipio": municipio,
         "provincia": texto_xml(proyecto, "cac:RealizedLocation/cbc:CountrySubentity"),
+        "codigo_nuts": texto_xml(
+            proyecto, "cac:RealizedLocation/cbc:CountrySubentityCode"
+        ),
         "comunidad_autonoma": None,
         "latitud": None,
         "longitud": None,
