@@ -1731,7 +1731,7 @@ filtros_son_menores = (
     vista_filtros == "🧾 Contratos menores"
     or fuente_secundaria == "🧾 Contratos menores"
 )
-estados_previos = set(st.session_state.get("f_estado", ["PUB"]) or [])
+estados_previos = set(st.session_state.get("f_estado", []) or [])
 filtros_son_adjudicacion = filtros_son_menores or (
     bool(estados_previos) and estados_previos <= {"ADJ", "RES"}
 )
@@ -1770,23 +1770,25 @@ contexto_filtros = (
 if st.session_state.get("contexto_filtros") != contexto_filtros:
     st.session_state["contexto_filtros"] = contexto_filtros
     st.session_state["f_pbl_min"] = 0.0
-    st.session_state["f_pbl_max"] = min(200000.0, max_pbl_db)
-    st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
+    st.session_state["f_pbl_max"] = max_pbl_db
+    st.session_state["f_fecha"] = (f_min_db, f_max_db)
 
 if "f_cpv" not in st.session_state:
-    st.session_state["f_cpv"] = "71"
+    st.session_state["f_cpv"] = ""
 if "f_estado" not in st.session_state:
-    st.session_state["f_estado"] = ["PUB"]
+    st.session_state["f_estado"] = []
 if "f_ccaa" not in st.session_state:
-    st.session_state["f_ccaa"] = ["Comunitat Valenciana"]
+    st.session_state["f_ccaa"] = []
+if "f_pbl_min" not in st.session_state:
+    st.session_state["f_pbl_min"] = 0.0
 if "f_pbl_max" not in st.session_state:
-    st.session_state["f_pbl_max"] = 200000.0
+    st.session_state["f_pbl_max"] = max_pbl_db
 if "f_fecha" not in st.session_state:
-    st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
+    st.session_state["f_fecha"] = (f_min_db, f_max_db)
 
 st.sidebar.title("🎛️ Filtros Avanzados")
 
-if st.sidebar.button("🗑️ Quitar filtros", use_container_width=True):
+if st.sidebar.button("🗑️ Quitar todos los filtros", use_container_width=True):
     st.session_state["f_texto"] = ""
     st.session_state["f_tipo"] = []
     st.session_state["f_cpv"] = ""
@@ -1801,17 +1803,20 @@ if st.sidebar.button("🗑️ Quitar filtros", use_container_width=True):
     st.session_state["f_adjudicatario"] = []
     st.rerun()
 
-if st.sidebar.button("↩️ Filtros iniciales", use_container_width=True):
+if st.sidebar.button(
+    "⚡ Licitaciones en plazo · PBL < 200.000 €",
+    use_container_width=True,
+):
     st.session_state["f_texto"] = ""
     st.session_state["f_tipo"] = []
-    st.session_state["f_cpv"] = "71"
+    st.session_state["f_cpv"] = ""
     st.session_state["f_estado"] = ["PUB"]
-    st.session_state["f_ccaa"] = ["Comunitat Valenciana"]
+    st.session_state["f_ccaa"] = []
     st.session_state["f_prov"] = []
     st.session_state["f_muni"] = []
     st.session_state["f_pbl_min"] = 0.0
-    st.session_state["f_pbl_max"] = 200000.0
-    st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
+    st.session_state["f_pbl_max"] = min(200000.0, max_pbl_db)
+    st.session_state["f_fecha"] = (f_min_db, f_max_db)
     st.session_state["f_organo"] = []
     st.session_state["f_adjudicatario"] = []
     st.rerun()
@@ -1838,7 +1843,9 @@ muni_sel = st.sidebar.multiselect("🏙️ Municipio:", muni_list, key="f_muni")
 
 st.sidebar.markdown(f"💶 **{etiqueta_importe_filtro} (€):**")
 pbl_min_val = st.sidebar.number_input("Mínimo €", min_value=0.0, step=10000.0, key="f_pbl_min")
-pbl_max_val = st.sidebar.number_input("Máximo €", min_value=0.0, value=200000.0, step=50000.0, key="f_pbl_max")
+pbl_max_val = st.sidebar.number_input(
+    "Máximo €", min_value=0.0, step=50000.0, key="f_pbl_max"
+)
 
 if not fechas_validas.empty:
     fecha_rango = st.sidebar.date_input(
@@ -2270,6 +2277,7 @@ if pbl_min_val > 0 or pbl_max_val < max_pbl_db:
 if (
     fecha_rango
     and len(fecha_rango) == 2
+    and (fecha_rango[0], fecha_rango[1]) != (f_min_db, f_max_db)
 ):
     filtros_activos.append(
         f'{etiqueta_fecha_filtro}: {fecha_rango[0].strftime("%d/%m/%Y")} '
