@@ -20,5 +20,7 @@
   "licitaciones_ordinarias": 3465,
   "duplicados": 0,
   "fuera_cpv_71": 0,
-  "fuera_comunitat_valenciana": 0
+  "fuera_comunitat_valenciana": 0,
+  "fechas_resolucion_oficiales": 2880,
+  "cierres_con_fecha_actualizacion_de_respaldo": 16
 }

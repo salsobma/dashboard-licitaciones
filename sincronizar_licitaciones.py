@@ -67,6 +67,7 @@ COLUMNAS_FUENTE = (
     "longitud",
     "fecha_limite",
     "fecha_publicacion",
+    "fecha_resolucion",
     "fecha_actualizacion",
     "adjudicatario",
     "fecha_adjudicacion",
@@ -348,6 +349,7 @@ def inicializar_esquema(conexion: sqlite3.Connection) -> None:
     columnas = {fila[1] for fila in conexion.execute("PRAGMA table_info(licitaciones)")}
     migraciones = {
         "fecha_publicacion": "TEXT",
+        "fecha_resolucion": "TEXT",
         "importe_adjudicacion_sin_iva": "REAL",
         "codigo_nuts": "TEXT",
         "contrato_id": "TEXT",

@@ -11,6 +11,7 @@ from feed_parser import (
     bajas_desde_pagina,
     extraer_resultados,
     extraer_resultados_lotes,
+    extraer_fecha_resolucion,
 )
 import xml.etree.ElementTree as ET
 
@@ -38,6 +39,18 @@ def fila_base(lic_id: str) -> dict[str, object]:
 
 
 class SincronizacionAuditableTest(unittest.TestCase):
+    def test_fecha_resolucion_usa_el_anuncio_oficial(self):
+        status = ET.fromstring(
+            f'''<ContractFolderStatus
+                xmlns:pe="{NAMESPACES["cac-place-ext"]}"
+                xmlns:pbe="{NAMESPACES["cbc-place-ext"]}"
+                xmlns:cbc="{NAMESPACES["cbc"]}">
+                <pe:ValidNoticeInfo><pbe:NoticeTypeCode>DOC_CN</pbe:NoticeTypeCode><cbc:IssueDate>2025-01-02</cbc:IssueDate></pe:ValidNoticeInfo>
+                <pe:ValidNoticeInfo><pbe:NoticeTypeCode>DESISTIMIENTO</pbe:NoticeTypeCode><cbc:IssueDate>2026-03-04</cbc:IssueDate></pe:ValidNoticeInfo>
+            </ContractFolderStatus>'''
+        )
+        self.assertEqual(extraer_fecha_resolucion(status), "2026-03-04")
+
     def test_resultados_por_lote_se_conservan(self):
         status = ET.fromstring(
             f'''<ContractFolderStatus xmlns:cac="{NAMESPACES["cac"]}"

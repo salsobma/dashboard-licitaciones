@@ -173,6 +173,31 @@ def extraer_fecha_publicacion(status: ET.Element) -> str | None:
     return min(candidatas) if candidatas else None
 
 
+def extraer_fecha_resolucion(status: ET.Element) -> str | None:
+    """Fecha oficial del anuncio que resuelve o termina el procedimiento."""
+    tipos_resolucion = {
+        "DOC_CAN_ADJ", "DOC_FORM", "DOC_DESC", "DESISTIMIENTO", "RENUNCIA"
+    }
+    fechas = []
+    for aviso in status.iter():
+        if aviso.tag.rsplit("}", 1)[-1] != "ValidNoticeInfo":
+            continue
+        codigos = {
+            (nodo.text or "").strip()
+            for nodo in aviso.iter()
+            if nodo.tag.rsplit("}", 1)[-1] == "NoticeTypeCode"
+        }
+        if not codigos.intersection(tipos_resolucion):
+            continue
+        fechas.extend(
+            (nodo.text or "").strip()
+            for nodo in aviso.iter()
+            if nodo.tag.rsplit("}", 1)[-1] in {"IssueDate", "NoticeIssueDate"}
+            and (nodo.text or "").strip()
+        )
+    return max(fechas) if fechas else None
+
+
 def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
     lic_id = texto_xml(entrada, "atom:id")
     enlace = entrada.find("atom:link", NAMESPACES)
@@ -263,6 +288,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "longitud": None,
         "fecha_limite": fecha_limite,
         "fecha_publicacion": extraer_fecha_publicacion(status),
+        "fecha_resolucion": extraer_fecha_resolucion(status),
         "fecha_actualizacion": texto_xml(entrada, "atom:updated"),
         "adjudicatario": adjudicatario,
         "fecha_adjudicacion": fecha_adjudicacion,

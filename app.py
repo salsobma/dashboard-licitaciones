@@ -28,6 +28,7 @@ from google.genai import types
 from feed_parser import (
     extraer_adjudicacion,
     extraer_cpvs,
+    extraer_fecha_resolucion,
     extraer_ubicacion,
 )
 
@@ -1186,6 +1187,31 @@ def normalizar_estado_vigente(tabla):
             return tuple(dict.fromkeys(categorias_res))
         return ("OTROS",)
     resultado["categorias_estado"] = resultado.apply(categorias, axis=1)
+    def anio_de(valor):
+        fecha = pd.to_datetime(valor, errors="coerce")
+        return int(fecha.year) if pd.notna(fecha) else None
+
+    def anio_relevante(fila):
+        if fila.get("origen") == "contrato_menor":
+            candidatos = (
+                fila.get("fecha_adjudicacion"), fila.get("fecha_formalizacion"),
+                fila.get("fecha_inicio_contrato"), fila.get("fecha_actualizacion"),
+            )
+        elif fila.get("estado") in {"PUB", "PUB_SF", "EV", "VENC", "PRE"}:
+            candidatos = (fila.get("fecha_publicacion"), fila.get("fecha_actualizacion"))
+        elif fila.get("estado") == "ADJ":
+            candidatos = (
+                fila.get("fecha_adjudicacion"), fila.get("fecha_formalizacion"),
+                fila.get("fecha_resolucion"), fila.get("fecha_actualizacion"),
+            )
+        else:
+            candidatos = (
+                fila.get("fecha_resolucion"), fila.get("fecha_actualizacion"),
+                fila.get("fecha_publicacion"),
+            )
+        return next((anio for anio in map(anio_de, candidatos) if anio), None)
+
+    resultado["anio_relevante"] = resultado.apply(anio_relevante, axis=1)
     return resultado
 
 FEED_RECIENTE_URLS = (
@@ -1560,6 +1586,7 @@ def _fila_desde_entrada_feed(entrada):
         "longitud": None,
         "fecha_limite": fecha_limite,
         "fecha_actualizacion": _texto_xml(entrada, "atom:updated"),
+        "fecha_resolucion": extraer_fecha_resolucion(status),
         "adjudicatario": adjudicatario,
         "fecha_adjudicacion": fecha_adjudicacion,
         "importe_adjudicacion_sin_iva": importe_adjudicacion_sin_iva,
@@ -1926,6 +1953,8 @@ if "f_cpv" not in st.session_state:
     st.session_state["f_cpv"] = ""
 if "f_estado" not in st.session_state:
     st.session_state["f_estado"] = []
+if "f_anio" not in st.session_state:
+    st.session_state["f_anio"] = []
 if "f_ccaa" not in st.session_state:
     st.session_state["f_ccaa"] = []
 if "f_pbl_min" not in st.session_state:
@@ -1942,6 +1971,7 @@ if st.sidebar.button("🗑️ Quitar todos los filtros", use_container_width=Tru
     st.session_state["f_tipo"] = []
     st.session_state["f_cpv"] = ""
     st.session_state["f_estado"] = []
+    st.session_state["f_anio"] = []
     st.session_state["f_ccaa"] = []
     st.session_state["f_prov"] = []
     st.session_state["f_muni"] = []
@@ -1960,6 +1990,7 @@ if st.sidebar.button(
     st.session_state["f_tipo"] = []
     st.session_state["f_cpv"] = ""
     st.session_state["f_estado"] = ["PUB"]
+    st.session_state["f_anio"] = []
     st.session_state["f_ccaa"] = []
     st.session_state["f_prov"] = []
     st.session_state["f_muni"] = []
@@ -1979,6 +2010,13 @@ cpv_2dig = st.sidebar.text_input("🏷️ CPV (2 dígitos):", max_chars=2, key="
 
 opciones_estado = CATEGORIAS_ESTADO
 estados_sel = st.sidebar.multiselect("📌 Estado:", list(opciones_estado.keys()), format_func=lambda x: opciones_estado[x], key="f_estado")
+anios_disponibles = sorted(
+    int(anio) for anio in df_catalogo_filtros.get(
+        "anio_relevante", pd.Series(dtype="float64")
+    ).dropna().unique()
+    if 2025 <= int(anio) <= date.today().year
+)
+anios_sel = st.sidebar.multiselect("📅 Año:", anios_disponibles, key="f_anio")
 
 ccaa_list = sorted([x for x in df_catalogo_filtros['comunidad_autonoma'].dropna().unique() if x])
 ccaa_sel = st.sidebar.multiselect("🗺️ Comunidad Autónoma:", ccaa_list, key="f_ccaa")
@@ -2024,6 +2062,8 @@ if estados_sel:
     df_f = df_f[df_f['categorias_estado'].apply(
         lambda categorias: bool(seleccion_estado.intersection(categorias))
     )]
+if anios_sel:
+    df_f = df_f[df_f["anio_relevante"].isin(anios_sel)]
 if tipo_sel: df_f = df_f[df_f['tipo_contrato_desc'].isin(tipo_sel)]
 importe_licitacion = pd.to_numeric(
     df_f[columna_importe_filtro], errors="coerce"
@@ -2071,6 +2111,8 @@ if filtros_son_menores and fecha_rango and len(fecha_rango) == 2:
             df_menores_f["fecha_adjudicacion"], fecha_rango[0], fecha_rango[1]
         )
     ]
+if anios_sel:
+    df_menores_f = df_menores_f[df_menores_f["anio_relevante"].isin(anios_sel)]
 if ccaa_sel:
     df_menores_f = df_menores_f[df_menores_f['comunidad_autonoma'].isin(ccaa_sel)]
 if prov_sel:
@@ -2125,6 +2167,8 @@ def aplicar_filtros_al_feed(df_entrada):
         filtrado = filtrado[filtrado["categorias_estado"].apply(
             lambda categorias: bool(seleccion_estado.intersection(categorias))
         )]
+    if anios_sel:
+        filtrado = filtrado[filtrado["anio_relevante"].isin(anios_sel)]
     if tipo_sel:
         filtrado = filtrado[filtrado["tipo_contrato_desc"].isin(tipo_sel)]
     filtrado = filtrado[
@@ -2413,6 +2457,8 @@ if tipo_sel: filtros_activos.append('Tipo: ' + ', '.join(tipo_sel))
 if cpv_2dig.strip(): filtros_activos.append('CPV: ' + cpv_2dig.strip())
 if estados_sel and not vista_datos_menores:
     filtros_activos.append('Estado: ' + ', '.join(opciones_estado[e] for e in estados_sel))
+if anios_sel:
+    filtros_activos.append('Año: ' + ', '.join(str(anio) for anio in anios_sel))
 if ccaa_sel: filtros_activos.append('CC. AA.: ' + ', '.join(ccaa_sel))
 if prov_sel: filtros_activos.append('Provincia: ' + ', '.join(prov_sel))
 if muni_sel: filtros_activos.append('Municipio: ' + ', '.join(muni_sel))
