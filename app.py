@@ -834,6 +834,8 @@ st.markdown("""
 
 MAPA_ESTADOS = {
     'PUB': ('En plazo', 'badge-pub'),
+    'VENC': ('Plazo vencido · pendiente de actualizar', 'badge-ev'),
+    'PUB_SF': ('Publicada · fecha límite no disponible', 'badge-res'),
     'PRE': ('Anuncio previo', 'badge-res'),
     'EV':  ('Evaluación', 'badge-ev'),
     'ADJ': ('Adjudicada', 'badge-adj'),
@@ -1069,11 +1071,26 @@ def texto_antiguedad(valor):
     return f"Hace {dias} días"
 
 def normalizar_estado_vigente(tabla):
-    """Conserva sin reinterpretar el estado oficial publicado en el ATOM."""
+    """Evita presentar como en plazo una publicación cuya fecha ya venció."""
     resultado = tabla.copy()
     if resultado.empty or "estado" not in resultado.columns:
         return resultado
     resultado["estado_fuente"] = resultado["estado"]
+    publicadas = resultado["estado_fuente"].eq("PUB")
+    textos_fecha = resultado.get(
+        "fecha_limite", pd.Series(index=resultado.index, dtype="object")
+    ).fillna("").astype(str).str.strip()
+    # Si la fuente publica solo el día, se considera vigente hasta finalizarlo.
+    textos_fecha = textos_fecha.where(
+        textos_fecha.str.len() > 10, textos_fecha + " 23:59:59"
+    )
+    fechas_limite = pd.to_datetime(textos_fecha, errors="coerce")
+    ahora_local = pd.Timestamp.now(tz="Europe/Madrid").tz_localize(None)
+    resultado.loc[publicadas & fechas_limite.isna(), "estado"] = "PUB_SF"
+    resultado.loc[
+        publicadas & fechas_limite.notna() & (fechas_limite < ahora_local),
+        "estado",
+    ] = "VENC"
     return resultado
 
 FEED_RECIENTE_URLS = (
