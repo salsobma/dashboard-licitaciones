@@ -191,6 +191,9 @@ def ingestar(
         ).fetchone()[0]
 
     conciliadas = validas + descartadas + errores
+    clave_total = (
+        "contratos_menores" if origen == ORIGEN else "licitaciones_ordinarias"
+    )
     return {
         "finalizado_en": datetime.now(ZoneInfo("Europe/Madrid")).isoformat(),
         "archivos": len(archivos),
@@ -205,7 +208,7 @@ def ingestar(
             "entradas_conciliadas": conciliadas,
             "cuadra": conciliadas == leidas,
         },
-        "contratos_menores": total,
+        clave_total: total,
         "duplicados": duplicados,
         "fuera_cpv_71": fuera_cpv,
         "fuera_comunitat_valenciana": fuera_cv,

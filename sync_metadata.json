@@ -36,5 +36,7 @@
     "versiones_menores_leidas": 3358
   },
   "feed_menores_actualizado_hasta": "2026-08-20T03:05:28.357+02:00",
-  "feed_menores_sincronizado_en": "2026-08-20T22:04:27.036243+02:00"
+  "feed_menores_sincronizado_en": "2026-08-20T22:04:27.036243+02:00",
+  "historico_licitaciones_2025_cargado": true,
+  "historico_licitaciones_2025_cargado_en": "2026-08-21T00:45:57.318472+02:00"
 }

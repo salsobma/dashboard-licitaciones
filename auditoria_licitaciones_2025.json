@@ -1,0 +1,24 @@
+{
+  "finalizado_en": "2026-08-21T00:45:57.318472+02:00",
+  "archivos": 1398,
+  "entradas_leidas": 693088,
+  "entradas_validas": 9037,
+  "entradas_descartadas": 684051,
+  "descartadas_por_motivo": {
+    "actualizacion_anterior_inicio_base": 187,
+    "cpv_fuera_71": 631373,
+    "fuera_comunitat_valenciana": 48141,
+    "sin_cpv": 4350
+  },
+  "entradas_sin_datos": 0,
+  "cuarentena_total": 0,
+  "conciliacion": {
+    "entradas_leidas": 693088,
+    "entradas_conciliadas": 693088,
+    "cuadra": true
+  },
+  "licitaciones_ordinarias": 3465,
+  "duplicados": 0,
+  "fuera_cpv_71": 0,
+  "fuera_comunitat_valenciana": 0
+}
