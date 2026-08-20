@@ -16,7 +16,20 @@ intentos. El tiempo máximo del proceso es de 30 minutos.
 
 El dashboard lee el snapshot local y mantiene la consulta directa anterior
 únicamente como respaldo para un despliegue que todavía no tenga snapshot. La
-base histórica `licitaciones.db` y la interfaz no se modifican.
+base histórica `licitaciones.db` y la interfaz no se modifican desde ese
+snapshot auxiliar.
+
+La base principal se sincroniza cuatro veces al día mediante el flujo
+**Sincronizar radar de licitaciones**. Cada domingo se ejecuta además una
+auditoría completa: licitaciones ordinarias desde el 1 de enero de 2025 y
+contratos menores desde el 1 de enero de 2025. Las fechas están configuradas
+independientemente para que cada fuente se revise hasta el inicio de su base.
+
+Mientras el histórico ordinario 2025 no esté cargado, la auditoría dominical
+reintenta automáticamente la descarga del ZIP oficial. Una respuesta HTML del
+cortafuegos nunca se acepta como ZIP ni altera la base. Cuando la descarga
+funcione, los registros se concilian por identificador y fecha sin reemplazar
+las novedades más recientes.
 
 La tarea también puede ejecutarse manualmente desde la pestaña **Actions** del
 repositorio mediante el flujo **Actualizar feed reciente**.

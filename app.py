@@ -25,7 +25,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from google import genai
 from google.genai import types
-from feed_parser import extraer_adjudicacion
+from feed_parser import extraer_adjudicacion, extraer_cpvs, extraer_ubicacion
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -60,7 +60,8 @@ components.html("""
 
 
 # --- RUTA DE LA BASE DE DATOS ADAPTADA (LOCAL Y NUBE) ---
-DB_PATH = os.getenv("LICITACIONES_DB_PATH", "licitaciones.db")
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = os.getenv("LICITACIONES_DB_PATH", str(BASE_DIR / "licitaciones.db"))
 
 # --- ACCESO PREMIUM Y FAVORITOS COMPARTIDOS ---
 def _secreto(nombre, defecto=""):
@@ -834,7 +835,7 @@ st.markdown("""
 MAPA_ESTADOS = {
     'PUB': ('En plazo', 'badge-pub'),
     'PRE': ('Anuncio previo', 'badge-res'),
-    'EV':  ('Pendiente de adjudicación', 'badge-ev'),
+    'EV':  ('Evaluación', 'badge-ev'),
     'ADJ': ('Adjudicada', 'badge-adj'),
     'RES': ('Resuelta', 'badge-res'),
     'ANUL': ('Anulada', 'badge-res'),
@@ -1343,6 +1344,9 @@ def _fila_desde_entrada_feed(entrada):
         fecha_adjudicacion,
         importe_adjudicacion_sin_iva,
         importe_adjudicacion_con_iva,
+        contrato_id,
+        fecha_formalizacion,
+        fecha_inicio_contrato,
     ) = extraer_adjudicacion(status)
 
     def numero(ruta):
@@ -1352,25 +1356,10 @@ def _fila_desde_entrada_feed(entrada):
         except (TypeError, ValueError):
             return None
 
-    codigo_postal = _texto_xml(
-        proyecto, "cac:RealizedLocation/cac:Address/cbc:PostalZone"
+    codigo_postal, municipio, provincia, codigo_nuts = extraer_ubicacion(
+        status, proyecto, party
     )
-    municipio = _texto_xml(
-        proyecto, "cac:RealizedLocation/cac:Address/cbc:CityName"
-    )
-    if not codigo_postal:
-        codigo_postal = _texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
-    if not municipio:
-        municipio = _texto_xml(party, "cac:PostalAddress/cbc:CityName")
-
-    cpvs = [
-        nodo.text.strip()
-        for nodo in proyecto.findall(
-            "cac:RequiredCommodityClassification/cbc:ItemClassificationCode",
-            NAMESPACES_ATOM,
-        )
-        if nodo.text
-    ]
+    cpvs = extraer_cpvs(status, proyecto)
     fecha_limite = _texto_xml(
         status,
         "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndDate",
@@ -1420,9 +1409,8 @@ def _fila_desde_entrada_feed(entrada):
         "cpv": ",".join(cpvs),
         "codigo_postal": codigo_postal,
         "municipio": municipio,
-        "provincia": _texto_xml(
-            proyecto, "cac:RealizedLocation/cbc:CountrySubentity"
-        ),
+        "provincia": provincia,
+        "codigo_nuts": codigo_nuts,
         "comunidad_autonoma": None,
         "latitud": None,
         "longitud": None,
@@ -1432,6 +1420,9 @@ def _fila_desde_entrada_feed(entrada):
         "fecha_adjudicacion": fecha_adjudicacion,
         "importe_adjudicacion_sin_iva": importe_adjudicacion_sin_iva,
         "importe_adjudicacion_con_iva": importe_adjudicacion_con_iva,
+        "contrato_id": contrato_id,
+        "fecha_formalizacion": fecha_formalizacion,
+        "fecha_inicio_contrato": fecha_inicio_contrato,
         "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
         "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
         "resumen_ia": None,
@@ -2034,6 +2025,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.info(
+    "🧪 **Versión beta:** esta plataforma se encuentra en fase de pruebas. "
+    "Si observas alguna diferencia respecto a la Plataforma de Contratación "
+    "del Sector Público, por favor, comunícanosla para que podamos revisarla "
+    "y seguir mejorando. Gracias por tu paciencia y comprensión."
+)
+
 sincronizacion_base = metadata_sincronizacion.get(
     "feed_incremental_sincronizado_en"
 ) or metadata_sincronizacion.get("historico_sincronizado_en")
@@ -2047,9 +2045,17 @@ st.caption(
     f"{formato_fecha(sincronizacion_base)}"
 )
 st.caption(
-    "**Última novedad registrada:** "
+    "**Última novedad incorporada en esta copia de la base:** "
     f"{formato_fecha(novedad_base)}"
 )
+if pd.notna(novedad_base):
+    antiguedad_novedad = pd.Timestamp.now(tz="UTC") - novedad_base
+    if antiguedad_novedad > pd.Timedelta(days=2):
+        st.warning(
+            "La copia local lleva más de 48 horas sin incorporar novedades "
+            "de licitaciones. La plataforma oficial puede contener información "
+            "más reciente; la sincronización automática seguirá reintentándolo."
+        )
 
 opciones_vista = [
     "📡 Radar de licitaciones",

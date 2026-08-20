@@ -31,6 +31,18 @@ def fila_base(lic_id: str) -> dict[str, object]:
 
 
 class SincronizacionAuditableTest(unittest.TestCase):
+    def test_auditoria_completa_empieza_en_inicio_de_cada_fuente(self):
+        for origen in ("perfil_plataforma", "contrato_menor"):
+            inicio = sync.INICIO_HISTORICO[origen]
+            with sqlite3.connect(":memory:") as conexion:
+                obtenido = sync.obtener_checkpoint(
+                    conexion,
+                    desde_inicio=True,
+                    inicio_historico=inicio,
+                    origen=origen,
+                )
+            self.assertEqual(obtenido, inicio)
+
     def test_nuts_herencia_cuarentena_y_conciliacion(self):
         with tempfile.TemporaryDirectory() as temporal:
             db_path = Path(temporal) / "prueba.db"

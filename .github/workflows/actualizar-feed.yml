@@ -27,7 +27,7 @@ concurrency:
 jobs:
   sincronizar:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
@@ -60,6 +60,11 @@ jobs:
             echo "argumento=" >> "$GITHUB_OUTPUT"
             echo "nombre=sincronizacion incremental" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Reintentar histórico de licitaciones 2025
+        if: steps.modo.outputs.argumento == '--desde-inicio'
+        continue-on-error: true
+        run: python importar_historico_licitaciones_2025.py
 
       - name: Ejecutar sincronizacion con reintentos
         shell: bash
@@ -117,13 +122,16 @@ jobs:
         env:
           RAMA_DESTINO: ${{ github.ref_name }}
         run: |
-          if [ -z "$(git status --porcelain -- licitaciones.db sync_metadata.json)" ]; then
+          if [ -z "$(git status --porcelain -- licitaciones.db sync_metadata.json auditoria_licitaciones_2025.json)" ]; then
             echo "No hay cambios que publicar."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- licitaciones.db sync_metadata.json
+          if [ -f auditoria_licitaciones_2025.json ]; then
+            git add -- auditoria_licitaciones_2025.json
+          fi
           git commit -m "Actualiza radar de licitaciones"
           for intento in 1 2 3; do
             git pull --rebase origin "$RAMA_DESTINO"

@@ -57,6 +57,12 @@ disponibles. Se leyeron y conciliaron 430.393 entradas. La base pasó de 1.650 a
 recuperaron 125 expedientes. Hay cero duplicados y cero registros ordinarios en
 cuarentena.
 
+Después se conciliaron las versiones más recientes ya obtenidas mediante el
+feed: se añadieron 18 expedientes y se actualizaron 73 sin perder los datos
+recuperados de los ATOM. Tras retirar 20 expedientes anteriores al comienzo
+acordado del histórico, la base ordinaria resultante contiene 1.773
+licitaciones y llega hasta el 19 de agosto de 2026.
+
 El detalle estructurado está disponible en `auditoria_licitaciones_2026.json`.
 
 ## Fechas contractuales recuperadas

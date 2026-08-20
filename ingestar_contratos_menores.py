@@ -67,6 +67,10 @@ def ingestar(
     reemplazar: bool = False,
     origen: str = ORIGEN,
 ) -> dict[str, object]:
+    if reemplazar and origen != ORIGEN:
+        raise ValueError(
+            "La carga histórica ordinaria debe conciliarse sin reemplazar la base reciente."
+        )
     archivos = archivos_atom(directorios)
     if not archivos:
         raise RuntimeError("No se encontraron archivos ATOM.")

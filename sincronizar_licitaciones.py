@@ -35,6 +35,10 @@ FEED_CONTRATOS_MENORES_URL = (
 )
 SOLAPE_HORAS = 48
 MAX_PAGINAS_SEGURIDAD = 5000
+INICIO_HISTORICO = {
+    "perfil_plataforma": datetime(2025, 1, 1, tzinfo=ZoneInfo("UTC")),
+    "contrato_menor": datetime(2025, 1, 1, tzinfo=ZoneInfo("UTC")),
+}
 DOMINIOS_PERMITIDOS = {
     "contrataciondelsectorpublico.gob.es",
     "contrataciondelestado.es",
@@ -182,6 +186,12 @@ def evaluar_y_enriquecer(
     if not any(codigo.startswith("71") for codigo in cpvs):
         return None, "cpv_fuera_71"
 
+    origen = str(fila.get("origen") or "perfil_plataforma")
+    inicio = INICIO_HISTORICO.get(origen)
+    actualizada = fecha_utc(fila.get("fecha_actualizacion"))
+    if inicio and actualizada and actualizada < inicio:
+        return None, "actualizacion_anterior_inicio_base"
+
     cp = codigo_postal(fila.get("codigo_postal"))
     ubicacion = maestro.get(cp)
     if ubicacion:
@@ -212,7 +222,7 @@ def evaluar_y_enriquecer(
             if tiene_evidencia else "ubicacion_no_verificable"
         )
 
-    if fila.get("origen") == "contrato_menor":
+    if origen == "contrato_menor":
         fecha_adjudicacion = str(fila.get("fecha_adjudicacion") or "")
         try:
             anyo_adjudicacion = int(fecha_adjudicacion[:4])
@@ -258,10 +268,12 @@ def obtener_checkpoint(
     clave_metadata: str = "feed_incremental_actualizado_hasta",
     origen: str = "perfil_plataforma",
     dias_iniciales: int | None = None,
+    inicio_historico: datetime | None = None,
 ) -> datetime:
     if desde_inicio:
-        # El histórico visible de ambas fuentes comienza el 1 de enero de 2025.
-        return datetime(2025, 1, 1, tzinfo=ZoneInfo("UTC"))
+        if inicio_historico is None:
+            raise ValueError("La auditoría completa requiere una fecha de inicio.")
+        return inicio_historico
     metadata = leer_metadata(metadata_path)
     checkpoint = fecha_utc(metadata.get(clave_metadata))
     if checkpoint is None:
@@ -461,6 +473,7 @@ def sincronizar(
             conexion,
             metadata_path,
             desde_inicio=desde_inicio,
+            inicio_historico=INICIO_HISTORICO["perfil_plataforma"],
         )
         checkpoint_menores = obtener_checkpoint(
             conexion,
@@ -472,6 +485,7 @@ def sincronizar(
             clave_metadata="feed_menores_actualizado_hasta",
             origen="contrato_menor",
             dias_iniciales=2,
+            inicio_historico=INICIO_HISTORICO["contrato_menor"],
         )
         filas, bajas, paginas, fecha_feed = descargar_incremento(checkpoint)
         filas_menores, bajas_menores, paginas_menores, fecha_feed_menores = (
