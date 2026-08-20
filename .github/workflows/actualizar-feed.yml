@@ -52,10 +52,10 @@ jobs:
         run: |
           if [ "$EVENTO" = "workflow_dispatch" ] && [ "$MODO_MANUAL" = "auditoria_anual" ]; then
             echo "argumento=--desde-inicio" >> "$GITHUB_OUTPUT"
-            echo "nombre=auditoria anual" >> "$GITHUB_OUTPUT"
+            echo "nombre=auditoria histórica desde 2025" >> "$GITHUB_OUTPUT"
           elif [ "$CRON_ACTUAL" = "30 3 * * 0" ]; then
             echo "argumento=--desde-inicio" >> "$GITHUB_OUTPUT"
-            echo "nombre=auditoria anual" >> "$GITHUB_OUTPUT"
+            echo "nombre=auditoria histórica desde 2025" >> "$GITHUB_OUTPUT"
           else
             echo "argumento=" >> "$GITHUB_OUTPUT"
             echo "nombre=sincronizacion incremental" >> "$GITHUB_OUTPUT"

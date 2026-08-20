@@ -1,15 +1,15 @@
 {
-  "finalizado_en": "2026-08-20T18:58:58.801778+02:00",
+  "finalizado_en": "2026-08-20T19:49:04.346709+02:00",
   "archivos": 1779,
   "entradas_leidas": 886562,
   "entradas_validas": 5021,
   "entradas_descartadas": 881541,
   "descartadas_por_motivo": {
     "adjudicacion_anterior_2025": 751,
-    "cpv_fuera_71": 437466,
-    "fuera_comunitat_valenciana": 20612,
+    "cpv_fuera_71": 437471,
+    "fuera_comunitat_valenciana": 20614,
     "sin_adjudicatario": 11,
-    "sin_cpv": 422701
+    "sin_cpv": 422694
   },
   "entradas_sin_datos": 0,
   "cuarentena_total": 9,

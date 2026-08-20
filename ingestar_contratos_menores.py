@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from feed_parser import NAMESPACES, fila_desde_entrada
+from feed_parser import NAMESPACES, extraer_cpvs, fila_desde_entrada
 from sincronizar_licitaciones import (
     COLUMNAS_FUENTE,
     DB_PATH,
@@ -53,13 +53,7 @@ def motivo_descarte_preliminar(entrada: ET.Element) -> str | None:
     )
     if proyecto is None:
         return "estructura_incompleta"
-    cpvs = [
-        (nodo.text or "").strip()
-        for nodo in proyecto.findall(
-            "cac:RequiredCommodityClassification/cbc:ItemClassificationCode",
-            NAMESPACES,
-        )
-    ]
+    cpvs = extraer_cpvs(status, proyecto)
     if not any(cpvs):
         return "sin_cpv"
     if not any(cpv.startswith("71") for cpv in cpvs):
@@ -71,6 +65,7 @@ def ingestar(
     db_path: Path,
     directorios: list[Path],
     reemplazar: bool = False,
+    origen: str = ORIGEN,
 ) -> dict[str, object]:
     archivos = archivos_atom(directorios)
     if not archivos:
@@ -101,9 +96,9 @@ def ingestar(
     with sqlite3.connect(db_path) as conexion:
         inicializar_esquema(conexion)
         if reemplazar:
-            conexion.execute("DELETE FROM licitaciones WHERE origen = ?", (ORIGEN,))
+            conexion.execute("DELETE FROM licitaciones WHERE origen = ?", (origen,))
             conexion.execute(
-                "DELETE FROM cuarentena_licitaciones WHERE origen = ?", (ORIGEN,)
+                "DELETE FROM cuarentena_licitaciones WHERE origen = ?", (origen,)
             )
             conexion.commit()
 
@@ -121,7 +116,7 @@ def ingestar(
                         errores += 1
                         motivos_descarte["estructura_incompleta"] += 1
                         continue
-                    fila["origen"] = ORIGEN
+                    fila["origen"] = origen
                     fila_evaluada, motivo = evaluar_y_enriquecer(fila, maestro)
                     if fila_evaluada is None:
                         descartadas += 1
@@ -136,7 +131,7 @@ def ingestar(
                     conexion.execute(
                         "DELETE FROM cuarentena_licitaciones "
                         "WHERE id = ? AND origen = ?",
-                        (fila["id"], ORIGEN),
+                        (fila["id"], origen),
                     )
                     valores = tuple(
                         valor_sqlite(fila.get(columna))
@@ -163,16 +158,16 @@ def ingestar(
 
         conexion.commit()
         total = conexion.execute(
-            "SELECT COUNT(*) FROM licitaciones WHERE origen = ?", (ORIGEN,)
+            "SELECT COUNT(*) FROM licitaciones WHERE origen = ?", (origen,)
         ).fetchone()[0]
         duplicados = conexion.execute(
             "SELECT COUNT(*) FROM ("
             "SELECT id FROM licitaciones WHERE origen = ? "
             "GROUP BY id HAVING COUNT(*) > 1)",
-            (ORIGEN,),
+            (origen,),
         ).fetchone()[0]
         cpvs_guardados = conexion.execute(
-            "SELECT cpv FROM licitaciones WHERE origen = ?", (ORIGEN,)
+            "SELECT cpv FROM licitaciones WHERE origen = ?", (origen,)
         ).fetchall()
         fuera_cpv = sum(
             not any(
@@ -184,11 +179,11 @@ def ingestar(
         fuera_cv = conexion.execute(
             "SELECT COUNT(*) FROM licitaciones WHERE origen = ? "
             "AND comunidad_autonoma NOT LIKE '%Valenc%'",
-            (ORIGEN,),
+            (origen,),
         ).fetchone()[0]
         cuarentena_total = conexion.execute(
             "SELECT COUNT(*) FROM cuarentena_licitaciones WHERE origen = ?",
-            (ORIGEN,),
+            (origen,),
         ).fetchone()[0]
 
     conciliadas = validas + descartadas + errores
@@ -230,11 +225,18 @@ def main() -> None:
         default=Path(__file__).with_name("auditoria_contratos_menores.json"),
         help="Ruta del informe JSON de cobertura.",
     )
+    parser.add_argument(
+        "--origen",
+        choices=("contrato_menor", "perfil_plataforma"),
+        default=ORIGEN,
+        help="Tipo de expedientes que contienen los ATOM.",
+    )
     args = parser.parse_args()
     resultado = ingestar(
         args.db.resolve(),
         [directorio.resolve() for directorio in args.directorios],
         reemplazar=args.reemplazar,
+        origen=args.origen,
     )
     informe = args.informe.resolve()
     informe.write_text(

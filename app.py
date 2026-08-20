@@ -1690,8 +1690,24 @@ def cargar_datos(db_mtime):
     df['tipo_contrato_desc'] = df['tipo_contrato'].map(MAPA_TIPOS).fillna('Otros')
     return normalizar_estado_vigente(df)
 
+@st.cache_data(ttl=300, show_spinner=False)
+def cargar_cuarentena(db_mtime):
+    del db_mtime
+    uri = f"file:{os.path.abspath(DB_PATH).replace('\\', '/')}?mode=ro"
+    with sqlite3.connect(uri, uri=True, timeout=10) as conn:
+        try:
+            return pd.read_sql_query(
+                "SELECT origen, motivo, expediente, titulo, cpv, provincia, "
+                "codigo_nuts, fecha_actualizacion, revisado_en, id "
+                "FROM cuarentena_licitaciones ORDER BY revisado_en DESC",
+                conn,
+            )
+        except Exception:
+            return pd.DataFrame()
+
 try:
     df_total = cargar_datos(os.path.getmtime(DB_PATH))
+    df_cuarentena = cargar_cuarentena(os.path.getmtime(DB_PATH))
 except Exception as e:
     st.error(f"❌ No se pudo conectar a la base de datos en {DB_PATH}. Error: {e}")
     st.stop()
@@ -2039,6 +2055,7 @@ opciones_vista = [
     "📡 Radar de licitaciones",
     "🧾 Contratos menores",
     "📋 Tabla",
+    "✅ Control de cobertura",
     "📊 Gráficos",
     "🗺️ Mapa",
 ]
@@ -2851,6 +2868,39 @@ else:
             )
             st.caption(f"Detalle técnico: {error_feed}")
 
+    elif vista_principal == "✅ Control de cobertura":
+        st.subheader("✅ Control de cobertura y cuarentena")
+        st.caption(
+            "Aquí aparecen los expedientes que podrían ser relevantes, pero que "
+            "no se incorporan hasta poder verificar los datos imprescindibles."
+        )
+        if df_cuarentena.empty:
+            st.success("La cuarentena está vacía.")
+        else:
+            etiquetas_motivo = {
+                "ubicacion_no_verificable": "Ubicación no verificable",
+                "fecha_adjudicacion_invalida": "Fecha de adjudicación inválida",
+                "sin_adjudicatario": "Falta empresa adjudicataria",
+                "sin_importe_adjudicacion": "Falta importe adjudicado",
+            }
+            control = df_cuarentena.copy()
+            control["motivo"] = control["motivo"].map(
+                lambda valor: etiquetas_motivo.get(valor, valor)
+            )
+            st.metric("Expedientes en cuarentena", len(control))
+            resumen = (
+                control.groupby(["origen", "motivo"], dropna=False)
+                .size().reset_index(name="expedientes")
+            )
+            st.dataframe(resumen, width="stretch", hide_index=True)
+            st.download_button(
+                "⬇️ Descargar cuarentena completa (CSV)",
+                data=control.to_csv(index=False).encode("utf-8-sig"),
+                file_name="cuarentena_licitaciones.csv",
+                mime="text/csv",
+            )
+            st.dataframe(control, width="stretch", hide_index=True, height=600)
+
     elif vista_principal == "📋 Tabla":
         st.subheader("📋 Vista en tabla")
         fuente_tabla = st.segmented_control(
@@ -2870,6 +2920,9 @@ else:
                 "organo_contratante": "Órgano de contratación",
                 "adjudicatario": "Empresa adjudicataria",
                 "fecha_adjudicacion": "Fecha adjudicación",
+                "fecha_formalizacion": "Fecha formalización",
+                "fecha_inicio_contrato": "Fecha inicio contrato",
+                "contrato_id": "Identificador contrato",
                 "expediente": "Expediente",
                 "provincia": "Provincia",
                 "tipo_contrato_desc": "Tipo de contrato",
@@ -2899,6 +2952,9 @@ else:
                 "adjudicatario": "Empresa adjudicataria",
                 "importe_adjudicacion_sin_iva": "Importe adjudicación sin IVA",
                 "fecha_adjudicacion": "Fecha adjudicación",
+                "fecha_formalizacion": "Fecha formalización",
+                "fecha_inicio_contrato": "Fecha inicio contrato",
+                "contrato_id": "Identificador contrato",
                 "fecha_actualizacion": "Actualización",
                 "url_licitacion": "Ficha oficial",
             }

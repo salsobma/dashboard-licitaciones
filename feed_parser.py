@@ -21,11 +21,17 @@ def texto_xml(elemento: ET.Element | None, ruta: str) -> str | None:
     return nodo.text.strip() if nodo is not None and nodo.text else None
 
 
-def extraer_adjudicacion(status: ET.Element) -> tuple[str | None, str | None, float | None, float | None]:
+def extraer_adjudicacion(status: ET.Element) -> tuple[
+    str | None, str | None, float | None, float | None,
+    str | None, str | None, str | None,
+]:
     nombres = []
     fechas = []
     importes_sin_iva = []
     importes_con_iva = []
+    contratos = []
+    fechas_formalizacion = []
+    fechas_inicio = []
     for resultado in status.findall("cac:TenderResult", NAMESPACES):
         nombre = texto_xml(resultado, "cac:WinningParty/cac:PartyName/cbc:Name")
         if nombre and nombre not in nombres:
@@ -33,6 +39,16 @@ def extraer_adjudicacion(status: ET.Element) -> tuple[str | None, str | None, fl
         fecha = texto_xml(resultado, "cbc:AwardDate")
         if fecha:
             fechas.append(fecha)
+        fecha_inicio = texto_xml(resultado, "cbc:StartDate")
+        if fecha_inicio:
+            fechas_inicio.append(fecha_inicio)
+        for contrato in resultado.findall("cac:Contract", NAMESPACES):
+            contrato_id = texto_xml(contrato, "cbc:ID")
+            if contrato_id and contrato_id not in contratos:
+                contratos.append(contrato_id)
+            formalizacion = texto_xml(contrato, "cbc:IssueDate")
+            if formalizacion:
+                fechas_formalizacion.append(formalizacion)
         for proyecto in resultado.findall("cac:AwardedTenderedProject", NAMESPACES):
             importe_sin_iva = texto_xml(
                 proyecto, "cac:LegalMonetaryTotal/cbc:TaxExclusiveAmount"
@@ -53,7 +69,51 @@ def extraer_adjudicacion(status: ET.Element) -> tuple[str | None, str | None, fl
         max(fechas) if fechas else None,
         sum(importes_sin_iva) if importes_sin_iva else None,
         sum(importes_con_iva) if importes_con_iva else None,
+        " · ".join(contratos) if contratos else None,
+        max(fechas_formalizacion) if fechas_formalizacion else None,
+        max(fechas_inicio) if fechas_inicio else None,
     )
+
+
+def extraer_cpvs(status: ET.Element, proyecto: ET.Element) -> list[str]:
+    """Incluye el CPV general y los CPV declarados dentro de cada lote."""
+    nodos = proyecto.findall(
+        "cac:RequiredCommodityClassification/cbc:ItemClassificationCode", NAMESPACES
+    )
+    for lote in status.findall("cac:ProcurementProjectLot", NAMESPACES):
+        nodos.extend(lote.findall(
+            ".//cac:RequiredCommodityClassification/cbc:ItemClassificationCode",
+            NAMESPACES,
+        ))
+    return sorted({n.text.strip() for n in nodos if n.text and n.text.strip()})
+
+
+def extraer_ubicacion(status: ET.Element, proyecto: ET.Element, party: ET.Element | None):
+    """Prioriza una ubicación valenciana, incluida la declarada a nivel de lote."""
+    ubicaciones = list(proyecto.findall("cac:RealizedLocation", NAMESPACES))
+    for lote in status.findall("cac:ProcurementProjectLot", NAMESPACES):
+        ubicaciones.extend(lote.findall(".//cac:RealizedLocation", NAMESPACES))
+
+    def datos(ubicacion: ET.Element):
+        return (
+            texto_xml(ubicacion, "cac:Address/cbc:PostalZone"),
+            texto_xml(ubicacion, "cac:Address/cbc:CityName"),
+            texto_xml(ubicacion, "cbc:CountrySubentity"),
+            texto_xml(ubicacion, "cbc:CountrySubentityCode"),
+        )
+
+    candidatas = [datos(u) for u in ubicaciones]
+    elegida = next((u for u in candidatas if (u[3] or "").upper().startswith("ES52")), None)
+    if elegida is None:
+        elegida = next((u for u in candidatas if (u[0] or "")[:2] in {"03", "12", "46"}), None)
+    if elegida is None:
+        elegida = candidatas[0] if candidatas else (None, None, None, None)
+    cp, municipio, provincia, nuts = elegida
+    if not cp:
+        cp = texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
+    if not municipio:
+        municipio = texto_xml(party, "cac:PostalAddress/cbc:CityName")
+    return cp, municipio, provincia, nuts
 
 
 def extraer_fecha_publicacion(status: ET.Element) -> str | None:
@@ -97,6 +157,9 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         fecha_adjudicacion,
         importe_adjudicacion_sin_iva,
         importe_adjudicacion_con_iva,
+        contrato_id,
+        fecha_formalizacion,
+        fecha_inicio_contrato,
     ) = extraer_adjudicacion(status)
     expediente = texto_xml(status, "cbc:ContractFolderID")
     estado = texto_xml(status, "cbc-place-ext:ContractFolderStatusCode")
@@ -108,19 +171,10 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         except (TypeError, ValueError):
             return None
 
-    codigo_postal = texto_xml(proyecto, "cac:RealizedLocation/cac:Address/cbc:PostalZone")
-    municipio = texto_xml(proyecto, "cac:RealizedLocation/cac:Address/cbc:CityName")
-    if not codigo_postal:
-        codigo_postal = texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
-    if not municipio:
-        municipio = texto_xml(party, "cac:PostalAddress/cbc:CityName")
-    cpvs = sorted({
-        nodo.text.strip()
-        for nodo in proyecto.findall(
-            "cac:RequiredCommodityClassification/cbc:ItemClassificationCode", NAMESPACES
-        )
-        if nodo.text
-    })
+    codigo_postal, municipio, provincia, codigo_nuts = extraer_ubicacion(
+        status, proyecto, party
+    )
+    cpvs = extraer_cpvs(status, proyecto)
     fecha_limite = texto_xml(
         status, "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndDate"
     )
@@ -167,10 +221,8 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "cpv": ",".join(cpvs),
         "codigo_postal": codigo_postal,
         "municipio": municipio,
-        "provincia": texto_xml(proyecto, "cac:RealizedLocation/cbc:CountrySubentity"),
-        "codigo_nuts": texto_xml(
-            proyecto, "cac:RealizedLocation/cbc:CountrySubentityCode"
-        ),
+        "provincia": provincia,
+        "codigo_nuts": codigo_nuts,
         "comunidad_autonoma": None,
         "latitud": None,
         "longitud": None,
@@ -181,6 +233,9 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "fecha_adjudicacion": fecha_adjudicacion,
         "importe_adjudicacion_sin_iva": importe_adjudicacion_sin_iva,
         "importe_adjudicacion_con_iva": importe_adjudicacion_con_iva,
+        "contrato_id": contrato_id,
+        "fecha_formalizacion": fecha_formalizacion,
+        "fecha_inicio_contrato": fecha_inicio_contrato,
         "url_licitacion": enlace.attrib.get("href") if enlace is not None else None,
         "documentos_adjuntos": json.dumps(documentos, ensure_ascii=False),
         "resumen_ia": None,

@@ -21,9 +21,9 @@ históricos facilitados.
 
 | Motivo | Versiones |
 | --- | ---: |
-| Sin CPV | 422.701 |
-| CPV distinto de 71 | 437.466 |
-| Fuera de la Comunitat Valenciana | 20.612 |
+| Sin CPV | 422.694 |
+| CPV distinto de 71 | 437.471 |
+| Fuera de la Comunitat Valenciana | 20.614 |
 | Adjudicación anterior a 2025 | 751 |
 | Sin adjudicatario | 11 |
 
@@ -32,9 +32,11 @@ se conservan en la tabla `cuarentena_licitaciones` de SQLite.
 
 ## Reglas de cobertura
 
-- La clasificación territorial usa, en este orden, el código postal y el
-  maestro `provincias.xlsx`, la provincia/comunidad indicada por el XML y,
-  como última prueba, el código NUTS `ES52`, `ES521`, `ES522` o `ES523`.
+- El filtro CPV reúne la clasificación general y la declarada en cada lote.
+- La clasificación territorial revisa tanto la ubicación general como las
+  ubicaciones de los lotes y prioriza cualquier evidencia valenciana. Después
+  usa el código postal y el maestro `provincias.xlsx`, la provincia/comunidad
+  indicada por el XML y el código NUTS `ES52`, `ES521`, `ES522` o `ES523`.
 - Una actualización sin evidencia territorial hereda la ubicación de la
   versión anterior del mismo identificador. Los demás campos sí se actualizan.
 - Una entrada nueva con CPV 71 pero sin evidencia territorial verificable se
@@ -47,9 +49,26 @@ se conservan en la tabla `cuarentena_licitaciones` de SQLite.
 El detalle estructurado de esta ejecución está disponible en
 `auditoria_contratos_menores.json`.
 
-## Auditoría del feed ordinario
+## Licitaciones ordinarias 2026
 
-La auditoría anual iniciada el 20 de agosto de 2026 fue interrumpida por la
-Plataforma en una página del 23 de julio de 2026. La transacción se revirtió y
-el checkpoint no avanzó. Debe reintentarse mediante el flujo programado hasta
-obtener una conciliación completa.
+Auditoría local ejecutada el 20 de agosto de 2026 sobre los 864 archivos ATOM
+disponibles. Se leyeron y conciliaron 430.393 entradas. La base pasó de 1.650 a
+1.775 licitaciones únicas válidas al incorporar CPV y ubicación por lote: se
+recuperaron 125 expedientes. Hay cero duplicados y cero registros ordinarios en
+cuarentena.
+
+El detalle estructurado está disponible en `auditoria_licitaciones_2026.json`.
+
+## Fechas contractuales recuperadas
+
+Además de la fecha de adjudicación, se guardan el identificador del contrato,
+la fecha de formalización y la fecha de inicio cuando la fuente los publica.
+En esta auditoría se encontraron fechas de formalización en 370 contratos
+menores y 1.091 licitaciones ordinarias.
+
+## Automatización
+
+Las sincronizaciones incrementales se ejecutan cuatro veces al día. Los
+domingos se lanza automáticamente una auditoría histórica de ambas fuentes
+desde el 1 de enero de 2025. No requiere archivos aportados manualmente, aunque
+la ejecución depende de que PLACSP no esté en mantenimiento.

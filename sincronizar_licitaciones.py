@@ -34,7 +34,7 @@ FEED_CONTRATOS_MENORES_URL = (
     "sindicacion_1143/contratosMenoresPerfilesContratantes.atom"
 )
 SOLAPE_HORAS = 48
-MAX_PAGINAS_SEGURIDAD = 500
+MAX_PAGINAS_SEGURIDAD = 5000
 DOMINIOS_PERMITIDOS = {
     "contrataciondelsectorpublico.gob.es",
     "contrataciondelestado.es",
@@ -66,6 +66,9 @@ COLUMNAS_FUENTE = (
     "fecha_adjudicacion",
     "importe_adjudicacion_sin_iva",
     "importe_adjudicacion_con_iva",
+    "contrato_id",
+    "fecha_formalizacion",
+    "fecha_inicio_contrato",
     "url_licitacion",
     "documentos_adjuntos",
     "origen",
@@ -257,7 +260,8 @@ def obtener_checkpoint(
     dias_iniciales: int | None = None,
 ) -> datetime:
     if desde_inicio:
-        return datetime(datetime.now().year, 1, 1, tzinfo=ZoneInfo("UTC"))
+        # El histórico visible de ambas fuentes comienza el 1 de enero de 2025.
+        return datetime(2025, 1, 1, tzinfo=ZoneInfo("UTC"))
     metadata = leer_metadata(metadata_path)
     checkpoint = fecha_utc(metadata.get(clave_metadata))
     if checkpoint is None:
@@ -332,6 +336,9 @@ def inicializar_esquema(conexion: sqlite3.Connection) -> None:
         "fecha_publicacion": "TEXT",
         "importe_adjudicacion_sin_iva": "REAL",
         "codigo_nuts": "TEXT",
+        "contrato_id": "TEXT",
+        "fecha_formalizacion": "TEXT",
+        "fecha_inicio_contrato": "TEXT",
         "origen": "TEXT NOT NULL DEFAULT 'perfil_plataforma'",
     }
     for columna, tipo in migraciones.items():
@@ -461,7 +468,7 @@ def sincronizar(
             # La primera carga usa la ventana reciente. El histórico de menores
             # se incorporará desde los archivos mensuales, que evitan recorrer
             # cientos de enlaces diarios y los bloqueos del WAF oficial.
-            desde_inicio=False,
+            desde_inicio=desde_inicio,
             clave_metadata="feed_menores_actualizado_hasta",
             origen="contrato_menor",
             dias_iniciales=2,
@@ -601,7 +608,7 @@ def sincronizar(
         + versiones_anteriores + descartadas
     )
     resultado = {
-        "modo": "auditoria_anual" if desde_inicio else "incremental",
+        "modo": "auditoria_historica" if desde_inicio else "incremental",
         "sincronizado_en": ahora,
         "feed_actualizado": fecha_feed,
         "checkpoint_anterior": checkpoint.isoformat(),
@@ -654,7 +661,7 @@ def main() -> None:
     parser.add_argument(
         "--desde-inicio",
         action="store_true",
-        help="Revisa el feed completo desde el 1 de enero del año en curso.",
+        help="Revisa ambas fuentes desde el 1 de enero de 2025.",
     )
     args = parser.parse_args()
     resultado = sincronizar(
