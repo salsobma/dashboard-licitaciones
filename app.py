@@ -28,7 +28,6 @@ from google.genai import types
 from feed_parser import (
     extraer_adjudicacion,
     extraer_cpvs,
-    extraer_resultados,
     extraer_ubicacion,
 )
 
@@ -1178,6 +1177,16 @@ def _texto_xml(elemento, ruta):
     nodo = elemento.find(ruta, NAMESPACES_ATOM)
     return nodo.text.strip() if nodo is not None and nodo.text else None
 
+
+def _extraer_resultados_feed(status):
+    """Lee los resultados por lote sin depender de una versión importada."""
+    codigos = []
+    for resultado in status.findall("cac:TenderResult", NAMESPACES_ATOM):
+        codigo = _texto_xml(resultado, "cbc:ResultCode")
+        if codigo and codigo not in codigos:
+            codigos.append(codigo)
+    return ",".join(codigos) if codigos else None
+
 @st.cache_data(ttl=900, show_spinner=False)
 def _cargar_feed_reciente_portada_legacy():
     respuesta = None
@@ -1462,7 +1471,7 @@ def _fila_desde_entrada_feed(entrada):
         "organo_contratante": _texto_xml(party, "cac:PartyName/cbc:Name"),
         "tipo_contrato": _texto_xml(proyecto, "cbc:TypeCode"),
         "estado": _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode"),
-        "resultado_codigos": extraer_resultados(status),
+        "resultado_codigos": _extraer_resultados_feed(status),
         "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
         "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
         "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
