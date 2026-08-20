@@ -15,8 +15,7 @@ on:
     # GitHub interpreta el cron en UTC. En horario de verano peninsular
     # estas horas corresponden a las 09:00, 13:00, 17:00 y 21:00.
     - cron: "0 7,11,15,19 * * *"
-    # Reintento diario independiente del histórico 2025 (06:15 en verano).
-    - cron: "15 4 * * *"
+    # Auditoría completa semanal: domingo a las 05:30 en verano.
     - cron: "30 3 * * 0"
 
 permissions:
@@ -54,26 +53,14 @@ jobs:
         run: |
           if [ "$EVENTO" = "workflow_dispatch" ] && [ "$MODO_MANUAL" = "auditoria_anual" ]; then
             echo "argumento=--desde-inicio" >> "$GITHUB_OUTPUT"
-            echo "reintentar_2025=true" >> "$GITHUB_OUTPUT"
             echo "nombre=auditoria histórica desde 2025" >> "$GITHUB_OUTPUT"
           elif [ "$CRON_ACTUAL" = "30 3 * * 0" ]; then
             echo "argumento=--desde-inicio" >> "$GITHUB_OUTPUT"
-            echo "reintentar_2025=true" >> "$GITHUB_OUTPUT"
             echo "nombre=auditoria histórica desde 2025" >> "$GITHUB_OUTPUT"
           else
             echo "argumento=" >> "$GITHUB_OUTPUT"
-            if [ "$CRON_ACTUAL" = "15 4 * * *" ]; then
-              echo "reintentar_2025=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "reintentar_2025=false" >> "$GITHUB_OUTPUT"
-            fi
             echo "nombre=sincronizacion incremental" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Reintentar histórico de licitaciones 2025
-        if: steps.modo.outputs.reintentar_2025 == 'true'
-        continue-on-error: true
-        run: python importar_historico_licitaciones_2025.py
 
       - name: Ejecutar sincronizacion con reintentos
         shell: bash
