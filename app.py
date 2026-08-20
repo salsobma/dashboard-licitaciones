@@ -2990,7 +2990,7 @@ else:
             "Catálogo consolidado de licitaciones de ingeniería de la Comunitat "
             "Valenciana. Cada expediente aparece una sola vez con su estado oficial vigente."
         )
-        st.info("🗓️ Histórico acumulado desde el 1 de enero de 2026.")
+        st.info("🗓️ Histórico acumulado desde el 1 de enero de 2025.")
         try:
             if error_feed_catalogo:
                 raise RuntimeError(error_feed_catalogo)
@@ -3211,7 +3211,7 @@ else:
                     codigo, (codigo or "No especificado", "")
                 )[0]
             )
-            st.info("🗓️ Histórico acumulado desde el 1 de enero de 2026.")
+            st.info("🗓️ Histórico acumulado desde el 1 de enero de 2025.")
             columnas_tabla = {
                 "titulo": "Servicio",
                 "pbl_sin_iva": "PBL sin IVA",
@@ -3277,10 +3277,7 @@ else:
         etiqueta_registros = (
             "Contratos menores" if es_grafico_menores else "Licitaciones"
         )
-        st.info(
-            "🗓️ Histórico acumulado desde el 1 de enero de "
-            + ("2025." if es_grafico_menores else "2026.")
-        )
+        st.info("🗓️ Histórico acumulado desde el 1 de enero de 2025.")
 
         if df_graficos.empty:
             st.info("No hay datos de esta fuente que coincidan con los filtros actuales.")
@@ -3580,10 +3577,7 @@ else:
         df_base_mapa = (
             df_menores_f.copy() if es_mapa_menores else df_f.copy()
         )
-        st.info(
-            "🗓️ Histórico acumulado desde el 1 de enero de "
-            + ("2025." if es_mapa_menores else "2026.")
-        )
+        st.info("🗓️ Histórico acumulado desde el 1 de enero de 2025.")
         if df_base_mapa.empty and not set(["latitud", "longitud"]).issubset(df_base_mapa.columns):
             df_base_mapa = df_base_mapa.iloc[0:0].copy()
         df_mapa = df_base_mapa.dropna(subset=['latitud', 'longitud']).copy()
