@@ -2061,6 +2061,14 @@ vista_datos_menores = (
         vista_principal == "📋 Tabla"
         and st.session_state.get("fuente_tabla") == "🧾 Contratos menores"
     )
+    or (
+        vista_principal == "📊 Gráficos"
+        and st.session_state.get("fuente_graficos") == "🧾 Contratos menores"
+    )
+    or (
+        vista_principal == "🗺️ Mapa"
+        and st.session_state.get("fuente_mapa") == "🧾 Contratos menores"
+    )
 )
 
 favoritos_actuales = {}
@@ -2097,11 +2105,17 @@ elif vista_principal == "📋 Tabla":
         if vista_datos_menores else "Licitaciones filtradas"
     )
 elif vista_principal == "📊 Gráficos":
-    df_indicadores = df_f
-    etiqueta_cantidad = "Licitaciones filtradas"
+    df_indicadores = df_menores_f if vista_datos_menores else df_f
+    etiqueta_cantidad = (
+        "Contratos menores filtrados"
+        if vista_datos_menores else "Licitaciones filtradas"
+    )
 else:
-    df_indicadores = df_f
-    etiqueta_cantidad = "Licitaciones filtradas"
+    df_indicadores = df_menores_f if vista_datos_menores else df_f
+    etiqueta_cantidad = (
+        "Contratos menores filtrados"
+        if vista_datos_menores else "Licitaciones filtradas"
+    )
 
 ultima_act = (
     df["fecha_act_dt"].max()
@@ -2850,31 +2864,42 @@ else:
             tabla = df_menores_f.copy()
             st.info("🗓️ Histórico acumulado desde el 1 de enero de 2025.")
             columnas_tabla = {
-                "fecha_adjudicacion": "Fecha adjudicación",
-                "titulo": "Servicio / objeto",
-                "adjudicatario": "Empresa adjudicataria",
-                "importe_adjudicacion_sin_iva": "Importe sin IVA",
-                "expediente": "Expediente",
-                "organo_contratante": "Órgano de contratación",
+                "titulo": "Servicio",
+                "importe_adjudicacion_sin_iva": "Importe adjudicación sin IVA",
                 "municipio": "Municipio",
+                "organo_contratante": "Órgano de contratación",
+                "adjudicatario": "Empresa adjudicataria",
+                "fecha_adjudicacion": "Fecha adjudicación",
+                "expediente": "Expediente",
                 "provincia": "Provincia",
+                "tipo_contrato_desc": "Tipo de contrato",
                 "cpv": "CPV",
+                "fecha_actualizacion": "Actualización",
                 "url_licitacion": "Ficha oficial",
             }
         else:
             tabla = df_f.copy()
+            tabla["estado_desc"] = tabla["estado"].map(
+                lambda codigo: MAPA_ESTADOS.get(
+                    codigo, (codigo or "No especificado", "")
+                )[0]
+            )
             st.info("🗓️ Histórico acumulado desde el 1 de enero de 2026.")
             columnas_tabla = {
-                "fecha_actualizacion": "Actualización",
-                "fecha_limite": "Fecha límite",
-                "titulo": "Licitación",
-                "expediente": "Expediente",
-                "organo_contratante": "Órgano de contratación",
-                "estado": "Estado",
+                "titulo": "Servicio",
                 "pbl_sin_iva": "PBL sin IVA",
                 "municipio": "Municipio",
+                "organo_contratante": "Órgano de contratación",
+                "estado_desc": "Estado",
+                "fecha_limite": "Fecha límite",
+                "expediente": "Expediente",
                 "provincia": "Provincia",
+                "tipo_contrato_desc": "Tipo de contrato",
                 "cpv": "CPV",
+                "adjudicatario": "Empresa adjudicataria",
+                "importe_adjudicacion_sin_iva": "Importe adjudicación sin IVA",
+                "fecha_adjudicacion": "Fecha adjudicación",
+                "fecha_actualizacion": "Actualización",
                 "url_licitacion": "Ficha oficial",
             }
         columnas_disponibles = [
@@ -2888,7 +2913,9 @@ else:
             hide_index=True,
             height=680,
             column_config={
-                "Importe sin IVA": st.column_config.NumberColumn(format="%.2f €"),
+                "Importe adjudicación sin IVA": st.column_config.NumberColumn(
+                    format="%.2f €"
+                ),
                 "PBL sin IVA": st.column_config.NumberColumn(format="%.2f €"),
                 "Ficha oficial": st.column_config.LinkColumn(
                     display_text="Abrir ficha"
@@ -2899,11 +2926,35 @@ else:
     elif vista_principal == "📊 Gráficos":
         st.subheader("📊 Análisis de las licitaciones")
         st.caption("Los gráficos se actualizan automáticamente con los filtros aplicados.")
-        df_graficos = df_f.copy()
+        fuente_graficos = st.segmented_control(
+            "Contenido de los gráficos",
+            ["📡 Radar de licitaciones", "🧾 Contratos menores"],
+            default="📡 Radar de licitaciones",
+            selection_mode="single",
+            key="fuente_graficos",
+        )
+        es_grafico_menores = fuente_graficos == "🧾 Contratos menores"
+        df_graficos = (
+            df_menores_f.copy() if es_grafico_menores else df_f.copy()
+        )
+        columna_importe_grafico = (
+            "importe_adjudicacion_sin_iva"
+            if es_grafico_menores else "pbl_sin_iva"
+        )
+        etiqueta_importe_grafico = (
+            "Importe adjudicado" if es_grafico_menores else "Presupuesto"
+        )
+        etiqueta_registros = (
+            "Contratos menores" if es_grafico_menores else "Licitaciones"
+        )
+        st.info(
+            "🗓️ Histórico acumulado desde el 1 de enero de "
+            + ("2025." if es_grafico_menores else "2026.")
+        )
 
         if df_graficos.empty:
             st.info("No hay datos de esta fuente que coincidan con los filtros actuales.")
-            df_graficos = df_f.iloc[0:0].copy()
+            df_graficos = df_graficos.iloc[0:0].copy()
         campos_graficos = {
             "comunidad": ("comunidad_autonoma", "No especificada"),
             "provincia": ("provincia", "No especificada"),
@@ -2914,8 +2965,8 @@ else:
             df_graficos[f"{clave}_grafico"] = df_graficos[columna].fillna(
                 fallback
             )
-        df_graficos["pbl_sin_iva"] = pd.to_numeric(
-            df_graficos["pbl_sin_iva"], errors="coerce"
+        df_graficos["importe_grafico"] = pd.to_numeric(
+            df_graficos[columna_importe_grafico], errors="coerce"
         ).fillna(0)
         if "importe_adjudicacion_sin_iva" not in df_graficos.columns:
             df_graficos["importe_adjudicacion_sin_iva"] = np.nan
@@ -2929,9 +2980,9 @@ else:
 
         def agrupar_presupuesto(campo):
             return (
-                df_graficos.groupby(campo, as_index=False)["pbl_sin_iva"]
+                df_graficos.groupby(campo, as_index=False)["importe_grafico"]
                 .sum()
-                .sort_values("pbl_sin_iva", ascending=False)
+                .sort_values("importe_grafico", ascending=False)
                 .head(15)
             )
 
@@ -3048,7 +3099,7 @@ else:
             "Más de 200.000 €"
         ]
         df_graficos["tramo_presupuesto"] = pd.cut(
-            df_graficos["pbl_sin_iva"],
+            df_graficos["importe_grafico"],
             bins=[-np.inf, 25000, 50000, 100000, 200000, np.inf],
             labels=tramos_presupuesto,
             right=False
@@ -3064,33 +3115,33 @@ else:
         grafico_presupuesto_comunidad = grafico_horizontal(
             presupuesto_comunidad,
             "comunidad_grafico",
-            "pbl_sin_iva",
+            "importe_grafico",
             "Comunidad autónoma",
-            "Presupuesto total sin IVA (€)",
+            f"{etiqueta_importe_grafico} total sin IVA (€)",
             "#0f9d6e",
         )
         grafico_presupuesto_provincia = grafico_horizontal(
             presupuesto_provincia,
             "provincia_grafico",
-            "pbl_sin_iva",
+            "importe_grafico",
             "Provincia",
-            "Presupuesto total sin IVA (€)",
+            f"{etiqueta_importe_grafico} total sin IVA (€)",
             "#14b8a6",
         )
         grafico_presupuesto_municipio = grafico_horizontal(
             presupuesto_municipio,
             "municipio_grafico",
-            "pbl_sin_iva",
+            "importe_grafico",
             "Municipio",
-            "Presupuesto total sin IVA (€)",
+            f"{etiqueta_importe_grafico} total sin IVA (€)",
             "#22c55e",
         )
         grafico_presupuesto_organo = grafico_horizontal(
             presupuesto_organo,
             "organo_grafico",
-            "pbl_sin_iva",
+            "importe_grafico",
             "Órgano de contratación",
-            "Presupuesto total sin IVA (€)",
+            f"{etiqueta_importe_grafico} total sin IVA (€)",
             "#0891b2",
         )
         grafico_presupuesto_adjudicatario = grafico_horizontal(
@@ -3106,7 +3157,7 @@ else:
             "comunidad_grafico",
             "licitaciones",
             "Comunidad autónoma",
-            "Número de licitaciones",
+            f"Número de {etiqueta_registros.lower()}",
             "#7c3aed",
             es_cantidad=True,
         )
@@ -3115,7 +3166,7 @@ else:
             "provincia_grafico",
             "licitaciones",
             "Provincia",
-            "Número de licitaciones",
+            f"Número de {etiqueta_registros.lower()}",
             color_azul,
             es_cantidad=True,
         )
@@ -3124,7 +3175,7 @@ else:
             "municipio_grafico",
             "licitaciones",
             "Municipio",
-            "Número de licitaciones",
+            f"Número de {etiqueta_registros.lower()}",
             "#4f46e5",
             es_cantidad=True,
         )
@@ -3133,7 +3184,7 @@ else:
             "organo_grafico",
             "licitaciones",
             "Órgano de contratación",
-            "Número de licitaciones",
+            f"Número de {etiqueta_registros.lower()}",
             "#0284c7",
             es_cantidad=True,
         )
@@ -3144,7 +3195,7 @@ else:
                 x=alt.X("tramo_presupuesto:N", title=None, sort=tramos_presupuesto, axis=alt.Axis(labelAngle=-25)),
                 y=alt.Y(
                     "licitaciones:Q",
-                    title="Número de licitaciones",
+                    title=f"Número de {etiqueta_registros.lower()}",
                     axis=alt.Axis(format="d", tickMinStep=1),
                 ),
                 tooltip=[
@@ -3158,29 +3209,29 @@ else:
         )
         graficos_ordenados = [
             (
-                "Presupuesto por comunidad autónoma",
+                f"{etiqueta_importe_grafico} por comunidad autónoma",
                 grafico_presupuesto_comunidad,
             ),
-            ("Presupuesto por provincia", grafico_presupuesto_provincia),
-            ("Presupuesto por municipio", grafico_presupuesto_municipio),
+            (f"{etiqueta_importe_grafico} por provincia", grafico_presupuesto_provincia),
+            (f"{etiqueta_importe_grafico} por municipio", grafico_presupuesto_municipio),
             (
-                "Presupuesto por órgano de contratación",
+                f"{etiqueta_importe_grafico} por órgano de contratación",
                 grafico_presupuesto_organo,
             ),
-            ("Licitaciones por comunidad autónoma", grafico_comunidades),
-            ("Licitaciones por provincia", grafico_provincias),
-            ("Licitaciones por municipio", grafico_municipios),
-            ("Licitaciones por órgano de contratación", grafico_organos),
+            (f"{etiqueta_registros} por comunidad autónoma", grafico_comunidades),
+            (f"{etiqueta_registros} por provincia", grafico_provincias),
+            (f"{etiqueta_registros} por municipio", grafico_municipios),
+            (f"{etiqueta_registros} por órgano de contratación", grafico_organos),
             (
-                "Presupuesto por adjudicatario",
+                "Importe adjudicado por adjudicatario",
                 grafico_presupuesto_adjudicatario,
             ),
-            ("Distribución de presupuesto", grafico_tramos),
+            (f"Distribución de {etiqueta_importe_grafico.lower()}", grafico_tramos),
         ]
         for titulo_grafico, grafico in graficos_ordenados:
             with st.container(border=True):
                 st.markdown(f"#### {titulo_grafico}")
-                st.altair_chart(grafico, use_container_width=True)
+                st.altair_chart(grafico, width="stretch")
 
     elif vista_principal == "🗺️ Mapa":
         st.subheader("📍 Ubicación de las licitaciones")
@@ -3188,14 +3239,40 @@ else:
             "Las ubicaciones del feed son aproximadas: se calculan mediante el "
             "código postal o, si no está disponible, mediante un municipio inequívoco."
         )
-        df_base_mapa = df_f.copy()
+        fuente_mapa = st.segmented_control(
+            "Contenido del mapa",
+            ["📡 Radar de licitaciones", "🧾 Contratos menores"],
+            default="📡 Radar de licitaciones",
+            selection_mode="single",
+            key="fuente_mapa",
+        )
+        es_mapa_menores = fuente_mapa == "🧾 Contratos menores"
+        df_base_mapa = (
+            df_menores_f.copy() if es_mapa_menores else df_f.copy()
+        )
+        st.info(
+            "🗓️ Histórico acumulado desde el 1 de enero de "
+            + ("2025." if es_mapa_menores else "2026.")
+        )
         if df_base_mapa.empty and not set(["latitud", "longitud"]).issubset(df_base_mapa.columns):
-            df_base_mapa = df_f.iloc[0:0].copy()
+            df_base_mapa = df_base_mapa.iloc[0:0].copy()
         df_mapa = df_base_mapa.dropna(subset=['latitud', 'longitud']).copy()
-        
+
         if not df_mapa.empty:
-            df_mapa['pbl_fmt'] = df_mapa['pbl_sin_iva'].apply(lambda x: formato_eur(x))
-            df_mapa['fecha_limite_fmt'] = df_mapa['fecha_limite'].fillna('No especificada')
+            columna_importe_mapa = (
+                "importe_adjudicacion_sin_iva"
+                if es_mapa_menores else "pbl_sin_iva"
+            )
+            df_mapa['importe_mapa'] = pd.to_numeric(
+                df_mapa[columna_importe_mapa], errors="coerce"
+            ).fillna(0)
+            df_mapa['importe_fmt'] = df_mapa['importe_mapa'].apply(formato_eur)
+            df_mapa['fecha_mapa_fmt'] = df_mapa[
+                "fecha_adjudicacion" if es_mapa_menores else "fecha_limite"
+            ].fillna('No especificada')
+            df_mapa['adjudicatario_clean'] = df_mapa[
+                'adjudicatario'
+            ].fillna('No especificado')
             df_mapa['municipio_clean'] = df_mapa['municipio'].fillna('No especificado')
             df_mapa['provincia_clean'] = df_mapa['provincia'].fillna('No especificada')
             df_mapa['ccaa_clean'] = df_mapa['comunidad_autonoma'].fillna('No especificada')
@@ -3210,7 +3287,7 @@ else:
             df_mapa['lat_j'] = df_mapa['latitud'] + np.random.normal(0, 0.00008, size=len(df_mapa))
             df_mapa['lon_j'] = df_mapa['longitud'] + np.random.normal(0, 0.00008, size=len(df_mapa))
 
-            valid_pbl = df_mapa['pbl_sin_iva'].replace(0, np.nan).dropna()
+            valid_pbl = df_mapa['importe_mapa'].replace(0, np.nan).dropna()
             if not valid_pbl.empty and len(valid_pbl) > 1:
                 p5, p95 = np.percentile(valid_pbl, [5, 95])
                 def calcular_radio_percentil(val):
@@ -3219,7 +3296,7 @@ else:
                     clipped = max(p5, min(p95, val))
                     norm = (clipped - p5) / (p95 - p5) if p95 > p5 else 0.5
                     return 1.0 + norm * 7.0
-                df_mapa['radius_px'] = df_mapa['pbl_sin_iva'].apply(calcular_radio_percentil)
+                df_mapa['radius_px'] = df_mapa['importe_mapa'].apply(calcular_radio_percentil)
             else:
                 df_mapa['radius_px'] = 3.0
             
@@ -3241,13 +3318,20 @@ else:
             
             view_state = pdk.ViewState(latitude=40.4168, longitude=-3.7038, zoom=5.4, pitch=0)
             
+            detalle_mapa = (
+                "🏆 <b>Empresa adjudicataria:</b> {adjudicatario_clean}<br/>"
+                "💶 <b>Importe adjudicado sin IVA:</b> {importe_fmt}<br/>"
+                "📅 <b>Fecha de adjudicación:</b> {fecha_mapa_fmt}<br/>"
+                if es_mapa_menores else
+                "💶 <b>PBL sin IVA:</b> {importe_fmt}<br/>"
+                "📅 <b>Fecha presentación oferta:</b> {fecha_mapa_fmt}<br/>"
+            )
             tooltip = {
                 "html": "<b>{titulo}</b><br/>"
                         "🏛️ <b>Órgano de contratación:</b> {organo_contratante}<br/>"
                         "📍 <b>Ubicación:</b> {municipio_clean} ({provincia_clean}, {ccaa_clean})<br/>"
-                        "💶 <b>PBL sin IVA:</b> {pbl_fmt}<br/>"
-                        "📅 <b>Fecha presentación oferta:</b> {fecha_limite_fmt}<br/>"
-                        "📁 <b>Código expediente:</b> {expediente_clean}",
+                        + detalle_mapa
+                        + "📁 <b>Código expediente:</b> {expediente_clean}",
                 "style": {"backgroundColor": "#1a252c", "color": "white", "fontSize": "12px", "padding": "10px", "borderRadius": "6px", "maxWidth": "340px"}
             }
             
