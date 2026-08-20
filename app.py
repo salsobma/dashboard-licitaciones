@@ -2038,6 +2038,7 @@ st.caption(
 opciones_vista = [
     "📡 Radar de licitaciones",
     "🧾 Contratos menores",
+    "📋 Tabla",
     "📊 Gráficos",
     "🗺️ Mapa",
 ]
@@ -2054,6 +2055,13 @@ vista_principal = st.segmented_control(
 )
 if vista_principal is None:
     vista_principal = "📡 Radar de licitaciones"
+vista_datos_menores = (
+    vista_principal == "🧾 Contratos menores"
+    or (
+        vista_principal == "📋 Tabla"
+        and st.session_state.get("fuente_tabla") == "🧾 Contratos menores"
+    )
+)
 
 favoritos_actuales = {}
 if ES_PREMIUM and LISTS_CONFIGURADO:
@@ -2082,6 +2090,12 @@ elif vista_principal == "📡 Radar de licitaciones":
 elif vista_principal == "🧾 Contratos menores":
     df_indicadores = df_menores_f
     etiqueta_cantidad = "Contratos menores filtrados"
+elif vista_principal == "📋 Tabla":
+    df_indicadores = df_menores_f if vista_datos_menores else df_f
+    etiqueta_cantidad = (
+        "Contratos menores filtrados"
+        if vista_datos_menores else "Licitaciones filtradas"
+    )
 elif vista_principal == "📊 Gráficos":
     df_indicadores = df_f
     etiqueta_cantidad = "Licitaciones filtradas"
@@ -2098,7 +2112,7 @@ volumen_total = (
     pd.to_numeric(
         df_indicadores[
             "importe_adjudicacion_sin_iva"
-            if vista_principal == "🧾 Contratos menores"
+            if vista_datos_menores
             else "pbl_sin_iva"
         ],
         errors="coerce",
@@ -2110,7 +2124,7 @@ presupuesto_mediano = (
     pd.to_numeric(
         df_indicadores[
             "importe_adjudicacion_sin_iva"
-            if vista_principal == "🧾 Contratos menores"
+            if vista_datos_menores
             else "pbl_sin_iva"
         ], errors="coerce"
     ).dropna().median()
@@ -2132,10 +2146,10 @@ kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 with kpi1:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{len(df_indicadores)}</div><div class="metric-lbl-grid">{etiqueta_cantidad}</div></div>', unsafe_allow_html=True)
 with kpi2:
-    etiqueta_volumen = "Importe adjudicado (sin IVA)" if vista_principal == "🧾 Contratos menores" else "Volumen Total (sin IVA)"
+    etiqueta_volumen = "Importe adjudicado (sin IVA)" if vista_datos_menores else "Volumen Total (sin IVA)"
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(volumen_total)}</div><div class="metric-lbl-grid">{etiqueta_volumen}</div></div>', unsafe_allow_html=True)
 with kpi3:
-    etiqueta_mediana = "Adjudicación típica (mediana) · sin IVA" if vista_principal == "🧾 Contratos menores" else "Presupuesto típico (mediana) · sin IVA"
+    etiqueta_mediana = "Adjudicación típica (mediana) · sin IVA" if vista_datos_menores else "Presupuesto típico (mediana) · sin IVA"
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_mediano)}</div><div class="metric-lbl-grid">{etiqueta_mediana}</div></div>', unsafe_allow_html=True)
 with kpi4:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{actividad_reciente}</div><div class="metric-lbl-grid">Actividad reciente</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">Licitaciones actualizadas en los últimos 7 días</div></div>', unsafe_allow_html=True)
@@ -2144,7 +2158,7 @@ filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
 if tipo_sel: filtros_activos.append('Tipo: ' + ', '.join(tipo_sel))
 if cpv_2dig.strip(): filtros_activos.append('CPV: ' + cpv_2dig.strip())
-if estados_sel and vista_principal != "🧾 Contratos menores":
+if estados_sel and not vista_datos_menores:
     filtros_activos.append('Estado: ' + ', '.join(opciones_estado[e] for e in estados_sel))
 if ccaa_sel: filtros_activos.append('CC. AA.: ' + ', '.join(ccaa_sel))
 if prov_sel: filtros_activos.append('Provincia: ' + ', '.join(prov_sel))
@@ -2154,7 +2168,7 @@ if pbl_min_val > 0 or pbl_max_val < max_pbl_db:
 if (
     fecha_rango
     and len(fecha_rango) == 2
-    and vista_principal != "🧾 Contratos menores"
+    and not vista_datos_menores
 ):
     filtros_activos.append(f'Fecha límite: {fecha_rango[0].strftime("%d/%m/%Y")} – {fecha_rango[1].strftime("%d/%m/%Y")}')
 if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
@@ -2557,6 +2571,7 @@ else:
             "Contratos menores de ingeniería de la Comunitat Valenciana ya "
             "adjudicados. No son oportunidades abiertas para presentar oferta."
         )
+        st.info("🗓️ Histórico acumulado desde el 1 de enero de 2025.")
         st.markdown(
             f"**{len(df_menores_f)} resultados con los filtros actuales** · "
             f"{len(df_menores)} contratos menores en la base · "
@@ -2640,6 +2655,29 @@ else:
                 ],
                 "menores",
             )
+            men_ant_inf, men_info_inf, men_sig_inf = st.columns([1, 2, 1])
+            with men_ant_inf:
+                if st.button(
+                    "⬅️ Anterior", key="menores_anterior_inferior",
+                    use_container_width=True, disabled=pagina_menores <= 1,
+                ):
+                    st.session_state["pagina_menores"] -= 1
+                    st.rerun()
+            with men_info_inf:
+                st.markdown(
+                    f"<p style='text-align:center;font-weight:600;margin-top:6px;'>"
+                    f"Página {pagina_menores} de {paginas_menores} "
+                    f"(Total: {total_menores} contratos)</p>",
+                    unsafe_allow_html=True,
+                )
+            with men_sig_inf:
+                if st.button(
+                    "Siguiente ➡️", key="menores_siguiente_inferior",
+                    use_container_width=True,
+                    disabled=pagina_menores >= paginas_menores,
+                ):
+                    st.session_state["pagina_menores"] += 1
+                    st.rerun()
 
     elif vista_principal == "📡 Radar de licitaciones":
         st.subheader("📡 Radar de licitaciones")
@@ -2647,6 +2685,7 @@ else:
             "Catálogo consolidado de licitaciones de ingeniería de la Comunitat "
             "Valenciana. Cada expediente aparece una sola vez con su estado oficial vigente."
         )
+        st.info("🗓️ Histórico acumulado desde el 1 de enero de 2026.")
         try:
             if error_feed_catalogo:
                 raise RuntimeError(error_feed_catalogo)
@@ -2766,6 +2805,30 @@ else:
                         df_radar.iloc[inicio_radar:fin_radar],
                         "radar",
                     )
+                    rad_ant_inf, rad_info_inf, rad_sig_inf = st.columns([1, 2, 1])
+                    with rad_ant_inf:
+                        if st.button(
+                            "⬅️ Anterior", key="radar_anterior_inferior",
+                            use_container_width=True,
+                            disabled=st.session_state.pagina_radar <= 1,
+                        ):
+                            st.session_state.pagina_radar -= 1
+                            st.rerun()
+                    with rad_info_inf:
+                        st.markdown(
+                            f"<p style='text-align:center;font-weight:600;margin-top:6px;'>"
+                            f"Página {st.session_state.pagina_radar} de {paginas_radar} "
+                            f"(Total: {total_radar} actualizaciones)</p>",
+                            unsafe_allow_html=True,
+                        )
+                    with rad_sig_inf:
+                        if st.button(
+                            "Siguiente ➡️", key="radar_siguiente_inferior",
+                            use_container_width=True,
+                            disabled=st.session_state.pagina_radar >= paginas_radar,
+                        ):
+                            st.session_state.pagina_radar += 1
+                            st.rerun()
             else:
                 st.info("La base consolidada no contiene licitaciones en este momento.")
         except Exception as error_feed:
@@ -2773,6 +2836,65 @@ else:
                 "Ahora mismo no ha sido posible mostrar el Radar de licitaciones."
             )
             st.caption(f"Detalle técnico: {error_feed}")
+
+    elif vista_principal == "📋 Tabla":
+        st.subheader("📋 Vista en tabla")
+        fuente_tabla = st.segmented_control(
+            "Contenido de la tabla",
+            ["📡 Radar de licitaciones", "🧾 Contratos menores"],
+            default="📡 Radar de licitaciones",
+            selection_mode="single",
+            key="fuente_tabla",
+        )
+        if fuente_tabla == "🧾 Contratos menores":
+            tabla = df_menores_f.copy()
+            st.info("🗓️ Histórico acumulado desde el 1 de enero de 2025.")
+            columnas_tabla = {
+                "fecha_adjudicacion": "Fecha adjudicación",
+                "titulo": "Servicio / objeto",
+                "adjudicatario": "Empresa adjudicataria",
+                "importe_adjudicacion_sin_iva": "Importe sin IVA",
+                "expediente": "Expediente",
+                "organo_contratante": "Órgano de contratación",
+                "municipio": "Municipio",
+                "provincia": "Provincia",
+                "cpv": "CPV",
+                "url_licitacion": "Ficha oficial",
+            }
+        else:
+            tabla = df_f.copy()
+            st.info("🗓️ Histórico acumulado desde el 1 de enero de 2026.")
+            columnas_tabla = {
+                "fecha_actualizacion": "Actualización",
+                "fecha_limite": "Fecha límite",
+                "titulo": "Licitación",
+                "expediente": "Expediente",
+                "organo_contratante": "Órgano de contratación",
+                "estado": "Estado",
+                "pbl_sin_iva": "PBL sin IVA",
+                "municipio": "Municipio",
+                "provincia": "Provincia",
+                "cpv": "CPV",
+                "url_licitacion": "Ficha oficial",
+            }
+        columnas_disponibles = [
+            columna for columna in columnas_tabla if columna in tabla.columns
+        ]
+        tabla = tabla[columnas_disponibles].rename(columns=columnas_tabla)
+        st.markdown(f"**{len(tabla)} resultados con los filtros actuales**")
+        st.dataframe(
+            tabla,
+            width="stretch",
+            hide_index=True,
+            height=680,
+            column_config={
+                "Importe sin IVA": st.column_config.NumberColumn(format="%.2f €"),
+                "PBL sin IVA": st.column_config.NumberColumn(format="%.2f €"),
+                "Ficha oficial": st.column_config.LinkColumn(
+                    display_text="Abrir ficha"
+                ),
+            },
+        )
 
     elif vista_principal == "📊 Gráficos":
         st.subheader("📊 Análisis de las licitaciones")
