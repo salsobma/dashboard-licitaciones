@@ -851,6 +851,16 @@ MAPA_ESTADOS = {
     'CERR': ('Cerrada / Archivada', 'badge-res'),
 }
 
+CATEGORIAS_ESTADO = {
+    'PUB': 'En plazo',
+    'EV': 'En evaluación',
+    'ADJ': 'Adjudicada',
+    'DES': 'Desierta',
+    'FIN': 'Finalizada sin adjudicación',
+    'PRE': 'Anuncio previo',
+    'OTROS': 'Otros / pendiente de clasificar',
+}
+
 MAPA_TIPOS = {
     '1': 'Suministros', '2': 'Servicios', '3': 'Obras',
     '21': 'Concesión de Servicios', '31': 'Concesión de Obras'
@@ -1132,6 +1142,27 @@ def normalizar_estado_vigente(tabla):
         publicadas & fechas_limite.notna() & (fechas_limite < ahora_local),
         "estado",
     ] = "VENC"
+    def categorias(fila):
+        if fila.get("origen") == "contrato_menor":
+            return tuple()
+        estado = fila.get("estado")
+        if estado == "PUB": return ("PUB",)
+        if estado in {"EV", "VENC"}: return ("EV",)
+        if estado == "ADJ": return ("ADJ",)
+        if estado == "DES": return ("DES",)
+        if estado in {"REN", "ANUL", "CERR"}: return ("FIN",)
+        if estado == "PRE": return ("PRE",)
+        if fila.get("estado_fuente") == "RES":
+            codigos = codigos_resultado.loc[fila.name]
+            categorias_res = []
+            if codigos & {"1", "2", "8", "9", "11"}: categorias_res.append("ADJ")
+            if codigos & {"3", "6", "7"}: categorias_res.append("DES")
+            if codigos & {"4", "5"}: categorias_res.append("FIN")
+            conocidos = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "11"}
+            if not categorias_res or codigos - conocidos: categorias_res.append("OTROS")
+            return tuple(dict.fromkeys(categorias_res))
+        return ("OTROS",)
+    resultado["categorias_estado"] = resultado.apply(categorias, axis=1)
     return resultado
 
 FEED_RECIENTE_URLS = (
@@ -1186,6 +1217,26 @@ def _extraer_resultados_feed(status):
         if codigo and codigo not in codigos:
             codigos.append(codigo)
     return ",".join(codigos) if codigos else None
+
+
+def _extraer_resultados_lotes_feed(status):
+    resultados = []
+    vistos = set()
+    for resultado in status.findall("cac:TenderResult", NAMESPACES_ATOM):
+        codigo = _texto_xml(resultado, "cbc:ResultCode")
+        if not codigo:
+            continue
+        lotes = [
+            nodo.text.strip()
+            for nodo in resultado.findall(".//cbc:ProcurementProjectLotID", NAMESPACES_ATOM)
+            if nodo.text and nodo.text.strip()
+        ] or [None]
+        for lote in lotes:
+            clave = (lote, codigo)
+            if clave not in vistos:
+                resultados.append({"lote": lote, "codigo": codigo})
+                vistos.add(clave)
+    return json.dumps(resultados, ensure_ascii=False) if resultados else None
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _cargar_feed_reciente_portada_legacy():
@@ -1472,6 +1523,7 @@ def _fila_desde_entrada_feed(entrada):
         "tipo_contrato": _texto_xml(proyecto, "cbc:TypeCode"),
         "estado": _texto_xml(status, "cbc-place-ext:ContractFolderStatusCode"),
         "resultado_codigos": _extraer_resultados_feed(status),
+        "resultados_lotes": _extraer_resultados_lotes_feed(status),
         "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
         "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
         "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
@@ -1807,7 +1859,7 @@ filtros_son_menores = (
 )
 estados_previos = set(st.session_state.get("f_estado", []) or [])
 filtros_son_adjudicacion = filtros_son_menores or (
-    bool(estados_previos) and estados_previos <= {"ADJ", "RES"}
+    bool(estados_previos) and estados_previos <= {"ADJ"}
 )
 columna_importe_filtro = (
     "importe_adjudicacion_sin_iva" if filtros_son_adjudicacion else "pbl_sin_iva"
@@ -1902,8 +1954,7 @@ tipos_list = sorted([x for x in df_catalogo_filtros['tipo_contrato_desc'].dropna
 tipo_sel = st.sidebar.multiselect("📦 Tipo de Contrato:", tipos_list, key="f_tipo")
 cpv_2dig = st.sidebar.text_input("🏷️ CPV (2 dígitos):", max_chars=2, key="f_cpv")
 
-estados_unicos = df_catalogo_filtros['estado'].dropna().unique().tolist()
-opciones_estado = {c: MAPA_ESTADOS.get(c, (c, ''))[0] for c in estados_unicos}
+opciones_estado = CATEGORIAS_ESTADO
 estados_sel = st.sidebar.multiselect("📌 Estado:", list(opciones_estado.keys()), format_func=lambda x: opciones_estado[x], key="f_estado")
 
 ccaa_list = sorted([x for x in df_catalogo_filtros['comunidad_autonoma'].dropna().unique() if x])
@@ -1945,7 +1996,11 @@ if busqueda_texto.strip():
     q = busqueda_texto.lower().strip()
     df_f = df_f[df_f['titulo'].str.lower().str.contains(q, na=False, regex=False) | df_f['expediente'].str.lower().str.contains(q, na=False, regex=False) | df_f['organo_contratante'].str.lower().str.contains(q, na=False, regex=False)]
 
-if estados_sel: df_f = df_f[df_f['estado'].isin(estados_sel)]
+if estados_sel:
+    seleccion_estado = set(estados_sel)
+    df_f = df_f[df_f['categorias_estado'].apply(
+        lambda categorias: bool(seleccion_estado.intersection(categorias))
+    )]
 if tipo_sel: df_f = df_f[df_f['tipo_contrato_desc'].isin(tipo_sel)]
 importe_licitacion = pd.to_numeric(
     df_f[columna_importe_filtro], errors="coerce"
@@ -2043,7 +2098,10 @@ def aplicar_filtros_al_feed(df_entrada):
             )
         ]
     if estados_sel:
-        filtrado = filtrado[filtrado["estado"].isin(estados_sel)]
+        seleccion_estado = set(estados_sel)
+        filtrado = filtrado[filtrado["categorias_estado"].apply(
+            lambda categorias: bool(seleccion_estado.intersection(categorias))
+        )]
     if tipo_sel:
         filtrado = filtrado[filtrado["tipo_contrato_desc"].isin(tipo_sel)]
     filtrado = filtrado[

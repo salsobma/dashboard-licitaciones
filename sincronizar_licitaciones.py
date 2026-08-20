@@ -53,6 +53,7 @@ COLUMNAS_FUENTE = (
     "tipo_contrato",
     "estado",
     "resultado_codigos",
+    "resultados_lotes",
     "pbl_sin_iva",
     "pbl_con_iva",
     "valor_estimado",
@@ -354,6 +355,7 @@ def inicializar_esquema(conexion: sqlite3.Connection) -> None:
         "fecha_inicio_contrato": "TEXT",
         "origen": "TEXT NOT NULL DEFAULT 'perfil_plataforma'",
         "resultado_codigos": "TEXT",
+        "resultados_lotes": "TEXT",
     }
     for columna, tipo in migraciones.items():
         if columna not in columnas:

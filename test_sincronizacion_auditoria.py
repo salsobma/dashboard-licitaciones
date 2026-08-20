@@ -6,7 +6,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import sincronizar_licitaciones as sync
-from feed_parser import NAMESPACES, bajas_desde_pagina, extraer_resultados
+from feed_parser import (
+    NAMESPACES,
+    bajas_desde_pagina,
+    extraer_resultados,
+    extraer_resultados_lotes,
+)
 import xml.etree.ElementTree as ET
 
 
@@ -37,12 +42,16 @@ class SincronizacionAuditableTest(unittest.TestCase):
         status = ET.fromstring(
             f'''<ContractFolderStatus xmlns:cac="{NAMESPACES["cac"]}"
                 xmlns:cbc="{NAMESPACES["cbc"]}">
-                <cac:TenderResult><cbc:ResultCode>8</cbc:ResultCode></cac:TenderResult>
-                <cac:TenderResult><cbc:ResultCode>3</cbc:ResultCode></cac:TenderResult>
-                <cac:TenderResult><cbc:ResultCode>8</cbc:ResultCode></cac:TenderResult>
+                <cac:TenderResult><cbc:ResultCode>8</cbc:ResultCode><cbc:ProcurementProjectLotID>1</cbc:ProcurementProjectLotID></cac:TenderResult>
+                <cac:TenderResult><cbc:ResultCode>3</cbc:ResultCode><cbc:ProcurementProjectLotID>2</cbc:ProcurementProjectLotID></cac:TenderResult>
+                <cac:TenderResult><cbc:ResultCode>8</cbc:ResultCode><cbc:ProcurementProjectLotID>1</cbc:ProcurementProjectLotID></cac:TenderResult>
             </ContractFolderStatus>'''
         )
         self.assertEqual(extraer_resultados(status), "8,3")
+        self.assertEqual(
+            extraer_resultados_lotes(status),
+            '[{"lote": "1", "codigo": "8"}, {"lote": "2", "codigo": "3"}]',
+        )
 
     def test_baja_lee_tipo_del_comentario_atom(self):
         raiz = ET.fromstring(

@@ -85,6 +85,27 @@ def extraer_resultados(status: ET.Element) -> str | None:
     return ",".join(codigos) if codigos else None
 
 
+def extraer_resultados_lotes(status: ET.Element) -> str | None:
+    """Guarda la correspondencia lote-resultado sin duplicar el expediente."""
+    resultados = []
+    vistos = set()
+    for resultado in status.findall("cac:TenderResult", NAMESPACES):
+        codigo = texto_xml(resultado, "cbc:ResultCode")
+        if not codigo:
+            continue
+        lotes = [
+            nodo.text.strip()
+            for nodo in resultado.findall(".//cbc:ProcurementProjectLotID", NAMESPACES)
+            if nodo.text and nodo.text.strip()
+        ] or [None]
+        for lote in lotes:
+            clave = (lote, codigo)
+            if clave not in vistos:
+                resultados.append({"lote": lote, "codigo": codigo})
+                vistos.add(clave)
+    return json.dumps(resultados, ensure_ascii=False) if resultados else None
+
+
 def extraer_cpvs(status: ET.Element, proyecto: ET.Element) -> list[str]:
     """Incluye el CPV general y los CPV declarados dentro de cada lote."""
     nodos = proyecto.findall(
@@ -174,6 +195,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
     expediente = texto_xml(status, "cbc:ContractFolderID")
     estado = texto_xml(status, "cbc-place-ext:ContractFolderStatusCode")
     resultado_codigos = extraer_resultados(status)
+    resultados_lotes = extraer_resultados_lotes(status)
 
     def numero(ruta: str) -> float | None:
         valor = texto_xml(proyecto, ruta)
@@ -227,6 +249,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "tipo_contrato": texto_xml(proyecto, "cbc:TypeCode"),
         "estado": estado,
         "resultado_codigos": resultado_codigos,
+        "resultados_lotes": resultados_lotes,
         "pbl_sin_iva": numero("cac:BudgetAmount/cbc:TaxExclusiveAmount"),
         "pbl_con_iva": numero("cac:BudgetAmount/cbc:TotalAmount"),
         "valor_estimado": numero("cac:BudgetAmount/cbc:EstimatedOverallContractAmount"),
