@@ -167,6 +167,21 @@ def cargar_maestro() -> dict[str, dict[str, object]]:
 def enriquecer_y_filtrar(
     fila: dict[str, object], maestro: dict[str, dict[str, object]]
 ) -> dict[str, object] | None:
+    if fila.get("origen") == "contrato_menor":
+        fecha_adjudicacion = str(fila.get("fecha_adjudicacion") or "")
+        try:
+            anyo_adjudicacion = int(fecha_adjudicacion[:4])
+        except ValueError:
+            return None
+        # El histórico comienza en 2025 y la pestaña muestra contratos realmente
+        # adjudicados, no expedientes desiertos sin empresa ni importe.
+        if (
+            anyo_adjudicacion < 2025
+            or not str(fila.get("adjudicatario") or "").strip()
+            or fila.get("importe_adjudicacion_sin_iva") is None
+        ):
+            return None
+
     cpvs = [codigo.strip() for codigo in str(fila.get("cpv") or "").split(",")]
     if not any(codigo.startswith("71") for codigo in cpvs):
         return None

@@ -1,22 +1,25 @@
 {
   "historico_sincronizado_en": "2026-08-13T10:19:18+02:00",
-  "feed_incremental_sincronizado_en": "2026-08-14T10:16:35.033592+02:00",
-  "feed_incremental_actualizado_hasta": "2026-08-10T20:10:56.860+02:00",
+  "feed_incremental_sincronizado_en": "2026-08-20T15:55:40.475320+02:00",
+  "feed_incremental_actualizado_hasta": "2026-08-19T20:12:11.873+02:00",
   "feed_incremental_ultima_ejecucion": {
     "modo": "incremental",
-    "sincronizado_en": "2026-08-14T10:16:35.033592+02:00",
-    "feed_actualizado": "2026-08-10T20:10:56.860+02:00",
+    "sincronizado_en": "2026-08-20T15:55:40.475320+02:00",
+    "feed_actualizado": "2026-08-19T20:12:11.873+02:00",
     "checkpoint_anterior": "2026-08-10T18:10:56.860000+00:00",
-    "paginas": 7,
-    "versiones_leidas": 3172,
-    "ids_revisados": 3027,
-    "insertadas": 0,
-    "actualizadas": 0,
+    "checkpoint_menores_anterior": "2026-08-16T01:02:21.230000+00:00",
+    "paginas": 46,
+    "versiones_leidas": 22676,
+    "ids_revisados": 20259,
+    "insertadas": 18,
+    "actualizadas": 73,
     "bajas": 0,
-    "descartadas_filtro": 2995,
-    "total": 1632,
-    "duplicados": 0
+    "descartadas_filtro": 20087,
+    "total": 6246,
+    "duplicados": 0,
+    "feed_menores_actualizado": "2026-08-20T03:05:28.357+02:00",
+    "versiones_menores_leidas": 6356
   },
-  "feed_menores_actualizado_hasta": "2026-08-16T03:02:21.230+02:00",
-  "feed_menores_sincronizado_en": "2026-08-16T18:13:01.500042+02:00"
+  "feed_menores_actualizado_hasta": "2026-08-20T03:05:28.357+02:00",
+  "feed_menores_sincronizado_en": "2026-08-20T15:55:40.475320+02:00"
 }
