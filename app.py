@@ -1720,14 +1720,58 @@ df_radar_catalogo = df.copy()
 df_bajas_catalogo = pd.DataFrame()
 error_feed_catalogo = None
 df_catalogo_filtros = pd.concat([df, df_menores], ignore_index=True, sort=False)
-max_pbl_value = df_catalogo_filtros['pbl_sin_iva'].max()
-max_pbl_db = float(max_pbl_value) if pd.notnull(max_pbl_value) and max_pbl_value > 0 else 200000.0
 
-fechas_validas = df_catalogo_filtros['fecha_limite_dt'].dropna()
+vista_filtros = st.session_state.get("vista_principal", "📡 Radar de licitaciones")
+fuente_secundaria = {
+    "📋 Tabla": st.session_state.get("fuente_tabla"),
+    "📊 Gráficos": st.session_state.get("fuente_graficos"),
+    "🗺️ Mapa": st.session_state.get("fuente_mapa"),
+}.get(vista_filtros)
+filtros_son_menores = (
+    vista_filtros == "🧾 Contratos menores"
+    or fuente_secundaria == "🧾 Contratos menores"
+)
+estados_previos = set(st.session_state.get("f_estado", ["PUB"]) or [])
+filtros_son_adjudicacion = filtros_son_menores or (
+    bool(estados_previos) and estados_previos <= {"ADJ", "RES"}
+)
+columna_importe_filtro = (
+    "importe_adjudicacion_sin_iva" if filtros_son_adjudicacion else "pbl_sin_iva"
+)
+columna_fecha_filtro = (
+    "fecha_adjudicacion" if filtros_son_adjudicacion else "fecha_limite"
+)
+etiqueta_importe_filtro = (
+    "Importe de adjudicación sin IVA" if filtros_son_adjudicacion
+    else "Presupuesto base de licitación sin IVA"
+)
+etiqueta_fecha_filtro = (
+    "Fecha de adjudicación" if filtros_son_adjudicacion
+    else "Fecha límite de presentación"
+)
+base_filtros_dinamicos = df_menores if filtros_son_menores else df
+importes_validos = pd.to_numeric(
+    base_filtros_dinamicos[columna_importe_filtro], errors="coerce"
+).dropna()
+max_pbl_value = importes_validos.max() if not importes_validos.empty else 200000.0
+max_pbl_db = float(max_pbl_value) if max_pbl_value > 0 else 200000.0
+fechas_validas = pd.to_datetime(
+    base_filtros_dinamicos[columna_fecha_filtro].astype(str).str.slice(0, 10),
+    errors="coerce",
+).dropna()
 f_min_db = fechas_validas.min().date() if not fechas_validas.empty else date.today()
 f_max_db = fechas_validas.max().date() if not fechas_validas.empty else date.today()
 hoy = date.today()
 f_inicio_default = hoy if hoy <= f_max_db else f_min_db
+contexto_filtros = (
+    "menores" if filtros_son_menores else
+    "adjudicadas" if filtros_son_adjudicacion else "licitacion"
+)
+if st.session_state.get("contexto_filtros") != contexto_filtros:
+    st.session_state["contexto_filtros"] = contexto_filtros
+    st.session_state["f_pbl_min"] = 0.0
+    st.session_state["f_pbl_max"] = min(200000.0, max_pbl_db)
+    st.session_state["f_fecha"] = (f_inicio_default, f_max_db)
 
 if "f_cpv" not in st.session_state:
     st.session_state["f_cpv"] = "71"
@@ -1792,12 +1836,15 @@ prov_sel = st.sidebar.multiselect("📍 Provincia:", prov_list, key="f_prov")
 muni_list = sorted([x for x in df_catalogo_filtros[df_catalogo_filtros['provincia'].isin(prov_sel)]['municipio'].dropna().unique() if x]) if prov_sel else sorted([x for x in df_catalogo_filtros['municipio'].dropna().unique() if x])
 muni_sel = st.sidebar.multiselect("🏙️ Municipio:", muni_list, key="f_muni")
 
-st.sidebar.markdown("💶 **Presupuesto Base sin IVA (€):**")
+st.sidebar.markdown(f"💶 **{etiqueta_importe_filtro} (€):**")
 pbl_min_val = st.sidebar.number_input("Mínimo €", min_value=0.0, step=10000.0, key="f_pbl_min")
 pbl_max_val = st.sidebar.number_input("Máximo €", min_value=0.0, value=200000.0, step=50000.0, key="f_pbl_max")
 
 if not fechas_validas.empty:
-    fecha_rango = st.sidebar.date_input("📅 Fecha Límite Presentación:", min_value=f_min_db, max_value=f_max_db, key="f_fecha")
+    fecha_rango = st.sidebar.date_input(
+        f"📅 {etiqueta_fecha_filtro}:",
+        min_value=f_min_db, max_value=f_max_db, key="f_fecha"
+    )
 else:
     fecha_rango = None
 organos = sorted([x for x in df_catalogo_filtros['organo_contratante'].dropna().unique() if x])
@@ -1819,14 +1866,20 @@ if busqueda_texto.strip():
 
 if estados_sel: df_f = df_f[df_f['estado'].isin(estados_sel)]
 if tipo_sel: df_f = df_f[df_f['tipo_contrato_desc'].isin(tipo_sel)]
-df_f = df_f[(df_f['pbl_sin_iva'] >= pbl_min_val) & (df_f['pbl_sin_iva'] <= pbl_max_val)]
+importe_licitacion = pd.to_numeric(
+    df_f[columna_importe_filtro], errors="coerce"
+).fillna(0)
+df_f = df_f[(importe_licitacion >= pbl_min_val) & (importe_licitacion <= pbl_max_val)]
 
 if fecha_rango and len(fecha_rango) == 2:
-    dentro_del_rango = (
-        (df_f['fecha_limite_dt'].dt.date >= fecha_rango[0])
-        & (df_f['fecha_limite_dt'].dt.date <= fecha_rango[1])
+    fechas_licitacion = pd.to_datetime(
+        df_f[columna_fecha_filtro].astype(str).str.slice(0, 10), errors="coerce"
     )
-    dentro_del_rango = dentro_del_rango | df_f['fecha_limite_dt'].isna()
+    dentro_del_rango = (
+        (fechas_licitacion.dt.date >= fecha_rango[0])
+        & (fechas_licitacion.dt.date <= fecha_rango[1])
+    )
+    dentro_del_rango = dentro_del_rango | fechas_licitacion.isna()
     df_f = df_f[dentro_del_rango]
 
 if ccaa_sel: df_f = df_f[df_f['comunidad_autonoma'].isin(ccaa_sel)]
@@ -1857,6 +1910,15 @@ importe_menor = pd.to_numeric(
 df_menores_f = df_menores_f[
     (importe_menor >= pbl_min_val) & (importe_menor <= pbl_max_val)
 ]
+if filtros_son_menores and fecha_rango and len(fecha_rango) == 2:
+    fechas_menores = pd.to_datetime(
+        df_menores_f["fecha_adjudicacion"].astype(str).str.slice(0, 10),
+        errors="coerce",
+    )
+    df_menores_f = df_menores_f[
+        (fechas_menores.dt.date >= fecha_rango[0])
+        & (fechas_menores.dt.date <= fecha_rango[1])
+    ]
 if ccaa_sel:
     df_menores_f = df_menores_f[df_menores_f['comunidad_autonoma'].isin(ccaa_sel)]
 if prov_sel:
@@ -2061,13 +2123,13 @@ opciones_vista = [
     "📡 Radar de licitaciones",
     "🧾 Contratos menores",
     "📋 Tabla",
-    "✅ Control de cobertura",
     "📊 Gráficos",
     "🗺️ Mapa",
 ]
 if ES_PREMIUM and LISTS_CONFIGURADO:
     opciones_vista.append("⭐ Favoritos")
     opciones_vista.append("📅 Calendario")
+opciones_vista.append("✅ Control de cobertura")
 vista_principal = st.segmented_control(
     "Vista del dashboard",
     opciones_vista,
@@ -2201,13 +2263,18 @@ if ccaa_sel: filtros_activos.append('CC. AA.: ' + ', '.join(ccaa_sel))
 if prov_sel: filtros_activos.append('Provincia: ' + ', '.join(prov_sel))
 if muni_sel: filtros_activos.append('Municipio: ' + ', '.join(muni_sel))
 if pbl_min_val > 0 or pbl_max_val < max_pbl_db:
-    filtros_activos.append(f'PBL sin IVA: {formato_eur(pbl_min_val)} – {formato_eur(pbl_max_val)}')
+    filtros_activos.append(
+        f'{etiqueta_importe_filtro}: '
+        f'{formato_eur(pbl_min_val)} – {formato_eur(pbl_max_val)}'
+    )
 if (
     fecha_rango
     and len(fecha_rango) == 2
-    and not vista_datos_menores
 ):
-    filtros_activos.append(f'Fecha límite: {fecha_rango[0].strftime("%d/%m/%Y")} – {fecha_rango[1].strftime("%d/%m/%Y")}')
+    filtros_activos.append(
+        f'{etiqueta_fecha_filtro}: {fecha_rango[0].strftime("%d/%m/%Y")} '
+        f'– {fecha_rango[1].strftime("%d/%m/%Y")}'
+    )
 if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
 if adjudicatario_sel: filtros_activos.append('Adjudicatario: ' + ', '.join(adjudicatario_sel))
 
