@@ -914,6 +914,86 @@ def formato_fecha_corta(valor):
     return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y")
 
 
+def normalizar_nombre_entidad(valor):
+    """Agrupa variantes sencillas de nombres sin inventar equivalencias jurídicas."""
+    if valor is None or (not isinstance(valor, (list, dict)) and pd.isna(valor)):
+        return ""
+    texto = unicodedata.normalize("NFKD", str(valor or ""))
+    texto = "".join(c for c in texto if not unicodedata.combining(c)).upper()
+    texto = re.sub(r"[^A-Z0-9]+", " ", texto)
+    return re.sub(r"\s+", " ", texto).strip()
+
+
+def preparar_adjudicaciones_analisis(df_licitaciones, df_contratos_menores):
+    datos = preparar_base_contratacion_analisis(df_licitaciones, df_contratos_menores)
+    datos = datos[
+        datos["fuente_analisis"].eq("Contratos menores")
+        | datos["categorias_estado"].apply(lambda cats: "ADJ" in cats)
+    ].copy()
+    return datos
+
+
+def preparar_base_contratacion_analisis(df_licitaciones, df_contratos_menores):
+    ordinarias = df_licitaciones.copy()
+    ordinarias["fuente_analisis"] = "Licitaciones"
+    menores = df_contratos_menores.copy()
+    menores["fuente_analisis"] = "Contratos menores"
+    datos = pd.concat([ordinarias, menores], ignore_index=True, sort=False)
+    datos["fecha_analisis"] = pd.to_datetime(
+        datos["fecha_adjudicacion"], errors="coerce"
+    ).fillna(pd.to_datetime(datos["fecha_formalizacion"], errors="coerce"))
+    datos["importe_analisis"] = pd.to_numeric(
+        datos["importe_adjudicacion_sin_iva"], errors="coerce"
+    )
+    datos["empresa_clave"] = datos["adjudicatario"].map(normalizar_nombre_entidad)
+    datos["organo_clave"] = datos["organo_contratante"].map(normalizar_nombre_entidad)
+    return datos
+
+
+def filtrar_fuente_y_anio(datos, fuente, anios):
+    resultado = datos.copy()
+    if fuente != "Ambos":
+        resultado = resultado[resultado["fuente_analisis"] == fuente]
+    if anios:
+        resultado = resultado[resultado["anio_relevante"].isin(anios)]
+    return resultado
+
+
+def grafico_barras_analisis(datos, categoria, valor, titulo_categoria, titulo_valor):
+    return (
+        alt.Chart(datos)
+        .mark_bar(color="#2563eb", cornerRadiusEnd=4)
+        .encode(
+            x=alt.X(f"{valor}:Q", title=titulo_valor),
+            y=alt.Y(f"{categoria}:N", title=None, sort="-x", axis=alt.Axis(labelLimit=420)),
+            tooltip=[
+                alt.Tooltip(f"{categoria}:N", title=titulo_categoria),
+                alt.Tooltip(f"{valor}:Q", title=titulo_valor, format=",.2f"),
+            ],
+        )
+        .properties(height=max(260, min(460, len(datos) * 34)))
+    )
+
+
+def tabla_adjudicaciones_analisis(datos):
+    columnas = {
+        "fecha_analisis": "Fecha adjudicación",
+        "titulo": "Servicio",
+        "importe_analisis": "Importe adjudicado sin IVA",
+        "adjudicatario": "Empresa adjudicataria",
+        "organo_contratante": "Órgano de contratación",
+        "municipio": "Municipio",
+        "provincia": "Provincia",
+        "tipo_contrato_desc": "Tipo de contrato",
+        "cpv": "CPV",
+        "expediente": "Expediente",
+        "fuente_analisis": "Origen",
+        "url_licitacion": "Ficha oficial",
+    }
+    disponibles = [columna for columna in columnas if columna in datos.columns]
+    return datos[disponibles].rename(columns=columnas)
+
+
 def mascara_fechas_entre(valores, inicio, fin, incluir_sin_fecha=False):
     """Compara fechas con tipos homogéneos en todas las versiones de pandas."""
     fechas = pd.to_datetime(
@@ -1980,6 +2060,7 @@ if st.sidebar.button("🗑️ Quitar todos los filtros", use_container_width=Tru
     st.session_state["f_fecha"] = (f_min_db, f_max_db)
     st.session_state["f_organo"] = []
     st.session_state["f_adjudicatario"] = []
+    st.session_state["ultimas_adjudicaciones"] = False
     st.rerun()
 
 if st.sidebar.button(
@@ -1999,6 +2080,27 @@ if st.sidebar.button(
     st.session_state["f_fecha"] = (f_min_db, f_max_db)
     st.session_state["f_organo"] = []
     st.session_state["f_adjudicatario"] = []
+    st.session_state["ultimas_adjudicaciones"] = False
+    st.rerun()
+
+if st.sidebar.button(
+    "🏆 Últimas adjudicaciones",
+    use_container_width=True,
+    type="primary" if st.session_state.get("ultimas_adjudicaciones") else "secondary",
+):
+    st.session_state["f_texto"] = ""
+    st.session_state["f_tipo"] = []
+    st.session_state["f_cpv"] = ""
+    st.session_state["f_estado"] = ["ADJ"]
+    st.session_state["f_anio"] = []
+    st.session_state["f_ccaa"] = []
+    st.session_state["f_prov"] = []
+    st.session_state["f_muni"] = []
+    st.session_state["f_organo"] = []
+    st.session_state["f_adjudicatario"] = []
+    st.session_state["ultimas_adjudicaciones"] = True
+    st.session_state["vista_principal"] = "📡 Radar de licitaciones"
+    st.session_state["select_orden_radar"] = "Fecha de adjudicación (Más reciente)"
     st.rerun()
 
 st.sidebar.divider()
@@ -2323,6 +2425,8 @@ opciones_vista = [
     "📋 Tabla",
     "📊 Gráficos",
     "🗺️ Mapa",
+    "🏢 Análisis de empresas",
+    "🏛️ Análisis de órganos",
 ]
 if ES_PREMIUM and LISTS_CONFIGURADO:
     opciones_vista.append("⭐ Favoritos")
@@ -2381,6 +2485,9 @@ elif vista_principal == "📡 Radar de licitaciones":
 elif vista_principal == "🧾 Contratos menores":
     df_indicadores = df_menores_f
     etiqueta_cantidad = "Contratos menores filtrados"
+elif vista_principal in {"🏢 Análisis de empresas", "🏛️ Análisis de órganos"}:
+    df_indicadores = preparar_adjudicaciones_analisis(df, df_menores)
+    etiqueta_cantidad = "Adjudicaciones analizadas"
 elif vista_principal == "📋 Tabla":
     df_indicadores = df_menores_f if vista_datos_menores else df_f
     etiqueta_cantidad = (
@@ -3018,8 +3125,8 @@ else:
                             "Actualización (Más antigua)",
                             "Fecha límite (Más cercana)",
                             "Fecha límite (Más lejana)",
-                            "Fecha de adjudicación (Más cercana)",
-                            "Fecha de adjudicación (Más lejana)",
+                            "Fecha de adjudicación (Más reciente)",
+                            "Fecha de adjudicación (Más antigua)",
                             "Presupuesto (Mayor a menor)",
                             "Presupuesto (Menor a mayor)",
                         ],
@@ -3037,7 +3144,7 @@ else:
                         df_radar = df_radar.sort_values(
                             "fecha_limite_dt", ascending=False, na_position="last"
                         )
-                    elif criterio_radar == "Fecha de adjudicación (Más cercana)":
+                    elif criterio_radar == "Fecha de adjudicación (Más reciente)":
                         df_radar = df_radar.assign(
                             fecha_adjudicacion_dt=pd.to_datetime(
                                 df_radar["fecha_adjudicacion"], errors="coerce"
@@ -3046,7 +3153,7 @@ else:
                             "fecha_adjudicacion_dt", ascending=False,
                             na_position="last"
                         )
-                    elif criterio_radar == "Fecha de adjudicación (Más lejana)":
+                    elif criterio_radar == "Fecha de adjudicación (Más antigua)":
                         df_radar = df_radar.assign(
                             fecha_adjudicacion_dt=pd.to_datetime(
                                 df_radar["fecha_adjudicacion"], errors="coerce"
@@ -3141,6 +3248,271 @@ else:
                 "Ahora mismo no ha sido posible mostrar el Radar de licitaciones."
             )
             st.caption(f"Detalle técnico: {error_feed}")
+
+    elif vista_principal == "🏢 Análisis de empresas":
+        st.subheader("🏢 Análisis de empresas adjudicatarias")
+        st.caption(
+            "Consulta la contratación registrada de una empresa. Los controles de esta "
+            "pestaña son independientes de los filtros del menú lateral."
+        )
+        base_empresas = preparar_adjudicaciones_analisis(df, df_menores)
+        control_fuente, control_anio = st.columns(2)
+        with control_fuente:
+            fuente_empresa = st.segmented_control(
+                "Origen de los contratos",
+                ["Ambos", "Licitaciones", "Contratos menores"],
+                default="Ambos", key="analisis_empresa_fuente",
+            )
+        with control_anio:
+            anio_empresa = st.segmented_control(
+                "Año del estado relevante",
+                ["Ambos", "2025", "2026"],
+                default="Ambos", key="analisis_empresa_anio",
+            )
+        anios_empresa = [2025, 2026] if anio_empresa == "Ambos" else [int(anio_empresa)]
+        universo_empresas = filtrar_fuente_y_anio(
+            base_empresas, fuente_empresa or "Ambos", anios_empresa
+        )
+        universo_empresas = universo_empresas[universo_empresas["empresa_clave"].ne("")]
+        catalogo_empresas = (
+            universo_empresas.groupby("empresa_clave")["adjudicatario"]
+            .agg(lambda valores: valores.dropna().astype(str).value_counts().index[0])
+            .sort_values(key=lambda serie: serie.str.upper())
+        )
+        opciones_empresas = ["— Selecciona una empresa —"] + catalogo_empresas.tolist()
+        empresa_elegida = st.selectbox(
+            "Buscar empresa adjudicataria", opciones_empresas,
+            key="analisis_empresa_selector",
+        )
+        if empresa_elegida == opciones_empresas[0]:
+            st.info("Selecciona una empresa para ver su ficha de contratación.")
+        else:
+            clave_empresa = normalizar_nombre_entidad(empresa_elegida)
+            empresa = universo_empresas[
+                universo_empresas["empresa_clave"].eq(clave_empresa)
+            ].drop_duplicates(subset=["id"]).copy()
+            importes = empresa["importe_analisis"].dropna()
+            fechas = empresa["fecha_analisis"].dropna()
+            pbl = pd.to_numeric(empresa["pbl_sin_iva"], errors="coerce")
+            bajas = ((pbl - empresa["importe_analisis"]) / pbl * 100).where(
+                (pbl > 0) & empresa["importe_analisis"].notna()
+                & (empresa["importe_analisis"] >= 0) & (empresa["importe_analisis"] <= pbl)
+            ).dropna()
+            metricas = st.columns(5)
+            metricas[0].metric("Adjudicaciones", f"{len(empresa):,}".replace(",", "."))
+            metricas[1].metric("Volumen sin IVA", formato_eur(importes.sum()) if not importes.empty else "Sin datos")
+            metricas[2].metric("Importe medio", formato_eur(importes.mean()) if not importes.empty else "Sin datos")
+            metricas[3].metric("Importe mediano", formato_eur(importes.median()) if not importes.empty else "Sin datos")
+            metricas[4].metric("Baja media", f"{bajas.mean():.1f} %" if not bajas.empty else "Sin datos")
+            if not fechas.empty:
+                st.caption(
+                    f"Primera adjudicación registrada: {fechas.min().strftime('%d/%m/%Y')} · "
+                    f"Última: {fechas.max().strftime('%d/%m/%Y')}"
+                )
+            cobertura_fecha = empresa["fecha_analisis"].notna().mean() * 100
+            cobertura_importe = empresa["importe_analisis"].notna().mean() * 100
+            st.caption(
+                f"Cobertura: fecha de adjudicación/formalización {cobertura_fecha:.0f} % · "
+                f"importe adjudicado {cobertura_importe:.0f} %. La identificación se basa "
+                "en el nombre publicado; las UTE o adjudicatarios múltiples se conservan como figuran en origen."
+            )
+
+            izquierda, derecha = st.columns(2)
+            evolucion = empresa.dropna(subset=["fecha_analisis", "importe_analisis"]).copy()
+            evolucion["periodo"] = evolucion["fecha_analisis"].dt.to_period("M").astype(str)
+            evolucion = evolucion.groupby("periodo", as_index=False)["importe_analisis"].sum()
+            with izquierda:
+                st.markdown("#### Evolución del volumen adjudicado")
+                if evolucion.empty:
+                    st.info("No hay fechas e importes suficientes para este gráfico.")
+                else:
+                    st.altair_chart(
+                        alt.Chart(evolucion).mark_line(point=True, color="#0f9d6e").encode(
+                            x=alt.X("periodo:N", title="Mes"),
+                            y=alt.Y("importe_analisis:Q", title="Importe sin IVA (€)"),
+                            tooltip=["periodo", alt.Tooltip("importe_analisis:Q", format=",.2f")],
+                        ).properties(height=300), width="stretch"
+                    )
+            por_organo = (
+                empresa.assign(organo=empresa["organo_contratante"].fillna("No especificado"))
+                .groupby("organo", as_index=False)["importe_analisis"].sum(min_count=1)
+                .dropna().sort_values("importe_analisis", ascending=False).head(10)
+            )
+            with derecha:
+                st.markdown("#### Principales órganos de contratación")
+                if por_organo.empty:
+                    st.info("No hay importes suficientes para este gráfico.")
+                else:
+                    st.altair_chart(
+                        grafico_barras_analisis(por_organo, "organo", "importe_analisis", "Órgano", "Importe (€)"),
+                        width="stretch",
+                    )
+            if not importes.empty and importes.sum() > 0 and not por_organo.empty:
+                concentracion = por_organo.head(3)["importe_analisis"].sum() / importes.sum() * 100
+                st.caption(f"Los tres principales órganos concentran el {concentracion:.1f} % del volumen registrado.")
+
+            geo, tipo = st.columns(2)
+            por_provincia = empresa.groupby(
+                empresa["provincia"].fillna("No especificada"), as_index=False
+            ).size().rename(columns={"size": "contratos", "provincia": "Provincia"}).head(10)
+            por_tipo = empresa.groupby(
+                empresa["tipo_contrato_desc"].fillna("No especificado"), as_index=False
+            ).size().rename(columns={"size": "contratos", "tipo_contrato_desc": "Tipo"}).head(10)
+            with geo:
+                st.markdown("#### Adjudicaciones por provincia")
+                st.bar_chart(por_provincia.set_index("Provincia")["contratos"] if not por_provincia.empty else pd.Series(dtype=float))
+            with tipo:
+                st.markdown("#### Adjudicaciones por tipo de contrato")
+                st.bar_chart(por_tipo.set_index("Tipo")["contratos"] if not por_tipo.empty else pd.Series(dtype=float))
+
+            st.markdown("#### Últimas adjudicaciones")
+            ultimas_empresa = empresa.sort_values("fecha_analisis", ascending=False, na_position="last")
+            tabla_empresa = tabla_adjudicaciones_analisis(ultimas_empresa)
+            st.dataframe(
+                tabla_empresa, width="stretch", hide_index=True, height=460,
+                column_config={
+                    "Importe adjudicado sin IVA": st.column_config.NumberColumn(format="%.2f €"),
+                    "Ficha oficial": st.column_config.LinkColumn(display_text="Abrir ficha"),
+                },
+            )
+            st.download_button(
+                "⬇️ Descargar adjudicaciones de la empresa",
+                tabla_empresa.to_csv(index=False).encode("utf-8-sig"),
+                file_name="adjudicaciones_empresa.csv", mime="text/csv",
+            )
+
+    elif vista_principal == "🏛️ Análisis de órganos":
+        st.subheader("🏛️ Análisis de órganos de contratación")
+        st.caption(
+            "Consulta actividad, resultados y proveedores de un órgano. Los controles "
+            "de esta pestaña son independientes de los filtros del menú lateral."
+        )
+        base_organos = preparar_base_contratacion_analisis(df, df_menores)
+        control_fuente, control_anio = st.columns(2)
+        with control_fuente:
+            fuente_organo = st.segmented_control(
+                "Origen de los contratos", ["Ambos", "Licitaciones", "Contratos menores"],
+                default="Ambos", key="analisis_organo_fuente",
+            )
+        with control_anio:
+            anio_organo = st.segmented_control(
+                "Año del estado relevante", ["Ambos", "2025", "2026"],
+                default="Ambos", key="analisis_organo_anio",
+            )
+        anios_organo = [2025, 2026] if anio_organo == "Ambos" else [int(anio_organo)]
+        universo_organos = filtrar_fuente_y_anio(
+            base_organos, fuente_organo or "Ambos", anios_organo
+        )
+        universo_organos = universo_organos[universo_organos["organo_clave"].ne("")]
+        catalogo_organos = (
+            universo_organos.groupby("organo_clave")["organo_contratante"]
+            .agg(lambda valores: valores.dropna().astype(str).value_counts().index[0])
+            .sort_values(key=lambda serie: serie.str.upper())
+        )
+        opciones_organos = ["— Selecciona un órgano —"] + catalogo_organos.tolist()
+        organo_elegido = st.selectbox(
+            "Buscar órgano de contratación", opciones_organos,
+            key="analisis_organo_selector",
+        )
+        if organo_elegido == opciones_organos[0]:
+            st.info("Selecciona un órgano para ver su ficha de contratación.")
+        else:
+            clave_organo = normalizar_nombre_entidad(organo_elegido)
+            organo = universo_organos[
+                universo_organos["organo_clave"].eq(clave_organo)
+            ].drop_duplicates(subset=["id"]).copy()
+            es_menor = organo["fuente_analisis"].eq("Contratos menores")
+            es_adjudicada = es_menor | organo["categorias_estado"].apply(lambda cats: "ADJ" in cats)
+            adjudicaciones = organo[es_adjudicada].copy()
+            importes_adj = adjudicaciones["importe_analisis"].dropna()
+            pbl_total = pd.to_numeric(
+                organo.loc[~es_menor, "pbl_sin_iva"], errors="coerce"
+            ).dropna().sum()
+            metricas = st.columns(6)
+            metricas[0].metric("Registros", f"{len(organo):,}".replace(",", "."))
+            metricas[1].metric("Adjudicaciones", f"{len(adjudicaciones):,}".replace(",", "."))
+            metricas[2].metric("Contratos menores", f"{int(es_menor.sum()):,}".replace(",", "."))
+            metricas[3].metric("PBL sin IVA", formato_eur(pbl_total) if pbl_total else "Sin datos")
+            metricas[4].metric("Volumen adjudicado", formato_eur(importes_adj.sum()) if not importes_adj.empty else "Sin datos")
+            metricas[5].metric("Importe mediano", formato_eur(importes_adj.median()) if not importes_adj.empty else "Sin datos")
+            cobertura_adj = adjudicaciones["importe_analisis"].notna().mean() * 100 if len(adjudicaciones) else 0
+            st.caption(
+                f"Cobertura del importe en adjudicaciones: {cobertura_adj:.0f} %. "
+                "Los importes ausentes no se contabilizan como cero."
+            )
+
+            estados = []
+            for _, fila in organo[~es_menor].iterrows():
+                for codigo in fila["categorias_estado"]:
+                    estados.append(CATEGORIAS_ESTADO.get(codigo, codigo))
+            tabla_estados = pd.Series(estados).value_counts().rename_axis("Estado").reset_index(name="Expedientes")
+            empresas = (
+                adjudicaciones[adjudicaciones["empresa_clave"].ne("")]
+                .assign(empresa=lambda tabla: tabla["adjudicatario"].fillna("No especificada"))
+                .groupby("empresa", as_index=False)["importe_analisis"].sum(min_count=1)
+                .dropna().sort_values("importe_analisis", ascending=False).head(10)
+            )
+            izquierda, derecha = st.columns(2)
+            with izquierda:
+                st.markdown("#### Distribución por estado")
+                if tabla_estados.empty:
+                    st.info("No hay licitaciones ordinarias en la selección.")
+                else:
+                    st.bar_chart(tabla_estados.set_index("Estado")["Expedientes"])
+            with derecha:
+                st.markdown("#### Principales empresas adjudicatarias")
+                if empresas.empty:
+                    st.info("No hay adjudicatarios e importes suficientes.")
+                else:
+                    st.altair_chart(
+                        grafico_barras_analisis(empresas, "empresa", "importe_analisis", "Empresa", "Importe (€)"),
+                        width="stretch",
+                    )
+            if not importes_adj.empty and importes_adj.sum() > 0 and not empresas.empty:
+                concentracion = empresas.head(3)["importe_analisis"].sum() / importes_adj.sum() * 100
+                st.caption(f"Los tres principales proveedores concentran el {concentracion:.1f} % del volumen registrado.")
+
+            evolucion = adjudicaciones.dropna(subset=["fecha_analisis", "importe_analisis"]).copy()
+            evolucion["periodo"] = evolucion["fecha_analisis"].dt.to_period("M").astype(str)
+            evolucion = evolucion.groupby("periodo", as_index=False)["importe_analisis"].sum()
+            st.markdown("#### Evolución del volumen adjudicado")
+            if evolucion.empty:
+                st.info("No hay fechas e importes suficientes para este gráfico.")
+            else:
+                st.altair_chart(
+                    alt.Chart(evolucion).mark_area(line=True, color="#0f9d6e", opacity=.35).encode(
+                        x=alt.X("periodo:N", title="Mes"),
+                        y=alt.Y("importe_analisis:Q", title="Importe sin IVA (€)"),
+                        tooltip=["periodo", alt.Tooltip("importe_analisis:Q", format=",.2f")],
+                    ).properties(height=300), width="stretch",
+                )
+
+            ordinarias_organo = organo[~es_menor]
+            desiertas = ordinarias_organo["categorias_estado"].apply(lambda cats: "DES" in cats).sum()
+            porcentaje_desiertas = desiertas / len(ordinarias_organo) * 100 if len(ordinarias_organo) else None
+            fechas_pub = pd.to_datetime(adjudicaciones["fecha_publicacion"], errors="coerce")
+            fechas_adj = adjudicaciones["fecha_analisis"]
+            duraciones = (fechas_adj - fechas_pub).dt.days
+            duraciones = duraciones[duraciones.ge(0)]
+            resumen_col1, resumen_col2 = st.columns(2)
+            resumen_col1.metric("Procedimientos desiertos", f"{porcentaje_desiertas:.1f} %" if porcentaje_desiertas is not None else "Sin datos")
+            resumen_col2.metric("Días medios hasta adjudicación", f"{duraciones.mean():.0f}" if not duraciones.empty else "Sin datos")
+
+            st.markdown("#### Últimas adjudicaciones")
+            ultimas_organo = adjudicaciones.sort_values("fecha_analisis", ascending=False, na_position="last")
+            tabla_organo = tabla_adjudicaciones_analisis(ultimas_organo)
+            st.dataframe(
+                tabla_organo, width="stretch", hide_index=True, height=460,
+                column_config={
+                    "Importe adjudicado sin IVA": st.column_config.NumberColumn(format="%.2f €"),
+                    "Ficha oficial": st.column_config.LinkColumn(display_text="Abrir ficha"),
+                },
+            )
+            st.download_button(
+                "⬇️ Descargar adjudicaciones del órgano",
+                tabla_organo.to_csv(index=False).encode("utf-8-sig"),
+                file_name="adjudicaciones_organo.csv", mime="text/csv",
+            )
 
     elif vista_principal == "✅ Control de cobertura":
         st.subheader("✅ Control de cobertura y cuarentena")
