@@ -1004,6 +1004,74 @@ def grafico_barras_analisis(datos, categoria, valor, titulo_categoria, titulo_va
     )
 
 
+def mostrar_distribucion_bajas(datos, key):
+    """Muestra la distribución de bajas por número de contratos o volumen."""
+    pbl = pd.to_numeric(datos.get("pbl_sin_iva"), errors="coerce")
+    importe = pd.to_numeric(datos.get("importe_analisis"), errors="coerce")
+    bajas = ((pbl - importe) / pbl * 100).where(
+        (pbl > 0) & importe.notna() & (importe >= 0) & (importe <= pbl)
+    )
+    validos = pd.DataFrame({"baja": bajas, "importe": importe}).dropna(subset=["baja"])
+    if validos.empty:
+        st.info("No hay suficientes datos válidos para mostrar la distribución de bajas.")
+        return
+
+    st.markdown("#### Distribución de bajas")
+    modo = st.segmented_control(
+        "Medida de la distribución",
+        ["N.º de adjudicaciones", "Volumen adjudicado"],
+        default="N.º de adjudicaciones",
+        key=key,
+        label_visibility="collapsed",
+    ) or "N.º de adjudicaciones"
+
+    limites = [0, 5, 10, 15, 20, 30, 40, np.inf]
+    etiquetas = ["0–5 %", "5–10 %", "10–15 %", "15–20 %", "20–30 %", "30–40 %", ">40 %"]
+    validos["intervalo"] = pd.cut(
+        validos["baja"], bins=limites, labels=etiquetas, right=False, include_lowest=True
+    )
+    resumen = (
+        validos.groupby("intervalo", observed=False)
+        .agg(adjudicaciones=("baja", "size"), volumen=("importe", "sum"))
+        .reindex(etiquetas, fill_value=0)
+        .reset_index()
+    )
+    valor = "adjudicaciones" if modo == "N.º de adjudicaciones" else "volumen"
+    titulo_y = "Adjudicaciones" if valor == "adjudicaciones" else "Volumen adjudicado sin IVA (€)"
+    formato = ",.0f" if valor == "adjudicaciones" else ",.2f"
+    media = float(validos["baja"].mean())
+    intervalo_media = pd.cut(
+        pd.Series([media]), bins=limites, labels=etiquetas, right=False, include_lowest=True
+    ).iloc[0]
+
+    barras = (
+        alt.Chart(resumen)
+        .mark_bar(color="#2563eb", cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+        .encode(
+            x=alt.X("intervalo:N", sort=etiquetas, title="Baja (%)", axis=alt.Axis(labelAngle=0)),
+            y=alt.Y(f"{valor}:Q", title=titulo_y),
+            tooltip=[
+                alt.Tooltip("intervalo:N", title="Intervalo de baja"),
+                alt.Tooltip(f"{valor}:Q", title=titulo_y, format=formato),
+            ],
+        )
+    )
+    marca_media = pd.DataFrame(
+        {"intervalo": [str(intervalo_media)], "etiqueta": [f"Media: {media:.1f} %".replace(".", ",")]}
+    )
+    linea = alt.Chart(marca_media).mark_rule(color="#16a34a", strokeDash=[7, 5], strokeWidth=2).encode(
+        x=alt.X("intervalo:N", sort=etiquetas)
+    )
+    texto = alt.Chart(marca_media).mark_text(
+        color="#15803d", fontWeight="bold", dy=-8, align="center"
+    ).encode(x=alt.X("intervalo:N", sort=etiquetas), y=alt.value(8), text="etiqueta:N")
+    st.altair_chart((barras + linea + texto).properties(height=330), use_container_width=True)
+    st.caption(
+        f"{len(validos):,} adjudicaciones con datos válidos de PBL e importe adjudicado."
+        .replace(",", ".")
+    )
+
+
 def tabla_adjudicaciones_analisis(datos):
     datos = datos.copy()
     datos["pbl_analisis"] = pd.to_numeric(datos.get("pbl_sin_iva"), errors="coerce")
@@ -3357,6 +3425,9 @@ else:
                     if not bajas.empty
                     else "Sin datos",
                 )
+            mostrar_distribucion_bajas(
+                empresa, "distribucion_bajas_empresa_modo"
+            )
             if not fechas.empty:
                 st.caption(
                     f"Primera adjudicación registrada: {fechas.min().strftime('%d/%m/%Y')} · "
@@ -3520,6 +3591,9 @@ else:
                     if not bajas_porcentaje.empty
                     else "Sin datos",
                 )
+            mostrar_distribucion_bajas(
+                adjudicaciones, "distribucion_bajas_organo_modo"
+            )
             cobertura_adj = adjudicaciones["importe_analisis"].notna().mean() * 100 if len(adjudicaciones) else 0
             st.caption(
                 f"Cobertura del importe en adjudicaciones: {cobertura_adj:.0f} %. "
