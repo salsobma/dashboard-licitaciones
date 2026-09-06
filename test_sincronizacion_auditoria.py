@@ -12,6 +12,7 @@ from feed_parser import (
     extraer_resultados,
     extraer_resultados_lotes,
     extraer_fecha_resolucion,
+    extraer_ubicacion,
 )
 import xml.etree.ElementTree as ET
 
@@ -39,6 +40,25 @@ def fila_base(lic_id: str) -> dict[str, object]:
 
 
 class SincronizacionAuditableTest(unittest.TestCase):
+    def test_ubicacion_es52_no_se_completa_con_sede_del_organo(self):
+        status = ET.fromstring(
+            f'''<ContractFolderStatus xmlns:cac="{NAMESPACES["cac"]}"
+                xmlns:cbc="{NAMESPACES["cbc"]}">
+                <cac:ProcurementProject>
+                    <cac:RealizedLocation><cbc:CountrySubentityCode>ES52</cbc:CountrySubentityCode></cac:RealizedLocation>
+                </cac:ProcurementProject>
+                <cac:LocatedContractingParty><cac:Party><cac:PostalAddress>
+                    <cbc:PostalZone>28001</cbc:PostalZone><cbc:CityName>Madrid</cbc:CityName>
+                </cac:PostalAddress></cac:Party></cac:LocatedContractingParty>
+            </ContractFolderStatus>'''
+        )
+        proyecto = status.find("cac:ProcurementProject", NAMESPACES)
+        party = status.find("cac:LocatedContractingParty/cac:Party", NAMESPACES)
+        self.assertEqual(
+            extraer_ubicacion(status, proyecto, party),
+            (None, None, None, "ES52"),
+        )
+
     def test_fecha_resolucion_usa_el_anuncio_oficial(self):
         status = ET.fromstring(
             f'''<ContractFolderStatus

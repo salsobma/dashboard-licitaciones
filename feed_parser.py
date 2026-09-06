@@ -129,8 +129,10 @@ def extraer_ubicacion(status: ET.Element, proyecto: ET.Element, party: ET.Elemen
         return (
             texto_xml(ubicacion, "cac:Address/cbc:PostalZone"),
             texto_xml(ubicacion, "cac:Address/cbc:CityName"),
-            texto_xml(ubicacion, "cbc:CountrySubentity"),
-            texto_xml(ubicacion, "cbc:CountrySubentityCode"),
+            texto_xml(ubicacion, "cac:Address/cbc:CountrySubentity")
+            or texto_xml(ubicacion, "cbc:CountrySubentity"),
+            texto_xml(ubicacion, "cbc:CountrySubentityCode")
+            or texto_xml(ubicacion, "cac:Address/cbc:CountrySubentityCode"),
         )
 
     candidatas = [datos(u) for u in ubicaciones]
@@ -140,10 +142,12 @@ def extraer_ubicacion(status: ET.Element, proyecto: ET.Element, party: ET.Elemen
     if elegida is None:
         elegida = candidatas[0] if candidatas else (None, None, None, None)
     cp, municipio, provincia, nuts = elegida
-    if not cp:
+    # La dirección de la entidad contratante no es el lugar de ejecución. Solo se
+    # usa como último recurso cuando el XML no declara ninguna ubicación de obra.
+    if not candidatas:
         cp = texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
-    if not municipio:
         municipio = texto_xml(party, "cac:PostalAddress/cbc:CityName")
+        provincia = texto_xml(party, "cac:PostalAddress/cbc:CountrySubentity")
     return cp, municipio, provincia, nuts
 
 

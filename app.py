@@ -924,6 +924,35 @@ def normalizar_nombre_entidad(valor):
     return re.sub(r"\s+", " ", texto).strip()
 
 
+def normalizar_ubicacion_valenciana(datos):
+    """Evita presentar la sede del órgano como lugar de ejecución."""
+    resultado = datos.copy()
+    provincias_validas = {
+        "alicante": "Alicante/Alacant",
+        "alacant": "Alicante/Alacant",
+        "alicante alacant": "Alicante/Alacant",
+        "castellon": "Castellón/Castelló",
+        "castello": "Castellón/Castelló",
+        "castellon castello": "Castellón/Castelló",
+        "valencia": "Valencia/València",
+        "valencia valencia": "Valencia/València",
+    }
+    provincia_clave = resultado["provincia"].map(normalizar_nombre_entidad).str.lower()
+    provincia_clave = provincia_clave.str.replace(r"[^a-z0-9]+", " ", regex=True).str.strip()
+    resultado["provincia"] = provincia_clave.map(provincias_validas)
+    nuts = resultado.get("codigo_nuts", pd.Series(index=resultado.index, dtype="object")).fillna("").astype(str).str.upper()
+    por_nuts = {"ES521": "Alicante/Alacant", "ES522": "Castellón/Castelló", "ES523": "Valencia/València"}
+    for codigo, provincia in por_nuts.items():
+        resultado.loc[resultado["provincia"].isna() & nuts.str.startswith(codigo), "provincia"] = provincia
+    ubicacion_incoherente = resultado["provincia"].isna() & nuts.str.startswith("ES52")
+    resultado.loc[ubicacion_incoherente, "municipio"] = None
+    for columna in ("latitud", "longitud"):
+        if columna in resultado.columns:
+            resultado.loc[ubicacion_incoherente, columna] = np.nan
+    resultado["comunidad_autonoma"] = "Comunitat Valenciana"
+    return resultado
+
+
 def preparar_adjudicaciones_analisis(df_licitaciones, df_contratos_menores):
     datos = preparar_base_contratacion_analisis(df_licitaciones, df_contratos_menores)
     datos = datos[
@@ -976,10 +1005,24 @@ def grafico_barras_analisis(datos, categoria, valor, titulo_categoria, titulo_va
 
 
 def tabla_adjudicaciones_analisis(datos):
+    datos = datos.copy()
+    datos["pbl_analisis"] = pd.to_numeric(datos.get("pbl_sin_iva"), errors="coerce")
+    datos["baja_importe"] = datos["pbl_analisis"] - datos["importe_analisis"]
+    datos["baja_porcentaje"] = (
+        datos["baja_importe"] / datos["pbl_analisis"] * 100
+    ).where(
+        (datos["pbl_analisis"] > 0)
+        & datos["importe_analisis"].notna()
+        & (datos["importe_analisis"] >= 0)
+        & (datos["importe_analisis"] <= datos["pbl_analisis"])
+    )
     columnas = {
         "fecha_analisis": "Fecha adjudicación",
         "titulo": "Servicio",
         "importe_analisis": "Importe adjudicado sin IVA",
+        "pbl_analisis": "PBL sin IVA",
+        "baja_importe": "Baja sin IVA",
+        "baja_porcentaje": "Baja (%)",
         "adjudicatario": "Empresa adjudicataria",
         "organo_contratante": "Órgano de contratación",
         "municipio": "Municipio",
@@ -1954,6 +1997,7 @@ def cargar_cuarentena(db_mtime):
 
 try:
     df_total = cargar_datos(os.path.getmtime(DB_PATH))
+    df_total = normalizar_ubicacion_valenciana(df_total)
     df_cuarentena = cargar_cuarentena(os.path.getmtime(DB_PATH))
 except Exception as e:
     st.error(f"❌ No se pudo conectar a la base de datos en {DB_PATH}. Error: {e}")
@@ -1989,6 +2033,8 @@ filtros_son_menores = (
 )
 estados_previos = set(st.session_state.get("f_estado", []) or [])
 filtros_son_adjudicacion = filtros_son_menores or (
+    vista_filtros in {"🏢 Análisis de empresas", "🏛️ Análisis de órganos"}
+    or
     bool(estados_previos) and estados_previos <= {"ADJ"}
 )
 columna_importe_filtro = (
@@ -2061,7 +2107,6 @@ if st.sidebar.button("🗑️ Quitar todos los filtros", use_container_width=Tru
     st.session_state["f_organo"] = []
     st.session_state["f_adjudicatario"] = []
     st.session_state["ultimas_adjudicaciones"] = False
-    st.rerun()
 
 if st.sidebar.button(
     "⚡ Licitaciones en plazo · PBL < 200.000 €",
@@ -2081,12 +2126,10 @@ if st.sidebar.button(
     st.session_state["f_organo"] = []
     st.session_state["f_adjudicatario"] = []
     st.session_state["ultimas_adjudicaciones"] = False
-    st.rerun()
 
 if st.sidebar.button(
     "🏆 Últimas adjudicaciones",
     use_container_width=True,
-    type="primary" if st.session_state.get("ultimas_adjudicaciones") else "secondary",
 ):
     st.session_state["f_texto"] = ""
     st.session_state["f_tipo"] = []
@@ -2099,9 +2142,7 @@ if st.sidebar.button(
     st.session_state["f_organo"] = []
     st.session_state["f_adjudicatario"] = []
     st.session_state["ultimas_adjudicaciones"] = True
-    st.session_state["vista_principal"] = "📡 Radar de licitaciones"
     st.session_state["select_orden_radar"] = "Fecha de adjudicación (Más reciente)"
-    st.rerun()
 
 st.sidebar.divider()
 
@@ -2207,7 +2248,7 @@ importe_menor = pd.to_numeric(
 df_menores_f = df_menores_f[
     (importe_menor >= pbl_min_val) & (importe_menor <= pbl_max_val)
 ]
-if filtros_son_menores and fecha_rango and len(fecha_rango) == 2:
+if filtros_son_adjudicacion and fecha_rango and len(fecha_rango) == 2:
     df_menores_f = df_menores_f[
         mascara_fechas_entre(
             df_menores_f["fecha_adjudicacion"], fecha_rango[0], fecha_rango[1]
@@ -2440,6 +2481,11 @@ vista_principal = st.segmented_control(
     key="vista_principal",
     label_visibility="collapsed",
 )
+# En algunos reruns iniciados desde la barra lateral, Streamlit puede devolver
+# durante un ciclo el valor anterior del widget aunque session_state ya contenga
+# la vista seleccionada. Tomamos session_state como fuente de verdad para que un
+# preset cambie los datos, pero nunca el contenido principal que se está viendo.
+vista_principal = st.session_state.get("vista_principal") or vista_principal
 if vista_principal is None:
     vista_principal = "📡 Radar de licitaciones"
 vista_datos_menores = (
@@ -2486,8 +2532,12 @@ elif vista_principal == "🧾 Contratos menores":
     df_indicadores = df_menores_f
     etiqueta_cantidad = "Contratos menores filtrados"
 elif vista_principal in {"🏢 Análisis de empresas", "🏛️ Análisis de órganos"}:
-    df_indicadores = preparar_adjudicaciones_analisis(df, df_menores)
-    etiqueta_cantidad = "Adjudicaciones analizadas"
+    if vista_principal == "🏢 Análisis de empresas":
+        df_indicadores = preparar_adjudicaciones_analisis(df_f, df_menores_f)
+        etiqueta_cantidad = "Adjudicaciones analizadas"
+    else:
+        df_indicadores = preparar_base_contratacion_analisis(df_f, df_menores_f)
+        etiqueta_cantidad = "Procesos analizados"
 elif vista_principal == "📋 Tabla":
     df_indicadores = df_menores_f if vista_datos_menores else df_f
     etiqueta_cantidad = (
@@ -3252,26 +3302,17 @@ else:
     elif vista_principal == "🏢 Análisis de empresas":
         st.subheader("🏢 Análisis de empresas adjudicatarias")
         st.caption(
-            "Consulta la contratación registrada de una empresa. Los controles de esta "
-            "pestaña son independientes de los filtros del menú lateral."
+            "Consulta conjuntamente una o varias denominaciones de empresa. Esta ficha "
+            "se actualiza con los filtros del menú lateral."
         )
-        base_empresas = preparar_adjudicaciones_analisis(df, df_menores)
-        control_fuente, control_anio = st.columns(2)
-        with control_fuente:
-            fuente_empresa = st.segmented_control(
-                "Origen de los contratos",
-                ["Ambos", "Licitaciones", "Contratos menores"],
-                default="Ambos", key="analisis_empresa_fuente",
-            )
-        with control_anio:
-            anio_empresa = st.segmented_control(
-                "Año del estado relevante",
-                ["Ambos", "2025", "2026"],
-                default="Ambos", key="analisis_empresa_anio",
-            )
-        anios_empresa = [2025, 2026] if anio_empresa == "Ambos" else [int(anio_empresa)]
+        base_empresas = preparar_adjudicaciones_analisis(df_f, df_menores_f)
+        fuente_empresa = st.segmented_control(
+            "Origen de los contratos",
+            ["Ambos", "Licitaciones", "Contratos menores"],
+            default="Ambos", key="analisis_empresa_fuente",
+        )
         universo_empresas = filtrar_fuente_y_anio(
-            base_empresas, fuente_empresa or "Ambos", anios_empresa
+            base_empresas, fuente_empresa or "Ambos", []
         )
         universo_empresas = universo_empresas[universo_empresas["empresa_clave"].ne("")]
         catalogo_empresas = (
@@ -3279,17 +3320,18 @@ else:
             .agg(lambda valores: valores.dropna().astype(str).value_counts().index[0])
             .sort_values(key=lambda serie: serie.str.upper())
         )
-        opciones_empresas = ["— Selecciona una empresa —"] + catalogo_empresas.tolist()
-        empresa_elegida = st.selectbox(
-            "Buscar empresa adjudicataria", opciones_empresas,
-            key="analisis_empresa_selector",
+        opciones_empresas = catalogo_empresas.tolist()
+        empresas_elegidas = st.multiselect(
+            "Buscar una o varias denominaciones de empresa", opciones_empresas,
+            key="analisis_empresa_selector_multiple",
+            placeholder="Escribe para buscar empresas",
         )
-        if empresa_elegida == opciones_empresas[0]:
-            st.info("Selecciona una empresa para ver su ficha de contratación.")
+        if not empresas_elegidas:
+            st.info("Selecciona una o varias empresas para ver una ficha conjunta.")
         else:
-            clave_empresa = normalizar_nombre_entidad(empresa_elegida)
+            claves_empresa = {normalizar_nombre_entidad(nombre) for nombre in empresas_elegidas}
             empresa = universo_empresas[
-                universo_empresas["empresa_clave"].eq(clave_empresa)
+                universo_empresas["empresa_clave"].isin(claves_empresa)
             ].drop_duplicates(subset=["id"]).copy()
             importes = empresa["importe_analisis"].dropna()
             fechas = empresa["fecha_analisis"].dropna()
@@ -3315,6 +3357,10 @@ else:
                 f"Cobertura: fecha de adjudicación/formalización {cobertura_fecha:.0f} % · "
                 f"importe adjudicado {cobertura_importe:.0f} %. La identificación se basa "
                 "en el nombre publicado; las UTE o adjudicatarios múltiples se conservan como figuran en origen."
+            )
+            st.info(
+                "La base actual no guarda teléfono, correo ni NIF/CIF del adjudicatario. "
+                "Estos datos solo podrán mostrarse si ampliamos la extracción y la fuente oficial los publica."
             )
 
             izquierda, derecha = st.columns(2)
@@ -3372,6 +3418,9 @@ else:
                 tabla_empresa, width="stretch", hide_index=True, height=460,
                 column_config={
                     "Importe adjudicado sin IVA": st.column_config.NumberColumn(format="%.2f €"),
+                    "PBL sin IVA": st.column_config.NumberColumn(format="%.2f €"),
+                    "Baja sin IVA": st.column_config.NumberColumn(format="%.2f €"),
+                    "Baja (%)": st.column_config.NumberColumn(format="%.2f %%"),
                     "Ficha oficial": st.column_config.LinkColumn(display_text="Abrir ficha"),
                 },
             )
@@ -3384,24 +3433,16 @@ else:
     elif vista_principal == "🏛️ Análisis de órganos":
         st.subheader("🏛️ Análisis de órganos de contratación")
         st.caption(
-            "Consulta actividad, resultados y proveedores de un órgano. Los controles "
-            "de esta pestaña son independientes de los filtros del menú lateral."
+            "Consulta conjuntamente uno o varios nombres de órgano. Esta ficha se "
+            "actualiza con los filtros del menú lateral."
         )
-        base_organos = preparar_base_contratacion_analisis(df, df_menores)
-        control_fuente, control_anio = st.columns(2)
-        with control_fuente:
-            fuente_organo = st.segmented_control(
-                "Origen de los contratos", ["Ambos", "Licitaciones", "Contratos menores"],
-                default="Ambos", key="analisis_organo_fuente",
-            )
-        with control_anio:
-            anio_organo = st.segmented_control(
-                "Año del estado relevante", ["Ambos", "2025", "2026"],
-                default="Ambos", key="analisis_organo_anio",
-            )
-        anios_organo = [2025, 2026] if anio_organo == "Ambos" else [int(anio_organo)]
+        base_organos = preparar_base_contratacion_analisis(df_f, df_menores_f)
+        fuente_organo = st.segmented_control(
+            "Origen de los contratos", ["Ambos", "Licitaciones", "Contratos menores"],
+            default="Ambos", key="analisis_organo_fuente",
+        )
         universo_organos = filtrar_fuente_y_anio(
-            base_organos, fuente_organo or "Ambos", anios_organo
+            base_organos, fuente_organo or "Ambos", []
         )
         universo_organos = universo_organos[universo_organos["organo_clave"].ne("")]
         catalogo_organos = (
@@ -3409,28 +3450,36 @@ else:
             .agg(lambda valores: valores.dropna().astype(str).value_counts().index[0])
             .sort_values(key=lambda serie: serie.str.upper())
         )
-        opciones_organos = ["— Selecciona un órgano —"] + catalogo_organos.tolist()
-        organo_elegido = st.selectbox(
-            "Buscar órgano de contratación", opciones_organos,
-            key="analisis_organo_selector",
+        opciones_organos = catalogo_organos.tolist()
+        organos_elegidos = st.multiselect(
+            "Buscar uno o varios nombres de órgano", opciones_organos,
+            key="analisis_organo_selector_multiple",
+            placeholder="Escribe para buscar órganos",
         )
-        if organo_elegido == opciones_organos[0]:
-            st.info("Selecciona un órgano para ver su ficha de contratación.")
+        if not organos_elegidos:
+            st.info("Selecciona uno o varios órganos para ver una ficha conjunta.")
         else:
-            clave_organo = normalizar_nombre_entidad(organo_elegido)
+            claves_organo = {normalizar_nombre_entidad(nombre) for nombre in organos_elegidos}
             organo = universo_organos[
-                universo_organos["organo_clave"].eq(clave_organo)
+                universo_organos["organo_clave"].isin(claves_organo)
             ].drop_duplicates(subset=["id"]).copy()
             es_menor = organo["fuente_analisis"].eq("Contratos menores")
-            es_adjudicada = es_menor | organo["categorias_estado"].apply(lambda cats: "ADJ" in cats)
-            adjudicaciones = organo[es_adjudicada].copy()
+            es_adjudicada_ordinaria = (~es_menor) & organo["categorias_estado"].apply(lambda cats: "ADJ" in cats)
+            adjudicaciones_ordinarias = organo[es_adjudicada_ordinaria].copy()
+            contratos_menores_organo = organo[es_menor].copy()
+            adjudicaciones = organo[es_adjudicada_ordinaria | es_menor].copy()
+            procesos_activos = organo[
+                (~es_menor) & organo["categorias_estado"].apply(
+                    lambda cats: bool(set(cats).intersection({"PUB", "EV", "PRE"}))
+                )
+            ].copy()
             importes_adj = adjudicaciones["importe_analisis"].dropna()
             pbl_total = pd.to_numeric(
                 organo.loc[~es_menor, "pbl_sin_iva"], errors="coerce"
             ).dropna().sum()
             metricas = st.columns(6)
             metricas[0].metric("Registros", f"{len(organo):,}".replace(",", "."))
-            metricas[1].metric("Adjudicaciones", f"{len(adjudicaciones):,}".replace(",", "."))
+            metricas[1].metric("Adjudicaciones", f"{len(adjudicaciones_ordinarias):,}".replace(",", "."))
             metricas[2].metric("Contratos menores", f"{int(es_menor.sum()):,}".replace(",", "."))
             metricas[3].metric("PBL sin IVA", formato_eur(pbl_total) if pbl_total else "Sin datos")
             metricas[4].metric("Volumen adjudicado", formato_eur(importes_adj.sum()) if not importes_adj.empty else "Sin datos")
@@ -3438,7 +3487,8 @@ else:
             cobertura_adj = adjudicaciones["importe_analisis"].notna().mean() * 100 if len(adjudicaciones) else 0
             st.caption(
                 f"Cobertura del importe en adjudicaciones: {cobertura_adj:.0f} %. "
-                "Los importes ausentes no se contabilizan como cero."
+                f"Procesos activos: {len(procesos_activos)}. Los indicadores son categorías "
+                "separadas; los importes ausentes no se contabilizan como cero."
             )
 
             estados = []
@@ -3498,18 +3548,47 @@ else:
             resumen_col1.metric("Procedimientos desiertos", f"{porcentaje_desiertas:.1f} %" if porcentaje_desiertas is not None else "Sin datos")
             resumen_col2.metric("Días medios hasta adjudicación", f"{duraciones.mean():.0f}" if not duraciones.empty else "Sin datos")
 
-            st.markdown("#### Últimas adjudicaciones")
-            ultimas_organo = adjudicaciones.sort_values("fecha_analisis", ascending=False, na_position="last")
-            tabla_organo = tabla_adjudicaciones_analisis(ultimas_organo)
-            st.dataframe(
-                tabla_organo, width="stretch", hide_index=True, height=460,
-                column_config={
-                    "Importe adjudicado sin IVA": st.column_config.NumberColumn(format="%.2f €"),
-                    "Ficha oficial": st.column_config.LinkColumn(display_text="Abrir ficha"),
-                },
+            pestana_adj, pestana_men, pestana_act = st.tabs([
+                f"Adjudicaciones ({len(adjudicaciones_ordinarias)})",
+                f"Contratos menores ({len(contratos_menores_organo)})",
+                f"Procesos activos ({len(procesos_activos)})",
+            ])
+            config_tabla_analisis = {
+                "Importe adjudicado sin IVA": st.column_config.NumberColumn(format="%.2f €"),
+                "PBL sin IVA": st.column_config.NumberColumn(format="%.2f €"),
+                "Baja sin IVA": st.column_config.NumberColumn(format="%.2f €"),
+                "Baja (%)": st.column_config.NumberColumn(format="%.2f %%"),
+                "Ficha oficial": st.column_config.LinkColumn(display_text="Abrir ficha"),
+            }
+            with pestana_adj:
+                tabla_adj = tabla_adjudicaciones_analisis(
+                    adjudicaciones_ordinarias.sort_values("fecha_analisis", ascending=False, na_position="last")
+                )
+                st.dataframe(tabla_adj, width="stretch", hide_index=True, height=420, column_config=config_tabla_analisis)
+            with pestana_men:
+                tabla_men = tabla_adjudicaciones_analisis(
+                    contratos_menores_organo.sort_values("fecha_analisis", ascending=False, na_position="last")
+                )
+                st.dataframe(tabla_men, width="stretch", hide_index=True, height=420, column_config=config_tabla_analisis)
+            with pestana_act:
+                columnas_activas = {
+                    "titulo": "Servicio", "estado": "Estado", "fecha_publicacion": "Publicación",
+                    "fecha_limite": "Fecha límite", "pbl_sin_iva": "PBL sin IVA",
+                    "municipio": "Municipio", "expediente": "Expediente", "url_licitacion": "Ficha oficial",
+                }
+                tabla_act = procesos_activos.copy()
+                tabla_act["estado"] = tabla_act["estado"].map(lambda e: MAPA_ESTADOS.get(e, (e, ""))[0])
+                cols_act = [c for c in columnas_activas if c in tabla_act.columns]
+                tabla_act = tabla_act[cols_act].rename(columns=columnas_activas)
+                st.dataframe(
+                    tabla_act, width="stretch", hide_index=True, height=420,
+                    column_config={"PBL sin IVA": st.column_config.NumberColumn(format="%.2f €"), "Ficha oficial": st.column_config.LinkColumn(display_text="Abrir ficha")},
+                )
+            tabla_organo = tabla_adjudicaciones_analisis(
+                adjudicaciones.sort_values("fecha_analisis", ascending=False, na_position="last")
             )
             st.download_button(
-                "⬇️ Descargar adjudicaciones del órgano",
+                "⬇️ Descargar adjudicaciones y contratos menores del órgano",
                 tabla_organo.to_csv(index=False).encode("utf-8-sig"),
                 file_name="adjudicaciones_organo.csv", mime="text/csv",
             )
