@@ -1004,11 +1004,16 @@ def grafico_barras_analisis(datos, categoria, valor, titulo_categoria, titulo_va
     )
 
 
-def mostrar_indicadores_compactos(indicadores, columnas=3):
+def mostrar_indicadores_compactos(indicadores, distribucion=None):
     """Presenta indicadores legibles en tarjetas compactas y homogéneas."""
-    for inicio in range(0, len(indicadores), columnas):
-        grupo = indicadores[inicio:inicio + columnas]
-        columnas_fila = st.columns(len(grupo))
+    if distribucion is None:
+        distribucion = [3] * int(np.ceil(len(indicadores) / 3))
+    inicio = 0
+    for cantidad in distribucion:
+        grupo = indicadores[inicio:inicio + cantidad]
+        if not grupo:
+            break
+        columnas_fila = st.columns(cantidad)
         for columna, (etiqueta, valor) in zip(columnas_fila, grupo):
             columna.markdown(
                 '<div class="metric-box-grid" style="min-height:82px;display:flex;'
@@ -1017,6 +1022,7 @@ def mostrar_indicadores_compactos(indicadores, columnas=3):
                 f'<div class="metric-lbl-grid" style="margin-top:6px;">{etiqueta}</div></div>',
                 unsafe_allow_html=True,
             )
+        inicio += cantidad
 
 
 def mostrar_distribucion_bajas(datos, key):
@@ -1096,6 +1102,9 @@ def mostrar_distribucion_presupuestos(datos):
         return
 
     st.markdown("#### Contratos por rango de presupuesto")
+    # Reserva el mismo alto que el selector del gráfico vecino para que las
+    # dos áreas de trazado comiencen exactamente en la misma línea.
+    st.markdown('<div style="height:48px;"></div>', unsafe_allow_html=True)
     limites = [0, 10000, 25000, 50000, 100000, 200000, 500000, np.inf]
     etiquetas = [
         "0–10 mil €", "10–25 mil €", "25–50 mil €", "50–100 mil €",
@@ -3480,7 +3489,7 @@ else:
                 ("Baja media", valor_baja(bajas.mean)),
                 ("Baja máxima", valor_baja(bajas.max)),
                 ("Baja mínima", valor_baja(bajas.min)),
-            ])
+            ], distribucion=[4, 3])
             graficos_analisis = st.columns(2)
             with graficos_analisis[0]:
                 mostrar_distribucion_bajas(
@@ -3646,7 +3655,7 @@ else:
                 ("Baja media", valor_baja(bajas_porcentaje.mean)),
                 ("Baja máxima", valor_baja(bajas_porcentaje.max)),
                 ("Baja mínima", valor_baja(bajas_porcentaje.min)),
-            ])
+            ], distribucion=[3, 3, 3])
             graficos_analisis = st.columns(2)
             with graficos_analisis[0]:
                 mostrar_distribucion_bajas(
