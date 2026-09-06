@@ -3474,16 +3474,35 @@ else:
                 )
             ].copy()
             importes_adj = adjudicaciones["importe_analisis"].dropna()
+            pbl_adjudicaciones = pd.to_numeric(
+                adjudicaciones["pbl_sin_iva"], errors="coerce"
+            )
+            bajas_porcentaje = (
+                (pbl_adjudicaciones - adjudicaciones["importe_analisis"])
+                / pbl_adjudicaciones
+                * 100
+            ).where(
+                (pbl_adjudicaciones > 0)
+                & adjudicaciones["importe_analisis"].notna()
+                & (adjudicaciones["importe_analisis"] >= 0)
+                & (adjudicaciones["importe_analisis"] <= pbl_adjudicaciones)
+            ).dropna()
             pbl_total = pd.to_numeric(
                 organo.loc[~es_menor, "pbl_sin_iva"], errors="coerce"
             ).dropna().sum()
-            metricas = st.columns(6)
+            metricas = st.columns(7)
             metricas[0].metric("Registros", f"{len(organo):,}".replace(",", "."))
             metricas[1].metric("Adjudicaciones", f"{len(adjudicaciones_ordinarias):,}".replace(",", "."))
             metricas[2].metric("Contratos menores", f"{int(es_menor.sum()):,}".replace(",", "."))
             metricas[3].metric("PBL sin IVA", formato_eur(pbl_total) if pbl_total else "Sin datos")
             metricas[4].metric("Volumen adjudicado", formato_eur(importes_adj.sum()) if not importes_adj.empty else "Sin datos")
             metricas[5].metric("Importe mediano", formato_eur(importes_adj.median()) if not importes_adj.empty else "Sin datos")
+            metricas[6].metric(
+                "Baja media",
+                f"{bajas_porcentaje.mean():.1f} %".replace(".", ",")
+                if not bajas_porcentaje.empty
+                else "Sin datos",
+            )
             cobertura_adj = adjudicaciones["importe_analisis"].notna().mean() * 100 if len(adjudicaciones) else 0
             st.caption(
                 f"Cobertura del importe en adjudicaciones: {cobertura_adj:.0f} %. "
