@@ -1004,6 +1004,21 @@ def grafico_barras_analisis(datos, categoria, valor, titulo_categoria, titulo_va
     )
 
 
+def mostrar_indicadores_compactos(indicadores, columnas=3):
+    """Presenta indicadores legibles en tarjetas compactas y homogéneas."""
+    for inicio in range(0, len(indicadores), columnas):
+        grupo = indicadores[inicio:inicio + columnas]
+        columnas_fila = st.columns(len(grupo))
+        for columna, (etiqueta, valor) in zip(columnas_fila, grupo):
+            columna.markdown(
+                '<div class="metric-box-grid" style="min-height:82px;display:flex;'
+                'flex-direction:column;justify-content:center;padding:10px 12px;">'
+                f'<div class="metric-val-grid" style="font-size:1.12rem;line-height:1.2;">{valor}</div>'
+                f'<div class="metric-lbl-grid" style="margin-top:6px;">{etiqueta}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+
 def mostrar_distribucion_bajas(datos, key):
     """Muestra la distribución de bajas por número de contratos o volumen."""
     pbl = pd.to_numeric(datos.get("pbl_sin_iva"), errors="coerce")
@@ -1069,6 +1084,51 @@ def mostrar_distribucion_bajas(datos, key):
     st.caption(
         f"{len(validos):,} adjudicaciones con datos válidos de PBL e importe adjudicado."
         .replace(",", ".")
+    )
+
+
+def mostrar_distribucion_presupuestos(datos):
+    """Muestra cuántos contratos hay en cada rango de PBL sin IVA."""
+    pbl = pd.to_numeric(datos.get("pbl_sin_iva"), errors="coerce")
+    validos = pbl[(pbl > 0) & pbl.notna()]
+    if validos.empty:
+        st.info("No hay presupuestos válidos para mostrar su distribución.")
+        return
+
+    st.markdown("#### Contratos por rango de presupuesto")
+    limites = [0, 10000, 25000, 50000, 100000, 200000, 500000, np.inf]
+    etiquetas = [
+        "0–10 mil €", "10–25 mil €", "25–50 mil €", "50–100 mil €",
+        "100–200 mil €", "200–500 mil €", ">500 mil €",
+    ]
+    intervalos = pd.cut(
+        validos, bins=limites, labels=etiquetas, right=False, include_lowest=True
+    )
+    resumen = (
+        intervalos.value_counts(sort=False)
+        .reindex(etiquetas, fill_value=0)
+        .rename_axis("intervalo")
+        .reset_index(name="contratos")
+    )
+    grafico = (
+        alt.Chart(resumen)
+        .mark_bar(color="#2563eb", cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+        .encode(
+            x=alt.X(
+                "intervalo:N", sort=etiquetas, title="PBL sin IVA",
+                axis=alt.Axis(labelAngle=-28, labelLimit=110),
+            ),
+            y=alt.Y("contratos:Q", title="Contratos"),
+            tooltip=[
+                alt.Tooltip("intervalo:N", title="Rango de presupuesto"),
+                alt.Tooltip("contratos:Q", title="Contratos", format=",.0f"),
+            ],
+        )
+        .properties(height=330)
+    )
+    st.altair_chart(grafico, use_container_width=True)
+    st.caption(
+        f"{len(validos):,} contratos con PBL sin IVA disponible.".replace(",", ".")
     )
 
 
@@ -3408,26 +3468,26 @@ else:
                 (pbl > 0) & empresa["importe_analisis"].notna()
                 & (empresa["importe_analisis"] >= 0) & (empresa["importe_analisis"] <= pbl)
             ).dropna()
-            metricas = st.columns(4)
-            metricas[0].metric("Adjudicaciones", f"{len(empresa):,}".replace(",", "."))
-            metricas[1].metric("Volumen sin IVA", formato_eur(importes.sum()) if not importes.empty else "Sin datos")
-            metricas[2].metric("Importe medio", formato_eur(importes.mean()) if not importes.empty else "Sin datos")
-            metricas[3].metric("Importe mediano", formato_eur(importes.median()) if not importes.empty else "Sin datos")
-            metricas_baja = st.columns(3)
-            for columna, etiqueta, operacion in zip(
-                metricas_baja,
-                ("Baja media", "Baja máxima", "Baja mínima"),
-                (bajas.mean, bajas.max, bajas.min),
-            ):
-                columna.metric(
-                    etiqueta,
-                    f"{operacion():.1f} %".replace(".", ",")
-                    if not bajas.empty
-                    else "Sin datos",
-                )
-            mostrar_distribucion_bajas(
-                empresa, "distribucion_bajas_empresa_modo"
+            valor_baja = lambda operacion: (
+                f"{operacion():.1f} %".replace(".", ",")
+                if not bajas.empty else "Sin datos"
             )
+            mostrar_indicadores_compactos([
+                ("Adjudicaciones", f"{len(empresa):,}".replace(",", ".")),
+                ("Volumen sin IVA", formato_eur(importes.sum()) if not importes.empty else "Sin datos"),
+                ("Importe medio", formato_eur(importes.mean()) if not importes.empty else "Sin datos"),
+                ("Importe mediano", formato_eur(importes.median()) if not importes.empty else "Sin datos"),
+                ("Baja media", valor_baja(bajas.mean)),
+                ("Baja máxima", valor_baja(bajas.max)),
+                ("Baja mínima", valor_baja(bajas.min)),
+            ])
+            graficos_analisis = st.columns(2)
+            with graficos_analisis[0]:
+                mostrar_distribucion_bajas(
+                    empresa, "distribucion_bajas_empresa_modo"
+                )
+            with graficos_analisis[1]:
+                mostrar_distribucion_presupuestos(empresa)
             if not fechas.empty:
                 st.caption(
                     f"Primera adjudicación registrada: {fechas.min().strftime('%d/%m/%Y')} · "
@@ -3572,28 +3632,28 @@ else:
             pbl_total = pd.to_numeric(
                 organo.loc[~es_menor, "pbl_sin_iva"], errors="coerce"
             ).dropna().sum()
-            metricas = st.columns(6)
-            metricas[0].metric("Registros", f"{len(organo):,}".replace(",", "."))
-            metricas[1].metric("Adjudicaciones", f"{len(adjudicaciones_ordinarias):,}".replace(",", "."))
-            metricas[2].metric("Contratos menores", f"{int(es_menor.sum()):,}".replace(",", "."))
-            metricas[3].metric("PBL sin IVA", formato_eur(pbl_total) if pbl_total else "Sin datos")
-            metricas[4].metric("Volumen adjudicado", formato_eur(importes_adj.sum()) if not importes_adj.empty else "Sin datos")
-            metricas[5].metric("Importe mediano", formato_eur(importes_adj.median()) if not importes_adj.empty else "Sin datos")
-            metricas_baja = st.columns(3)
-            for columna, etiqueta, operacion in zip(
-                metricas_baja,
-                ("Baja media", "Baja máxima", "Baja mínima"),
-                (bajas_porcentaje.mean, bajas_porcentaje.max, bajas_porcentaje.min),
-            ):
-                columna.metric(
-                    etiqueta,
-                    f"{operacion():.1f} %".replace(".", ",")
-                    if not bajas_porcentaje.empty
-                    else "Sin datos",
-                )
-            mostrar_distribucion_bajas(
-                adjudicaciones, "distribucion_bajas_organo_modo"
+            valor_baja = lambda operacion: (
+                f"{operacion():.1f} %".replace(".", ",")
+                if not bajas_porcentaje.empty else "Sin datos"
             )
+            mostrar_indicadores_compactos([
+                ("Registros", f"{len(organo):,}".replace(",", ".")),
+                ("Adjudicaciones", f"{len(adjudicaciones_ordinarias):,}".replace(",", ".")),
+                ("Contratos menores", f"{int(es_menor.sum()):,}".replace(",", ".")),
+                ("PBL sin IVA", formato_eur(pbl_total) if pbl_total else "Sin datos"),
+                ("Volumen adjudicado", formato_eur(importes_adj.sum()) if not importes_adj.empty else "Sin datos"),
+                ("Importe mediano", formato_eur(importes_adj.median()) if not importes_adj.empty else "Sin datos"),
+                ("Baja media", valor_baja(bajas_porcentaje.mean)),
+                ("Baja máxima", valor_baja(bajas_porcentaje.max)),
+                ("Baja mínima", valor_baja(bajas_porcentaje.min)),
+            ])
+            graficos_analisis = st.columns(2)
+            with graficos_analisis[0]:
+                mostrar_distribucion_bajas(
+                    adjudicaciones, "distribucion_bajas_organo_modo"
+                )
+            with graficos_analisis[1]:
+                mostrar_distribucion_presupuestos(adjudicaciones)
             cobertura_adj = adjudicaciones["importe_analisis"].notna().mean() * 100 if len(adjudicaciones) else 0
             st.caption(
                 f"Cobertura del importe en adjudicaciones: {cobertura_adj:.0f} %. "
