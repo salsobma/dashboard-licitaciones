@@ -3340,12 +3340,23 @@ else:
                 (pbl > 0) & empresa["importe_analisis"].notna()
                 & (empresa["importe_analisis"] >= 0) & (empresa["importe_analisis"] <= pbl)
             ).dropna()
-            metricas = st.columns(5)
+            metricas = st.columns(4)
             metricas[0].metric("Adjudicaciones", f"{len(empresa):,}".replace(",", "."))
             metricas[1].metric("Volumen sin IVA", formato_eur(importes.sum()) if not importes.empty else "Sin datos")
             metricas[2].metric("Importe medio", formato_eur(importes.mean()) if not importes.empty else "Sin datos")
             metricas[3].metric("Importe mediano", formato_eur(importes.median()) if not importes.empty else "Sin datos")
-            metricas[4].metric("Baja media", f"{bajas.mean():.1f} %" if not bajas.empty else "Sin datos")
+            metricas_baja = st.columns(3)
+            for columna, etiqueta, operacion in zip(
+                metricas_baja,
+                ("Baja media", "Baja máxima", "Baja mínima"),
+                (bajas.mean, bajas.max, bajas.min),
+            ):
+                columna.metric(
+                    etiqueta,
+                    f"{operacion():.1f} %".replace(".", ",")
+                    if not bajas.empty
+                    else "Sin datos",
+                )
             if not fechas.empty:
                 st.caption(
                     f"Primera adjudicación registrada: {fechas.min().strftime('%d/%m/%Y')} · "
@@ -3490,19 +3501,25 @@ else:
             pbl_total = pd.to_numeric(
                 organo.loc[~es_menor, "pbl_sin_iva"], errors="coerce"
             ).dropna().sum()
-            metricas = st.columns(7)
+            metricas = st.columns(6)
             metricas[0].metric("Registros", f"{len(organo):,}".replace(",", "."))
             metricas[1].metric("Adjudicaciones", f"{len(adjudicaciones_ordinarias):,}".replace(",", "."))
             metricas[2].metric("Contratos menores", f"{int(es_menor.sum()):,}".replace(",", "."))
             metricas[3].metric("PBL sin IVA", formato_eur(pbl_total) if pbl_total else "Sin datos")
             metricas[4].metric("Volumen adjudicado", formato_eur(importes_adj.sum()) if not importes_adj.empty else "Sin datos")
             metricas[5].metric("Importe mediano", formato_eur(importes_adj.median()) if not importes_adj.empty else "Sin datos")
-            metricas[6].metric(
-                "Baja media",
-                f"{bajas_porcentaje.mean():.1f} %".replace(".", ",")
-                if not bajas_porcentaje.empty
-                else "Sin datos",
-            )
+            metricas_baja = st.columns(3)
+            for columna, etiqueta, operacion in zip(
+                metricas_baja,
+                ("Baja media", "Baja máxima", "Baja mínima"),
+                (bajas_porcentaje.mean, bajas_porcentaje.max, bajas_porcentaje.min),
+            ):
+                columna.metric(
+                    etiqueta,
+                    f"{operacion():.1f} %".replace(".", ",")
+                    if not bajas_porcentaje.empty
+                    else "Sin datos",
+                )
             cobertura_adj = adjudicaciones["importe_analisis"].notna().mean() * 100 if len(adjudicaciones) else 0
             st.caption(
                 f"Cobertura del importe en adjudicaciones: {cobertura_adj:.0f} %. "
