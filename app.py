@@ -1151,6 +1151,8 @@ st.markdown("""
     [data-testid="stMain"] .company-actions {
         grid-column: 1 / -1; justify-content: flex-end; margin-top: .15rem;
     }
+    [data-testid="stMain"] .company-card,
+    [data-testid="stMain"] .data-source { display: none !important; }
 
     /* Navegación principal: barra flotante de aplicaciones. */
     [data-testid="stMain"] [data-testid="stSegmentedControl"] > div,
@@ -1204,10 +1206,26 @@ st.markdown("""
         background: #e7f4f8; border: 1px solid rgba(8,145,178,.13);
         color: #24465e; font-size: .8rem;
     }
+    .system-strip {
+        display: flex; flex-wrap: wrap; align-items: center; gap: .55rem 1.1rem;
+        margin: .8rem 0 1rem; padding: .8rem 1rem;
+        border: 1px solid #cad7e6; border-radius: 13px;
+        background: rgba(255,255,255,.88); color: #53677f;
+        box-shadow: 0 7px 18px rgba(27,55,91,.06); font-size: .74rem;
+    }
+    .system-strip strong { color: #163a63; }
+    .system-strip a { color: #087f9b !important; font-weight: 750; text-decoration: none; }
+    .system-strip .beta-tag {
+        padding: .3rem .55rem; border-radius: 999px; color: #7c4a03;
+        background: #fff7db; border: 1px solid #f4d77a; font-weight: 800;
+    }
+    .system-strip .stale-tag { color: #a53a17; font-weight: 750; }
     [data-testid="stMain"] .card-metric {
-        min-height: 104px !important;
-        padding: 12px 8px !important;
-        border-radius: 14px !important;
+        min-height: 74px !important; height: 74px !important;
+        padding: 10px 14px !important;
+        border: 0 !important; border-left: 3px solid #38bdf8 !important;
+        border-radius: 8px !important; background: #f4f8fc !important;
+        box-shadow: none !important;
     }
     [data-testid="stMain"] .card-metric .metric-val-grid {
         line-height: 1.15 !important;
@@ -1221,11 +1239,11 @@ st.markdown("""
 
     /* Cada licitación pasa a leerse como un módulo de trabajo independiente. */
     [data-testid="stMain"] div[data-testid="stVerticalBlockBorderWrapper"] {
-        background:
-            linear-gradient(145deg, #ffffff, #f8fbfe) !important;
-        border: 1px solid rgba(31,73,125,.28) !important;
-        border-radius: 22px !important;
-        box-shadow: 0 18px 44px rgba(20,52,91,.18), 0 2px 5px rgba(20,52,91,.08) !important;
+        background: #ffffff !important;
+        border: 1px solid #b9c9dc !important;
+        border-top: 5px solid #123d72 !important;
+        border-radius: 16px !important;
+        box-shadow: 0 16px 36px rgba(18,50,88,.20), 0 3px 8px rgba(18,50,88,.10) !important;
     }
     [data-testid="stMain"] div[data-testid="stVerticalBlockBorderWrapper"]:hover {
         border-color: rgba(8,145,178,.38) !important;
@@ -1233,8 +1251,11 @@ st.markdown("""
     }
     [data-testid="stMain"] .card-title {
         color: #10213c !important;
-        font-size: 1.02rem !important;
+        font-size: 1.15rem !important;
         letter-spacing: -.012em;
+        min-height: 0 !important; height: auto !important; max-height: none !important;
+        -webkit-line-clamp: 2 !important; line-clamp: 2 !important;
+        margin: .65rem 0 .8rem !important;
     }
     [data-testid="stMain"] div[data-testid="stExpander"] {
         background: rgba(240,246,252,.90) !important;
@@ -3056,13 +3077,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.info(
-    "🧪 **Versión beta:** esta plataforma se encuentra en fase de pruebas. "
-    "Si observas alguna diferencia respecto a la Plataforma de Contratación "
-    "del Sector Público, por favor, comunícanosla para que podamos revisarla "
-    "y seguir mejorando. Gracias por tu paciencia y comprensión."
-)
-
 sincronizacion_base = metadata_sincronizacion.get(
     "feed_incremental_sincronizado_en"
 ) or metadata_sincronizacion.get("historico_sincronizado_en")
@@ -3071,22 +3085,24 @@ novedad_base = (
     if not df.empty and "fecha_act_dt" in df.columns
     else pd.NaT
 )
-st.caption(
-    "**Última sincronización con la base de datos:** "
-    f"{formato_fecha(sincronizacion_base)}"
-)
-st.caption(
-    "**Última novedad incorporada en esta copia de la base:** "
-    f"{formato_fecha(novedad_base)}"
-)
+aviso_desactualizado = ""
 if pd.notna(novedad_base):
     antiguedad_novedad = pd.Timestamp.now(tz="UTC") - novedad_base
     if antiguedad_novedad > pd.Timedelta(days=2):
-        st.warning(
-            "La copia local lleva más de 48 horas sin incorporar novedades "
-            "de licitaciones. La plataforma oficial puede contener información "
-            "más reciente; la sincronización automática seguirá reintentándolo."
-        )
+        aviso_desactualizado = '<span class="stale-tag">⚠ Sin novedades recientes</span>'
+st.markdown(
+    f"""
+    <div class="system-strip">
+        <span class="beta-tag">BETA</span>
+        <span>En pruebas · contrasta siempre con la fuente oficial</span>
+        <span>Fuente: <a href="https://contrataciondelestado.es/" target="_blank" rel="noopener noreferrer">PLACSP</a></span>
+        <span><strong>Sincronización:</strong> {formato_fecha(sincronizacion_base)}</span>
+        <span><strong>Última novedad:</strong> {formato_fecha(novedad_base)}</span>
+        {aviso_desactualizado}
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 opciones_vista = [
     "📡 Radar de licitaciones",
