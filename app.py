@@ -998,6 +998,235 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Segunda capa visual: experiencia oscura tipo centro de control. Mantiene intactos
+# los componentes y su comportamiento; únicamente cambia su presentación.
+st.markdown("""
+<style>
+    :root {
+        --cockpit-bg: #050914;
+        --cockpit-panel: rgba(13, 23, 42, 0.88);
+        --cockpit-panel-strong: #0d172a;
+        --cockpit-line: rgba(125, 211, 252, 0.16);
+        --cockpit-text: #eef6ff;
+        --cockpit-muted: #91a4bd;
+        --cockpit-cyan: #22d3ee;
+        --cockpit-blue: #4f7cff;
+        --cockpit-mint: #34d399;
+    }
+
+    .stApp {
+        background:
+            linear-gradient(rgba(79,124,255,.025) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(79,124,255,.025) 1px, transparent 1px),
+            radial-gradient(circle at 76% -8%, rgba(37,99,235,.25), transparent 32rem),
+            radial-gradient(circle at 18% 42%, rgba(8,145,178,.13), transparent 35rem),
+            var(--cockpit-bg) !important;
+        background-size: 42px 42px, 42px 42px, auto, auto, auto !important;
+        color: var(--cockpit-text) !important;
+    }
+    [data-testid="stHeader"] {
+        background: rgba(5,9,20,.74) !important;
+        border-bottom: 1px solid rgba(125,211,252,.08);
+    }
+    [data-testid="stMain"] .block-container {
+        max-width: 1580px !important;
+        padding: 3.1rem 3rem 4rem !important;
+    }
+    [data-testid="stMain"] h1 {
+        color: #f8fbff !important;
+        font-size: clamp(2.4rem, 4vw, 4.1rem) !important;
+        line-height: .98 !important;
+        letter-spacing: -.055em !important;
+        text-shadow: 0 0 34px rgba(34,211,238,.11);
+    }
+    [data-testid="stMain"] h2,
+    [data-testid="stMain"] h3,
+    [data-testid="stMain"] h4,
+    [data-testid="stMain"] h5 { color: var(--cockpit-text) !important; }
+    [data-testid="stMain"] p,
+    [data-testid="stMain"] label,
+    [data-testid="stMain"] [data-testid="stCaptionContainer"] {
+        color: var(--cockpit-muted) !important;
+    }
+    [data-testid="stMain"] a { color: #67e8f9; }
+
+    /* La ficha corporativa se convierte en una auténtica cabecera de producto. */
+    [data-testid="stMain"] .company-card {
+        position: relative;
+        overflow: hidden;
+        padding: 1.65rem 1.8rem !important;
+        background:
+            linear-gradient(110deg, rgba(18,34,61,.96), rgba(9,19,36,.90)) !important;
+        border: 1px solid rgba(103,232,249,.17) !important;
+        border-radius: 24px !important;
+        box-shadow: 0 28px 70px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.045) !important;
+    }
+    [data-testid="stMain"] .company-card::after {
+        content: "";
+        position: absolute; width: 260px; height: 260px; right: -85px; top: -130px;
+        border-radius: 50%; background: rgba(34,211,238,.09); filter: blur(2px);
+        box-shadow: 0 0 90px rgba(79,124,255,.17);
+        pointer-events: none;
+    }
+    [data-testid="stMain"] .company-name { color: #f8fbff !important; }
+    [data-testid="stMain"] .company-copy { color: #b6c5d8 !important; }
+    [data-testid="stMain"] .company-logo {
+        border-radius: 15px !important;
+        box-shadow: 0 0 0 1px rgba(255,255,255,.10), 0 12px 28px rgba(0,0,0,.30);
+    }
+    [data-testid="stMain"] .company-action {
+        position: relative; z-index: 1;
+        color: #dffaff !important;
+        background: rgba(34,211,238,.075) !important;
+        border: 1px solid rgba(103,232,249,.20) !important;
+        border-radius: 12px !important;
+        backdrop-filter: blur(12px);
+    }
+
+    /* Navegación principal: barra flotante de aplicaciones. */
+    [data-testid="stMain"] [data-testid="stSegmentedControl"] > div,
+    [data-testid="stMain"] [data-baseweb="button-group"] {
+        padding: 7px !important;
+        gap: 5px !important;
+        background: rgba(10,19,35,.86) !important;
+        border: 1px solid var(--cockpit-line) !important;
+        border-radius: 18px !important;
+        box-shadow: 0 18px 40px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.035) !important;
+        backdrop-filter: blur(18px);
+    }
+    [data-testid="stMain"] [data-testid="stSegmentedControl"] button {
+        min-height: 44px;
+        border-radius: 12px !important;
+        color: #8fa5bf !important;
+    }
+    [data-testid="stMain"] [data-testid="stSegmentedControl"] button[aria-checked="true"],
+    [data-testid="stMain"] [data-testid="stSegmentedControl"] button[aria-pressed="true"] {
+        background: linear-gradient(135deg, #315bea, #0e9fba) !important;
+        color: #fff !important;
+        box-shadow: 0 8px 24px rgba(37,99,235,.34), inset 0 1px 0 rgba(255,255,255,.22) !important;
+    }
+
+    /* Bento KPIs y datos de cada expediente. */
+    [data-testid="stMain"] .metric-box-grid {
+        color: var(--cockpit-text) !important;
+        background:
+            radial-gradient(circle at 100% 0, rgba(34,211,238,.10), transparent 45%),
+            linear-gradient(145deg, rgba(18,31,54,.96), rgba(10,19,35,.94)) !important;
+        border: 1px solid var(--cockpit-line) !important;
+        border-radius: 18px !important;
+        box-shadow: 0 18px 42px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.04) !important;
+    }
+    [data-testid="stMain"] .metric-box-grid::before {
+        left: 18px; right: auto; width: 44px; height: 3px;
+        background: linear-gradient(90deg, var(--cockpit-cyan), var(--cockpit-blue));
+        box-shadow: 0 0 18px rgba(34,211,238,.42);
+    }
+    [data-testid="stMain"] .metric-val-grid {
+        color: #f5fbff !important;
+        font-size: 1.5rem;
+        letter-spacing: -.035em;
+    }
+    [data-testid="stMain"] .metric-lbl-grid { color: #7f95ae !important; letter-spacing: .09em; }
+    [data-testid="stMain"] .card-metric {
+        min-height: 104px !important;
+        padding: 12px 8px !important;
+        border-radius: 14px !important;
+    }
+    [data-testid="stMain"] .card-metric .metric-val-grid {
+        line-height: 1.15 !important;
+        overflow-wrap: anywhere;
+    }
+    [data-testid="stMain"] .card-metric .metric-lbl-grid {
+        font-size: .62rem !important;
+        line-height: 1.25 !important;
+        letter-spacing: .065em !important;
+    }
+
+    /* Cada licitación pasa a leerse como un módulo de trabajo independiente. */
+    [data-testid="stMain"] div[data-testid="stVerticalBlockBorderWrapper"] {
+        background:
+            linear-gradient(145deg, rgba(14,25,45,.96), rgba(8,16,30,.94)) !important;
+        border: 1px solid rgba(125,211,252,.13) !important;
+        border-radius: 22px !important;
+        box-shadow: 0 22px 55px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.035) !important;
+    }
+    [data-testid="stMain"] div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+        border-color: rgba(34,211,238,.30) !important;
+        box-shadow: 0 28px 65px rgba(0,0,0,.34), 0 0 0 1px rgba(34,211,238,.035) !important;
+    }
+    [data-testid="stMain"] .card-title {
+        color: #f2f7ff !important;
+        font-size: 1.02rem !important;
+        letter-spacing: -.012em;
+    }
+    [data-testid="stMain"] div[data-testid="stExpander"] {
+        background: rgba(4,11,23,.52) !important;
+        border-color: rgba(125,211,252,.12) !important;
+        border-radius: 13px !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stMain"] div[data-testid="stExpander"] summary:hover {
+        background: rgba(34,211,238,.055) !important;
+    }
+    [data-testid="stMain"] [data-testid="stButton"] button,
+    [data-testid="stMain"] [data-testid="stLinkButton"] a,
+    [data-testid="stMain"] [data-testid="stDownloadButton"] button {
+        color: #c9d7e8 !important;
+        background: rgba(13,25,45,.82) !important;
+        border: 1px solid rgba(125,211,252,.16) !important;
+        border-radius: 12px !important;
+    }
+    [data-testid="stMain"] [data-testid="stButton"] button:hover,
+    [data-testid="stMain"] [data-testid="stLinkButton"] a:hover,
+    [data-testid="stMain"] [data-testid="stDownloadButton"] button:hover {
+        color: #ecfeff !important;
+        background: rgba(8,145,178,.18) !important;
+        border-color: rgba(34,211,238,.52) !important;
+        box-shadow: 0 0 24px rgba(34,211,238,.10) !important;
+    }
+    [data-testid="stMain"] .st-key-acceso_premium_cta [data-testid="stButton"] button {
+        color: #07111e !important;
+        background: linear-gradient(135deg, #67e8f9, #34d399) !important;
+        border: 0 !important;
+        box-shadow: 0 12px 30px rgba(34,211,238,.22) !important;
+    }
+
+    [data-testid="stMain"] [data-testid="stAlert"] {
+        color: #cde8f5 !important;
+        background: rgba(13,39,58,.68) !important;
+        border: 1px solid rgba(34,211,238,.16) !important;
+        border-radius: 16px !important;
+    }
+    [data-testid="stMain"] [data-testid="stAlert"] p { color: #cde8f5 !important; }
+    [data-testid="stMain"] .data-source,
+    [data-testid="stMain"] .legal-note { color: #7489a2 !important; border-color: var(--cockpit-line) !important; }
+    [data-testid="stMain"] .data-source a { color: #67e8f9 !important; }
+    [data-testid="stMain"] [data-testid="stDataFrame"],
+    [data-testid="stMain"] [data-testid="stTable"] {
+        border-color: var(--cockpit-line) !important;
+        border-radius: 18px !important;
+        box-shadow: 0 22px 55px rgba(0,0,0,.26) !important;
+    }
+    [data-testid="stMain"] input,
+    [data-testid="stMain"] textarea,
+    [data-testid="stMain"] [data-baseweb="select"] > div {
+        color: var(--cockpit-text) !important;
+        background: rgba(13,25,45,.90) !important;
+        border-color: var(--cockpit-line) !important;
+    }
+
+    @media (max-width: 768px) {
+        [data-testid="stMain"] .block-container { padding: 2.6rem .8rem 2rem !important; }
+        [data-testid="stMain"] h1 { font-size: 2.35rem !important; }
+        [data-testid="stMain"] .company-card { border-radius: 18px !important; }
+        [data-testid="stMain"] .metric-box-grid {
+            border: 1px solid var(--cockpit-line) !important;
+            box-shadow: 0 14px 34px rgba(0,0,0,.24) !important;
+        }
+    }
+</style>
+""", unsafe_allow_html=True)
+
 MAPA_ESTADOS = {
     'PUB': ('En plazo', 'badge-pub'),
     'VENC': ('Plazo vencido · pendiente de actualizar', 'badge-ev'),
