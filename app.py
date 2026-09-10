@@ -1016,24 +1016,24 @@ st.markdown("""
 
     .stApp {
         background:
-            linear-gradient(rgba(79,124,255,.025) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(79,124,255,.025) 1px, transparent 1px),
-            radial-gradient(circle at 76% -8%, rgba(37,99,235,.25), transparent 32rem),
-            radial-gradient(circle at 18% 42%, rgba(8,145,178,.13), transparent 35rem),
-            var(--cockpit-bg) !important;
+            linear-gradient(rgba(37,99,235,.035) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(37,99,235,.035) 1px, transparent 1px),
+            radial-gradient(circle at 76% -8%, rgba(37,99,235,.14), transparent 32rem),
+            radial-gradient(circle at 18% 42%, rgba(8,145,178,.08), transparent 35rem),
+            #edf3f9 !important;
         background-size: 42px 42px, 42px 42px, auto, auto, auto !important;
         color: var(--cockpit-text) !important;
     }
     [data-testid="stHeader"] {
-        background: rgba(5,9,20,.74) !important;
-        border-bottom: 1px solid rgba(125,211,252,.08);
+        background: rgba(237,243,249,.82) !important;
+        border-bottom: 1px solid rgba(30,64,175,.08);
     }
     [data-testid="stMain"] .block-container {
         max-width: 1580px !important;
         padding: 3.1rem 3rem 4rem !important;
     }
     [data-testid="stMain"] h1 {
-        color: #f8fbff !important;
+        color: #08152c !important;
         font-size: clamp(2.4rem, 4vw, 4.1rem) !important;
         line-height: .98 !important;
         letter-spacing: -.055em !important;
@@ -1042,11 +1042,11 @@ st.markdown("""
     [data-testid="stMain"] h2,
     [data-testid="stMain"] h3,
     [data-testid="stMain"] h4,
-    [data-testid="stMain"] h5 { color: var(--cockpit-text) !important; }
+    [data-testid="stMain"] h5 { color: #0b1932 !important; }
     [data-testid="stMain"] p,
     [data-testid="stMain"] label,
     [data-testid="stMain"] [data-testid="stCaptionContainer"] {
-        color: var(--cockpit-muted) !important;
+        color: #52647b !important;
     }
     [data-testid="stMain"] a { color: #67e8f9; }
 
@@ -1088,8 +1088,8 @@ st.markdown("""
     [data-testid="stMain"] [data-baseweb="button-group"] {
         padding: 7px !important;
         gap: 5px !important;
-        background: rgba(10,19,35,.86) !important;
-        border: 1px solid var(--cockpit-line) !important;
+        background: rgba(255,255,255,.92) !important;
+        border: 1px solid rgba(50,84,132,.17) !important;
         border-radius: 18px !important;
         box-shadow: 0 18px 40px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.035) !important;
         backdrop-filter: blur(18px);
@@ -1097,7 +1097,7 @@ st.markdown("""
     [data-testid="stMain"] [data-testid="stSegmentedControl"] button {
         min-height: 44px;
         border-radius: 12px !important;
-        color: #8fa5bf !important;
+        color: #52647b !important;
     }
     [data-testid="stMain"] [data-testid="stSegmentedControl"] button[aria-checked="true"],
     [data-testid="stMain"] [data-testid="stSegmentedControl"] button[aria-pressed="true"] {
@@ -1108,11 +1108,11 @@ st.markdown("""
 
     /* Bento KPIs y datos de cada expediente. */
     [data-testid="stMain"] .metric-box-grid {
-        color: var(--cockpit-text) !important;
+        color: #0b1932 !important;
         background:
             radial-gradient(circle at 100% 0, rgba(34,211,238,.10), transparent 45%),
-            linear-gradient(145deg, rgba(18,31,54,.96), rgba(10,19,35,.94)) !important;
-        border: 1px solid var(--cockpit-line) !important;
+            linear-gradient(145deg, #ffffff, #f5f9fd) !important;
+        border: 1px solid rgba(50,84,132,.16) !important;
         border-radius: 18px !important;
         box-shadow: 0 18px 42px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.04) !important;
     }
@@ -1122,11 +1122,11 @@ st.markdown("""
         box-shadow: 0 0 18px rgba(34,211,238,.42);
     }
     [data-testid="stMain"] .metric-val-grid {
-        color: #f5fbff !important;
+        color: #0b49bd !important;
         font-size: 1.5rem;
         letter-spacing: -.035em;
     }
-    [data-testid="stMain"] .metric-lbl-grid { color: #7f95ae !important; letter-spacing: .09em; }
+    [data-testid="stMain"] .metric-lbl-grid { color: #60728a !important; letter-spacing: .09em; }
     [data-testid="stMain"] .card-metric {
         min-height: 104px !important;
         padding: 12px 8px !important;
@@ -1145,23 +1145,23 @@ st.markdown("""
     /* Cada licitación pasa a leerse como un módulo de trabajo independiente. */
     [data-testid="stMain"] div[data-testid="stVerticalBlockBorderWrapper"] {
         background:
-            linear-gradient(145deg, rgba(14,25,45,.96), rgba(8,16,30,.94)) !important;
-        border: 1px solid rgba(125,211,252,.13) !important;
+            linear-gradient(145deg, rgba(255,255,255,.98), rgba(246,250,254,.96)) !important;
+        border: 1px solid rgba(50,84,132,.16) !important;
         border-radius: 22px !important;
         box-shadow: 0 22px 55px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.035) !important;
     }
     [data-testid="stMain"] div[data-testid="stVerticalBlockBorderWrapper"]:hover {
-        border-color: rgba(34,211,238,.30) !important;
-        box-shadow: 0 28px 65px rgba(0,0,0,.34), 0 0 0 1px rgba(34,211,238,.035) !important;
+        border-color: rgba(8,145,178,.38) !important;
+        box-shadow: 0 28px 65px rgba(27,55,91,.16), 0 0 0 1px rgba(34,211,238,.06) !important;
     }
     [data-testid="stMain"] .card-title {
-        color: #f2f7ff !important;
+        color: #10213c !important;
         font-size: 1.02rem !important;
         letter-spacing: -.012em;
     }
     [data-testid="stMain"] div[data-testid="stExpander"] {
-        background: rgba(4,11,23,.52) !important;
-        border-color: rgba(125,211,252,.12) !important;
+        background: rgba(240,246,252,.90) !important;
+        border-color: rgba(50,84,132,.14) !important;
         border-radius: 13px !important;
         box-shadow: none !important;
     }
@@ -1171,9 +1171,9 @@ st.markdown("""
     [data-testid="stMain"] [data-testid="stButton"] button,
     [data-testid="stMain"] [data-testid="stLinkButton"] a,
     [data-testid="stMain"] [data-testid="stDownloadButton"] button {
-        color: #c9d7e8 !important;
-        background: rgba(13,25,45,.82) !important;
-        border: 1px solid rgba(125,211,252,.16) !important;
+        color: #23405f !important;
+        background: rgba(255,255,255,.90) !important;
+        border: 1px solid rgba(50,84,132,.18) !important;
         border-radius: 12px !important;
     }
     [data-testid="stMain"] [data-testid="stButton"] button:hover,
@@ -1192,12 +1192,12 @@ st.markdown("""
     }
 
     [data-testid="stMain"] [data-testid="stAlert"] {
-        color: #cde8f5 !important;
-        background: rgba(13,39,58,.68) !important;
-        border: 1px solid rgba(34,211,238,.16) !important;
+        color: #17415b !important;
+        background: rgba(224,242,254,.76) !important;
+        border: 1px solid rgba(8,145,178,.18) !important;
         border-radius: 16px !important;
     }
-    [data-testid="stMain"] [data-testid="stAlert"] p { color: #cde8f5 !important; }
+    [data-testid="stMain"] [data-testid="stAlert"] p { color: #17415b !important; }
     [data-testid="stMain"] .data-source,
     [data-testid="stMain"] .legal-note { color: #7489a2 !important; border-color: var(--cockpit-line) !important; }
     [data-testid="stMain"] .data-source a { color: #67e8f9 !important; }
@@ -1210,9 +1210,9 @@ st.markdown("""
     [data-testid="stMain"] input,
     [data-testid="stMain"] textarea,
     [data-testid="stMain"] [data-baseweb="select"] > div {
-        color: var(--cockpit-text) !important;
-        background: rgba(13,25,45,.90) !important;
-        border-color: var(--cockpit-line) !important;
+        color: #10213c !important;
+        background: rgba(255,255,255,.94) !important;
+        border-color: rgba(50,84,132,.18) !important;
     }
 
     @media (max-width: 768px) {
