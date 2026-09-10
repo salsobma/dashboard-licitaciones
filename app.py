@@ -1050,16 +1050,83 @@ st.markdown("""
     }
     [data-testid="stMain"] a { color: #67e8f9; }
 
+    .product-hero {
+        position: relative;
+        min-height: 300px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(240px, .55fr);
+        align-items: center;
+        gap: 2rem;
+        margin: 0 0 1.15rem;
+        padding: 2.75rem 3rem;
+        overflow: hidden;
+        border-radius: 28px;
+        color: #fff;
+        background:
+            radial-gradient(circle at 84% 12%, rgba(34,211,238,.22), transparent 23rem),
+            linear-gradient(125deg, #07152e 0%, #102d58 62%, #075f73 100%);
+        box-shadow: 0 28px 70px rgba(13,36,70,.24);
+    }
+    .product-hero::before {
+        content: "";
+        position: absolute; inset: 0;
+        background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+        background-size: 36px 36px;
+        mask-image: linear-gradient(90deg, #000, transparent 88%);
+        pointer-events: none;
+    }
+    .product-hero-copy { position: relative; z-index: 2; max-width: 780px; }
+    .product-eyebrow {
+        display: inline-flex; padding: .42rem .72rem; margin-bottom: 1rem;
+        border: 1px solid rgba(103,232,249,.28); border-radius: 999px;
+        background: rgba(34,211,238,.09); color: #a5f3fc;
+        font-size: .67rem; font-weight: 800; letter-spacing: .16em;
+    }
+    [data-testid="stMain"] .product-hero h1 {
+        margin: 0 !important; color: #fff !important;
+        font-size: clamp(2.75rem, 5vw, 5rem) !important;
+        line-height: .94 !important; letter-spacing: -.065em !important;
+    }
+    .product-hero h1 span {
+        color: transparent;
+        background: linear-gradient(90deg, #67e8f9, #5eead4);
+        background-clip: text; -webkit-background-clip: text;
+    }
+    [data-testid="stMain"] .product-hero p {
+        max-width: 680px; margin: 1.15rem 0 1.35rem !important;
+        color: #c7d8eb !important; font-size: 1.02rem; line-height: 1.58;
+    }
+    .product-pills { display: flex; flex-wrap: wrap; gap: .55rem; }
+    .product-pills span {
+        display: inline-flex; align-items: center; gap: .45rem;
+        padding: .5rem .72rem; border: 1px solid rgba(255,255,255,.12);
+        border-radius: 10px; background: rgba(255,255,255,.065);
+        color: #e6f4ff; font-size: .72rem; font-weight: 700;
+    }
+    .product-pills i { width: 7px; height: 7px; border-radius: 50%; background: #34d399; box-shadow: 0 0 12px #34d399; }
+    .product-orbit { position: relative; width: 230px; height: 230px; justify-self: center; }
+    .orbit-ring { position: absolute; inset: 12%; border: 1px solid rgba(103,232,249,.22); border-radius: 50%; }
+    .orbit-two { inset: 29%; border-color: rgba(94,234,212,.34); }
+    .orbit-core {
+        position: absolute; inset: 38%; display: grid; place-items: center;
+        border-radius: 22px; background: linear-gradient(135deg, #22d3ee, #34d399);
+        color: #062135; font-weight: 950; font-size: 1.35rem;
+        box-shadow: 0 0 45px rgba(34,211,238,.42); transform: rotate(45deg);
+    }
+    .orbit-core::first-line { transform: rotate(-45deg); }
+    .orbit-dot { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: #67e8f9; box-shadow: 0 0 18px #22d3ee; }
+    .dot-one { top: 8%; left: 48%; } .dot-two { right: 8%; bottom: 33%; } .dot-three { left: 18%; bottom: 17%; }
+
     /* La ficha corporativa se convierte en una auténtica cabecera de producto. */
     [data-testid="stMain"] .company-card {
         position: relative;
         overflow: hidden;
-        padding: 1.65rem 1.8rem !important;
-        background:
-            linear-gradient(110deg, rgba(18,34,61,.96), rgba(9,19,36,.90)) !important;
-        border: 1px solid rgba(103,232,249,.17) !important;
-        border-radius: 24px !important;
-        box-shadow: 0 28px 70px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.045) !important;
+        display: grid; grid-template-columns: minmax(260px,.8fr) minmax(320px,1.2fr); align-items: center; gap: .75rem 1.5rem;
+        padding: 1rem 1.25rem !important;
+        background: #ffffff !important;
+        border: 1px solid rgba(50,84,132,.15) !important;
+        border-radius: 18px !important;
+        box-shadow: 0 14px 38px rgba(27,55,91,.10) !important;
     }
     [data-testid="stMain"] .company-card::after {
         content: "";
@@ -1068,19 +1135,23 @@ st.markdown("""
         box-shadow: 0 0 90px rgba(79,124,255,.17);
         pointer-events: none;
     }
-    [data-testid="stMain"] .company-name { color: #f8fbff !important; }
-    [data-testid="stMain"] .company-copy { color: #b6c5d8 !important; }
+    [data-testid="stMain"] .company-heading { margin: 0 !important; }
+    [data-testid="stMain"] .company-name { color: #10213c !important; }
+    [data-testid="stMain"] .company-copy { color: #52647b !important; margin: 0 !important; font-size: .82rem; }
     [data-testid="stMain"] .company-logo {
         border-radius: 15px !important;
         box-shadow: 0 0 0 1px rgba(255,255,255,.10), 0 12px 28px rgba(0,0,0,.30);
     }
     [data-testid="stMain"] .company-action {
         position: relative; z-index: 1;
-        color: #dffaff !important;
-        background: rgba(34,211,238,.075) !important;
-        border: 1px solid rgba(103,232,249,.20) !important;
+        color: #164e63 !important;
+        background: #ecfeff !important;
+        border: 1px solid rgba(8,145,178,.18) !important;
         border-radius: 12px !important;
         backdrop-filter: blur(12px);
+    }
+    [data-testid="stMain"] .company-actions {
+        grid-column: 1 / -1; justify-content: flex-end; margin-top: .15rem;
     }
 
     /* Navegación principal: barra flotante de aplicaciones. */
@@ -1088,8 +1159,8 @@ st.markdown("""
     [data-testid="stMain"] [data-baseweb="button-group"] {
         padding: 7px !important;
         gap: 5px !important;
-        background: rgba(255,255,255,.92) !important;
-        border: 1px solid rgba(50,84,132,.17) !important;
+        background: #0b1932 !important;
+        border: 1px solid #0b1932 !important;
         border-radius: 18px !important;
         box-shadow: 0 18px 40px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.035) !important;
         backdrop-filter: blur(18px);
@@ -1097,7 +1168,7 @@ st.markdown("""
     [data-testid="stMain"] [data-testid="stSegmentedControl"] button {
         min-height: 44px;
         border-radius: 12px !important;
-        color: #52647b !important;
+        color: #a9bbd0 !important;
     }
     [data-testid="stMain"] [data-testid="stSegmentedControl"] button[aria-checked="true"],
     [data-testid="stMain"] [data-testid="stSegmentedControl"] button[aria-pressed="true"] {
@@ -1115,9 +1186,10 @@ st.markdown("""
         border: 1px solid rgba(50,84,132,.16) !important;
         border-radius: 18px !important;
         box-shadow: 0 18px 42px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.04) !important;
+        text-align: left !important;
     }
     [data-testid="stMain"] .metric-box-grid::before {
-        left: 18px; right: auto; width: 44px; height: 3px;
+        left: 0; top: 18%; bottom: 18%; right: auto; width: 4px; height: auto;
         background: linear-gradient(90deg, var(--cockpit-cyan), var(--cockpit-blue));
         box-shadow: 0 0 18px rgba(34,211,238,.42);
     }
@@ -1125,8 +1197,15 @@ st.markdown("""
         color: #0b49bd !important;
         font-size: 1.5rem;
         letter-spacing: -.035em;
+        padding-left: .35rem;
     }
-    [data-testid="stMain"] .metric-lbl-grid { color: #60728a !important; letter-spacing: .09em; }
+    [data-testid="stMain"] .metric-lbl-grid { color: #60728a !important; letter-spacing: .09em; padding-left: .35rem; }
+
+    .filter-summary {
+        margin-top: .9rem; padding: .72rem 1rem; border-radius: 12px;
+        background: #e7f4f8; border: 1px solid rgba(8,145,178,.13);
+        color: #24465e; font-size: .8rem;
+    }
     [data-testid="stMain"] .card-metric {
         min-height: 104px !important;
         padding: 12px 8px !important;
@@ -1219,6 +1298,10 @@ st.markdown("""
         [data-testid="stMain"] .block-container { padding: 2.6rem .8rem 2rem !important; }
         [data-testid="stMain"] h1 { font-size: 2.35rem !important; }
         [data-testid="stMain"] .company-card { border-radius: 18px !important; }
+        .product-hero { min-height: 0; grid-template-columns: 1fr; padding: 2rem 1.35rem; border-radius: 20px; }
+        .product-orbit { display: none; }
+        [data-testid="stMain"] .company-card { display: block; }
+        [data-testid="stMain"] .company-copy { margin: .8rem 0 !important; }
         [data-testid="stMain"] .metric-box-grid {
             border: 1px solid var(--cockpit-line) !important;
             box-shadow: 0 14px 34px rgba(0,0,0,.24) !important;
@@ -2890,8 +2973,28 @@ df_combinado = df_f.copy()
 # Los favoritos son una selección persistente y no deben desaparecer al cambiar filtros.
 df_catalogo_favoritos = df.copy()
 
-st.title("🏛️ LandAI Licitaciones")
-st.caption("Dashboard de oportunidades y análisis para proyectos de ingeniería civil.")
+st.markdown("""
+<section class="product-hero">
+    <div class="product-hero-copy">
+        <span class="product-eyebrow">INTELIGENCIA DE CONTRATACIÓN PÚBLICA</span>
+        <h1>LandAI <span>Licitaciones</span></h1>
+        <p>Detecta oportunidades, analiza adjudicaciones y entiende el mercado público valenciano desde un único espacio de trabajo.</p>
+        <div class="product-pills">
+            <span><i></i> Datos sincronizados</span>
+            <span>CPV ingeniería</span>
+            <span>Comunitat Valenciana</span>
+        </div>
+    </div>
+    <div class="product-orbit" aria-hidden="true">
+        <div class="orbit-ring orbit-one"></div>
+        <div class="orbit-ring orbit-two"></div>
+        <div class="orbit-core">AI</div>
+        <span class="orbit-dot dot-one"></span>
+        <span class="orbit-dot dot-two"></span>
+        <span class="orbit-dot dot-three"></span>
+    </div>
+</section>
+""", unsafe_allow_html=True)
 
 if ES_PREMIUM:
     acceso_col, lista_col, salir_col = st.columns([3, 2, 1])
@@ -3165,7 +3268,7 @@ if adjudicatario_sel: filtros_activos.append('Adjudicatario: ' + ', '.join(adjud
 
 resumen_filtros = ' · '.join(filtros_activos) if filtros_activos else 'Ninguno'
 st.markdown(
-    f'<div style="margin-top:0.65rem; padding:0.55rem 0.75rem; border-radius:8px; background:#eef4ff; color:#334155; font-size:0.82rem;"><b>🔎 Filtros aplicados:</b> {html.escape(resumen_filtros)}</div>',
+    f'<div class="filter-summary"><b>🔎 Filtros aplicados:</b> {html.escape(resumen_filtros)}</div>',
     unsafe_allow_html=True
 )
 
@@ -3202,9 +3305,9 @@ def render_grid_tarjetas(df_vista, key_prefix):
         if df_vista.empty:
             st.info("Todavía no hay licitaciones favoritas.")
             return
-    for i in range(0, len(df_vista), 3):
-        cols = st.columns(3)
-        lote = df_vista.iloc[i:i+3]
+    for i in range(0, len(df_vista), 2):
+        cols = st.columns(2, gap="large")
+        lote = df_vista.iloc[i:i+2]
         
         for col, (_, r) in zip(cols, lote.iterrows()):
             st_txt, badge_cls = MAPA_ESTADOS.get(r['estado'], (r['estado'], 'badge-res'))
