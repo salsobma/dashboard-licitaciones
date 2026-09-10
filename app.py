@@ -820,6 +820,167 @@ st.markdown("""
 
     div[data-testid="stExpander"] { margin-top: 14px !important; }
     .stMarkdown a.anchor-link, [data-testid="stHeaderActionElements"] { display: none !important; }
+
+    /* Identidad visual premium: tecnología institucional */
+    :root {
+        --landa-ink: #0b1730;
+        --landa-navy: #0a1224;
+        --landa-blue: #2563eb;
+        --landa-cyan: #0891b2;
+        --landa-teal: #0fbaa6;
+        --landa-surface: rgba(255, 255, 255, 0.92);
+        --landa-border: rgba(91, 120, 160, 0.20);
+        --landa-muted: #61718a;
+    }
+    html, body, [class*="css"] { font-family: "Inter", "Segoe UI", sans-serif; }
+    .stApp {
+        background:
+            radial-gradient(circle at 82% 2%, rgba(37, 99, 235, 0.10), transparent 31rem),
+            radial-gradient(circle at 12% 18%, rgba(15, 186, 166, 0.07), transparent 27rem),
+            linear-gradient(180deg, #f7faff 0%, #edf3fa 100%);
+        color: var(--landa-ink);
+    }
+    [data-testid="stHeader"] { background: rgba(247, 250, 255, 0.76) !important; backdrop-filter: blur(14px); }
+    .block-container { max-width: 1500px; padding-top: 2.6rem; }
+    h1, h2, h3, h4 { color: var(--landa-ink) !important; letter-spacing: -0.025em; }
+    h1 { font-weight: 850 !important; }
+    h3, h4 { font-weight: 780 !important; }
+
+    [data-testid="stSidebar"] {
+        background:
+            radial-gradient(circle at 20% 0%, rgba(37, 99, 235, 0.28), transparent 20rem),
+            linear-gradient(180deg, #0a1429 0%, #101d35 100%) !important;
+        border-right: 1px solid rgba(125, 211, 252, 0.16);
+        box-shadow: 12px 0 36px rgba(8, 20, 42, 0.13);
+    }
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] p { color: #e8f1ff !important; }
+    [data-testid="stSidebar"] hr { border-color: rgba(191, 219, 254, 0.16) !important; }
+    [data-testid="stSidebar"] [data-baseweb="input"],
+    [data-testid="stSidebar"] [data-baseweb="select"] > div,
+    [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] {
+        background: rgba(255, 255, 255, 0.075) !important;
+        border-color: rgba(191, 219, 254, 0.23) !important;
+        border-radius: 10px !important;
+    }
+    [data-testid="stSidebar"] input { color: #f8fbff !important; }
+    [data-testid="stSidebar"] input::placeholder { color: #9db0ca !important; }
+    [data-testid="stSidebar"] [data-testid="stButton"] button {
+        background: rgba(255, 255, 255, 0.075) !important;
+        color: #edf6ff !important;
+        border: 1px solid rgba(191, 219, 254, 0.22) !important;
+        border-radius: 10px !important;
+        transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+    }
+    [data-testid="stSidebar"] [data-testid="stButton"] button:hover {
+        background: rgba(37, 99, 235, 0.24) !important;
+        border-color: rgba(94, 234, 212, 0.62) !important;
+        transform: translateY(-1px);
+    }
+
+    [data-testid="stSegmentedControl"] > div,
+    [data-baseweb="button-group"] {
+        background: rgba(255, 255, 255, 0.74) !important;
+        border: 1px solid var(--landa-border) !important;
+        border-radius: 12px !important;
+        padding: 4px !important;
+        box-shadow: 0 6px 18px rgba(15, 35, 70, 0.06);
+    }
+    [data-testid="stSegmentedControl"] button {
+        border-radius: 8px !important;
+        color: #42526b !important;
+        border: 0 !important;
+    }
+    [data-testid="stSegmentedControl"] button[aria-checked="true"] {
+        background: linear-gradient(135deg, var(--landa-blue), var(--landa-cyan)) !important;
+        color: #ffffff !important;
+        box-shadow: 0 5px 13px rgba(37, 99, 235, 0.24) !important;
+    }
+    [data-testid="stSegmentedControl"] button[aria-checked="true"] p { color: #ffffff !important; }
+
+    .metric-box-grid {
+        background: linear-gradient(145deg, rgba(255,255,255,0.98), rgba(246,250,255,0.94)) !important;
+        border: 1px solid var(--landa-border) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 9px 24px rgba(24, 49, 83, 0.075), inset 0 1px 0 #ffffff !important;
+        position: relative;
+        overflow: hidden;
+    }
+    .metric-box-grid::before {
+        content: ""; position: absolute; top: 0; left: 12%; right: 12%; height: 2px;
+        background: linear-gradient(90deg, transparent, var(--landa-teal), var(--landa-blue), transparent);
+        opacity: 0.72;
+    }
+    .metric-val-grid { color: #1559d6 !important; }
+    .metric-lbl-grid { color: #52627a !important; letter-spacing: 0.045em; }
+
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: var(--landa-surface);
+        border-color: var(--landa-border) !important;
+        border-radius: 15px !important;
+        box-shadow: 0 12px 30px rgba(18, 42, 76, 0.075);
+    }
+    div[data-testid="stExpander"] {
+        background: rgba(255,255,255,0.86);
+        border: 1px solid var(--landa-border) !important;
+        border-radius: 11px !important;
+        overflow: hidden;
+        box-shadow: 0 4px 13px rgba(20, 45, 78, 0.045);
+    }
+    div[data-testid="stExpander"] summary:hover { background: rgba(37, 99, 235, 0.045) !important; }
+    [data-testid="stButton"] button,
+    [data-testid="stLinkButton"] a,
+    [data-testid="stDownloadButton"] button {
+        border-radius: 10px !important;
+        border-color: rgba(71, 107, 153, 0.28) !important;
+        font-weight: 650 !important;
+        transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+    }
+    [data-testid="stButton"] button:hover,
+    [data-testid="stLinkButton"] a:hover,
+    [data-testid="stDownloadButton"] button:hover {
+        border-color: var(--landa-cyan) !important;
+        color: #075985 !important;
+        box-shadow: 0 6px 16px rgba(8, 145, 178, 0.13) !important;
+        transform: translateY(-1px);
+    }
+    [data-testid="stTabs"] [role="tablist"] {
+        gap: 0.35rem; border-bottom: 1px solid var(--landa-border);
+    }
+    [data-testid="stTabs"] button[role="tab"] { color: #52627a; font-weight: 700; }
+    [data-testid="stTabs"] button[role="tab"][aria-selected="true"] { color: #0e7490 !important; }
+    [data-testid="stTabs"] [data-baseweb="tab-highlight"] {
+        background: linear-gradient(90deg, var(--landa-blue), var(--landa-teal)) !important;
+        height: 3px !important; border-radius: 3px 3px 0 0;
+    }
+    [data-testid="stDataFrame"], [data-testid="stTable"] {
+        border: 1px solid var(--landa-border); border-radius: 12px; overflow: hidden;
+        box-shadow: 0 7px 22px rgba(18, 42, 76, 0.06);
+    }
+    [data-testid="stAlert"] { border-radius: 12px !important; border-width: 1px !important; }
+    .company-card {
+        border-color: var(--landa-border) !important; border-radius: 15px !important;
+        background: var(--landa-surface) !important;
+        box-shadow: 0 12px 30px rgba(18, 42, 76, 0.08) !important;
+    }
+    .company-name, .card-title { color: var(--landa-ink) !important; }
+    .external-link-btn, .company-action {
+        color: #075985 !important; background: rgba(224, 242, 254, 0.72) !important;
+        border-color: rgba(8, 145, 178, 0.25) !important;
+    }
+    .external-link-btn:hover, .company-action:hover {
+        color: #ffffff !important; background: linear-gradient(135deg, var(--landa-blue), var(--landa-cyan)) !important;
+    }
+    .badge-pub { background: #059669 !important; }
+    .badge-ev { background: #d97706 !important; }
+    .badge-adj { background: linear-gradient(135deg, #2563eb, #0891b2) !important; }
+    .badge-res { background: #64748b !important; }
+    ::selection { background: rgba(45, 212, 191, 0.30); color: var(--landa-ink); }
+    * { scrollbar-color: #8ca4c5 transparent; scrollbar-width: thin; }
+
     @media (max-width: 768px) {
         .block-container { padding: 2.5rem 0.75rem 2rem !important; }
         div[data-testid="stHorizontalBlock"] { flex-direction: column !important; gap: 0.45rem !important; }
