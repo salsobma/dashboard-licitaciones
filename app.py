@@ -1016,12 +1016,10 @@ st.markdown("""
 
     .stApp {
         background:
-            linear-gradient(rgba(37,99,235,.035) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(37,99,235,.035) 1px, transparent 1px),
             radial-gradient(circle at 76% -8%, rgba(37,99,235,.14), transparent 32rem),
             radial-gradient(circle at 18% 42%, rgba(8,145,178,.08), transparent 35rem),
             #edf3f9 !important;
-        background-size: 42px 42px, 42px 42px, auto, auto, auto !important;
+        background-size: auto !important;
         color: var(--cockpit-text) !important;
     }
     [data-testid="stHeader"] {
@@ -1224,10 +1222,10 @@ st.markdown("""
     /* Cada licitación pasa a leerse como un módulo de trabajo independiente. */
     [data-testid="stMain"] div[data-testid="stVerticalBlockBorderWrapper"] {
         background:
-            linear-gradient(145deg, rgba(255,255,255,.98), rgba(246,250,254,.96)) !important;
-        border: 1px solid rgba(50,84,132,.16) !important;
+            linear-gradient(145deg, #ffffff, #f8fbfe) !important;
+        border: 1px solid rgba(31,73,125,.28) !important;
         border-radius: 22px !important;
-        box-shadow: 0 22px 55px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.035) !important;
+        box-shadow: 0 18px 44px rgba(20,52,91,.18), 0 2px 5px rgba(20,52,91,.08) !important;
     }
     [data-testid="stMain"] div[data-testid="stVerticalBlockBorderWrapper"]:hover {
         border-color: rgba(8,145,178,.38) !important;
@@ -3226,18 +3224,12 @@ if not df_indicadores.empty and "fecha_act_dt" in df_indicadores.columns:
 else:
     actividad_reciente = 0
 
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+kpi1, kpi2 = st.columns(2, gap="large")
 with kpi1:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{len(df_indicadores)}</div><div class="metric-lbl-grid">{etiqueta_cantidad}</div></div>', unsafe_allow_html=True)
 with kpi2:
     etiqueta_volumen = "Importe adjudicado (sin IVA)" if vista_datos_menores else "Volumen Total (sin IVA)"
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(volumen_total)}</div><div class="metric-lbl-grid">{etiqueta_volumen}</div></div>', unsafe_allow_html=True)
-with kpi3:
-    etiqueta_mediana = "Adjudicación típica (mediana) · sin IVA" if vista_datos_menores else "Presupuesto típico (mediana) · sin IVA"
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_mediano)}</div><div class="metric-lbl-grid">{etiqueta_mediana}</div></div>', unsafe_allow_html=True)
-with kpi4:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{actividad_reciente}</div><div class="metric-lbl-grid">Actividad reciente</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">Licitaciones actualizadas en los últimos 7 días</div></div>', unsafe_allow_html=True)
-
 filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
 if tipo_sel: filtros_activos.append('Tipo: ' + ', '.join(tipo_sel))
@@ -3305,9 +3297,9 @@ def render_grid_tarjetas(df_vista, key_prefix):
         if df_vista.empty:
             st.info("Todavía no hay licitaciones favoritas.")
             return
-    for i in range(0, len(df_vista), 2):
-        cols = st.columns(2, gap="large")
-        lote = df_vista.iloc[i:i+2]
+    for i in range(0, len(df_vista), 1):
+        cols = st.columns(1)
+        lote = df_vista.iloc[i:i+1]
         
         for col, (_, r) in zip(cols, lote.iterrows()):
             st_txt, badge_cls = MAPA_ESTADOS.get(r['estado'], (r['estado'], 'badge-res'))
