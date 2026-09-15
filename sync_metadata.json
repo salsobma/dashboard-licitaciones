@@ -1,19 +1,19 @@
 {
   "historico_sincronizado_en": "2026-08-13T10:19:18+02:00",
-  "feed_incremental_sincronizado_en": "2026-09-15T20:46:46.048064+02:00",
+  "feed_incremental_sincronizado_en": "2026-09-15T23:58:49.364476+02:00",
   "feed_incremental_actualizado_hasta": "2026-09-15T20:15:00.093+02:00",
   "feed_incremental_ultima_ejecucion": {
     "modo": "incremental",
-    "sincronizado_en": "2026-09-15T20:46:46.048064+02:00",
+    "sincronizado_en": "2026-09-15T23:58:49.364476+02:00",
     "feed_actualizado": "2026-09-15T20:15:00.093+02:00",
-    "checkpoint_anterior": "2026-09-14T18:44:52.850000+00:00",
+    "checkpoint_anterior": "2026-09-15T18:15:00.093000+00:00",
     "checkpoint_menores_anterior": "2026-09-15T01:06:24.380000+00:00",
     "paginas": 18,
     "versiones_leidas": 8451,
     "ids_revisados": 8218,
-    "insertadas": 11,
-    "actualizadas": 30,
-    "sin_cambios": 55,
+    "insertadas": 0,
+    "actualizadas": 0,
+    "sin_cambios": 96,
     "versiones_anteriores_ignoradas": 0,
     "ubicaciones_heredadas": 0,
     "bajas": 0,
@@ -37,7 +37,7 @@
     "versiones_menores_leidas": 2707
   },
   "feed_menores_actualizado_hasta": "2026-09-15T03:06:24.380+02:00",
-  "feed_menores_sincronizado_en": "2026-09-15T20:46:46.048064+02:00",
+  "feed_menores_sincronizado_en": "2026-09-15T23:58:49.364476+02:00",
   "historico_licitaciones_2025_cargado": true,
   "historico_licitaciones_2025_cargado_en": "2026-08-21T00:45:57.318472+02:00"
 }
