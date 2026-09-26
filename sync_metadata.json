@@ -1,33 +1,33 @@
 {
   "historico_sincronizado_en": "2026-08-13T10:19:18+02:00",
-  "feed_incremental_sincronizado_en": "2026-09-26T20:23:06.176726+02:00",
-  "feed_incremental_actualizado_hasta": "2026-09-25T21:11:36.481+02:00",
+  "feed_incremental_sincronizado_en": "2026-09-26T23:52:45.579988+02:00",
+  "feed_incremental_actualizado_hasta": "2026-09-26T21:08:17.180+02:00",
   "feed_incremental_ultima_ejecucion": {
     "modo": "incremental",
-    "sincronizado_en": "2026-09-26T20:23:06.176726+02:00",
-    "feed_actualizado": "2026-09-25T21:11:36.481+02:00",
+    "sincronizado_en": "2026-09-26T23:52:45.579988+02:00",
+    "feed_actualizado": "2026-09-26T21:08:17.180+02:00",
     "checkpoint_anterior": "2026-09-25T19:11:36.481000+00:00",
     "checkpoint_menores_anterior": "2026-09-26T01:50:58.380000+00:00",
     "paginas": 2,
-    "versiones_leidas": 409,
-    "ids_revisados": 409,
+    "versiones_leidas": 149,
+    "ids_revisados": 149,
     "insertadas": 0,
     "actualizadas": 0,
-    "sin_cambios": 5,
-    "versiones_anteriores_ignoradas": 1,
+    "sin_cambios": 0,
+    "versiones_anteriores_ignoradas": 0,
     "ubicaciones_heredadas": 0,
     "bajas": 0,
-    "descartadas_filtro": 403,
+    "descartadas_filtro": 149,
     "descartadas_por_motivo": {
-      "cpv_fuera_71": 378,
-      "fuera_comunitat_valenciana": 22,
-      "sin_cpv": 3
+      "cpv_fuera_71": 140,
+      "fuera_comunitat_valenciana": 7,
+      "sin_cpv": 2
     },
     "cuarentena_revisada": 0,
     "cuarentena_total": 14,
     "conciliacion": {
-      "ids_revisados": 409,
-      "ids_conciliados": 409,
+      "ids_revisados": 149,
+      "ids_conciliados": 149,
       "cuadra": true
     },
     "total": 8659,
@@ -36,7 +36,7 @@
     "versiones_menores_leidas": 67
   },
   "feed_menores_actualizado_hasta": "2026-09-26T03:50:58.380+02:00",
-  "feed_menores_sincronizado_en": "2026-09-26T20:23:06.176726+02:00",
+  "feed_menores_sincronizado_en": "2026-09-26T23:52:45.579988+02:00",
   "historico_licitaciones_2025_cargado": true,
   "historico_licitaciones_2025_cargado_en": "2026-08-21T00:45:57.318472+02:00"
 }
