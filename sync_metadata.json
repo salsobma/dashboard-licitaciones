@@ -1,13 +1,13 @@
 {
   "historico_sincronizado_en": "2026-08-13T10:19:18+02:00",
-  "feed_incremental_sincronizado_en": "2026-10-13T03:08:56.776604+02:00",
+  "feed_incremental_sincronizado_en": "2026-10-13T16:55:21.542877+02:00",
   "feed_incremental_actualizado_hasta": "2026-10-12T20:02:34.079+02:00",
   "feed_incremental_ultima_ejecucion": {
     "modo": "incremental",
-    "sincronizado_en": "2026-10-13T03:08:56.776604+02:00",
+    "sincronizado_en": "2026-10-13T16:55:21.542877+02:00",
     "feed_actualizado": "2026-10-12T20:02:34.079+02:00",
-    "checkpoint_anterior": "2026-10-11T18:03:10.676000+00:00",
-    "checkpoint_menores_anterior": "2026-10-12T01:05:02.287000+00:00",
+    "checkpoint_anterior": "2026-10-12T18:02:34.079000+00:00",
+    "checkpoint_menores_anterior": "2026-10-13T01:02:24.523000+00:00",
     "paginas": 7,
     "versiones_leidas": 3103,
     "ids_revisados": 3085,
@@ -37,7 +37,7 @@
     "versiones_menores_leidas": 2118
   },
   "feed_menores_actualizado_hasta": "2026-10-13T03:02:24.523+02:00",
-  "feed_menores_sincronizado_en": "2026-10-13T03:08:56.776604+02:00",
+  "feed_menores_sincronizado_en": "2026-10-13T16:55:21.542877+02:00",
   "historico_licitaciones_2025_cargado": true,
   "historico_licitaciones_2025_cargado_en": "2026-08-21T00:45:57.318472+02:00"
 }
