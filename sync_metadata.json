@@ -1,42 +1,42 @@
 {
   "historico_sincronizado_en": "2026-08-13T10:19:18+02:00",
-  "feed_incremental_sincronizado_en": "2026-10-17T23:21:45.756780+02:00",
+  "feed_incremental_sincronizado_en": "2026-10-18T14:00:13.480245+02:00",
   "feed_incremental_actualizado_hasta": "2026-10-17T20:03:01.802+02:00",
   "feed_incremental_ultima_ejecucion": {
     "modo": "incremental",
-    "sincronizado_en": "2026-10-17T23:21:45.756780+02:00",
+    "sincronizado_en": "2026-10-18T14:00:13.480245+02:00",
     "feed_actualizado": "2026-10-17T20:03:01.802+02:00",
-    "checkpoint_anterior": "2026-10-16T18:18:39.597000+00:00",
+    "checkpoint_anterior": "2026-10-17T18:03:01.802000+00:00",
     "checkpoint_menores_anterior": "2026-10-17T01:09:02.236000+00:00",
-    "paginas": 23,
-    "versiones_leidas": 10754,
-    "ids_revisados": 10416,
-    "insertadas": 1,
+    "paginas": 17,
+    "versiones_leidas": 8156,
+    "ids_revisados": 8090,
+    "insertadas": 8,
     "actualizadas": 0,
-    "sin_cambios": 110,
+    "sin_cambios": 84,
     "versiones_anteriores_ignoradas": 0,
     "ubicaciones_heredadas": 0,
     "bajas": 0,
-    "descartadas_filtro": 10305,
+    "descartadas_filtro": 7998,
     "descartadas_por_motivo": {
-      "cpv_fuera_71": 7696,
-      "fuera_comunitat_valenciana": 595,
-      "sin_cpv": 2014
+      "cpv_fuera_71": 5478,
+      "fuera_comunitat_valenciana": 405,
+      "sin_cpv": 2115
     },
     "cuarentena_revisada": 0,
     "cuarentena_total": 23,
     "conciliacion": {
-      "ids_revisados": 10416,
-      "ids_conciliados": 10416,
+      "ids_revisados": 8090,
+      "ids_conciliados": 8090,
       "cuadra": true
     },
-    "total": 8933,
+    "total": 8941,
     "duplicados": 0,
-    "feed_menores_actualizado": "2026-10-17T03:09:02.236+02:00",
-    "versiones_menores_leidas": 4081
+    "feed_menores_actualizado": "2026-10-18T03:04:53.311+02:00",
+    "versiones_menores_leidas": 4472
   },
-  "feed_menores_actualizado_hasta": "2026-10-17T03:09:02.236+02:00",
-  "feed_menores_sincronizado_en": "2026-10-17T23:21:45.756780+02:00",
+  "feed_menores_actualizado_hasta": "2026-10-18T03:04:53.311+02:00",
+  "feed_menores_sincronizado_en": "2026-10-18T14:00:13.480245+02:00",
   "historico_licitaciones_2025_cargado": true,
   "historico_licitaciones_2025_cargado_en": "2026-08-21T00:45:57.318472+02:00"
 }
