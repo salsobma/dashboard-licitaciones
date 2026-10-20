@@ -2215,8 +2215,6 @@ if st.session_state.get("contexto_filtros") != contexto_filtros:
     st.session_state["f_pbl_max"] = max_pbl_db
     st.session_state["f_fecha"] = (f_min_db, f_max_db)
 
-if "f_cpv" not in st.session_state:
-    st.session_state["f_cpv"] = ""
 if "f_familia_cpv" not in st.session_state:
     st.session_state["f_familia_cpv"] = []
 if "f_estado" not in st.session_state:
@@ -2237,7 +2235,6 @@ st.sidebar.title("🎛️ Filtros Avanzados")
 if st.sidebar.button("🗑️ Quitar todos los filtros", use_container_width=True):
     st.session_state["f_texto"] = ""
     st.session_state["f_tipo"] = []
-    st.session_state["f_cpv"] = ""
     st.session_state["f_familia_cpv"] = []
     st.session_state["f_estado"] = []
     st.session_state["f_anio"] = []
@@ -2257,7 +2254,6 @@ if st.sidebar.button(
 ):
     st.session_state["f_texto"] = ""
     st.session_state["f_tipo"] = []
-    st.session_state["f_cpv"] = ""
     st.session_state["f_familia_cpv"] = []
     st.session_state["f_estado"] = ["PUB"]
     st.session_state["f_anio"] = []
@@ -2277,7 +2273,6 @@ if st.sidebar.button(
 ):
     st.session_state["f_texto"] = ""
     st.session_state["f_tipo"] = []
-    st.session_state["f_cpv"] = ""
     st.session_state["f_familia_cpv"] = []
     st.session_state["f_estado"] = ["ADJ"]
     st.session_state["f_anio"] = []
@@ -2305,9 +2300,6 @@ familias_cpv_sel = st.sidebar.multiselect(
     key="f_familia_cpv",
     placeholder="Todas",
 )
-cpv_2dig = st.sidebar.text_input("🏷️ CPV (2 dígitos):", max_chars=2, key="f_cpv")
-
-
 def coincide_familia_cpv(valor, prefijos):
     if not prefijos:
         return True
@@ -2395,10 +2387,6 @@ if familias_cpv_sel:
         lambda valor: coincide_familia_cpv(valor, familias_cpv_sel)
     )]
 
-if cpv_2dig.strip():
-    prefijo = cpv_2dig.strip()
-    df_f = df_f[df_f['cpv'].apply(lambda x: any(c.strip().startswith(prefijo) for c in str(x).split(',')) if x else False)]
-
 # Los contratos menores ya están adjudicados: comparten los filtros temáticos y
 # geográficos, pero no el estado "En plazo" ni la fecha límite de presentación.
 df_menores_f = df_menores.copy()
@@ -2439,16 +2427,6 @@ if familias_cpv_sel:
     df_menores_f = df_menores_f[df_menores_f['cpv'].apply(
         lambda valor: coincide_familia_cpv(valor, familias_cpv_sel)
     )]
-if cpv_2dig.strip():
-    prefijo_menores = cpv_2dig.strip()
-    df_menores_f = df_menores_f[
-        df_menores_f['cpv'].apply(
-            lambda valor: any(
-                codigo.strip().startswith(prefijo_menores)
-                for codigo in str(valor).split(',')
-            ) if valor else False
-        )
-    ]
 df_menores_f["movimiento"] = "Contrato menor"
 
 def aplicar_filtros_al_feed(df_entrada):
@@ -2517,16 +2495,6 @@ def aplicar_filtros_al_feed(df_entrada):
         filtrado = filtrado[filtrado["cpv"].apply(
             lambda valor: coincide_familia_cpv(valor, familias_cpv_sel)
         )]
-    if cpv_2dig.strip():
-        prefijo_feed = cpv_2dig.strip()
-        filtrado = filtrado[
-            filtrado["cpv"].apply(
-                lambda valor: any(
-                    codigo.strip().startswith(prefijo_feed)
-                    for codigo in str(valor).split(",")
-                ) if valor else False
-            )
-        ]
     if filtrado.empty or "fecha_act_dt" not in filtrado.columns:
         return filtrado
     return filtrado.sort_values(
@@ -2792,7 +2760,6 @@ if familias_cpv_sel:
     filtros_activos.append(
         'Familia CPV: ' + ', '.join(familias_cpv[codigo] for codigo in familias_cpv_sel)
     )
-if cpv_2dig.strip(): filtros_activos.append('CPV: ' + cpv_2dig.strip())
 if estados_sel and not vista_datos_menores:
     filtros_activos.append('Estado: ' + ', '.join(opciones_estado[e] for e in estados_sel))
 if anios_sel:
