@@ -39,6 +39,7 @@ INICIO_HISTORICO = {
     "perfil_plataforma": datetime(2025, 1, 1, tzinfo=ZoneInfo("UTC")),
     "contrato_menor": datetime(2025, 1, 1, tzinfo=ZoneInfo("UTC")),
 }
+CPV_PREFIJOS_ADMITIDOS = ("71", "45")
 DOMINIOS_PERMITIDOS = {
     "contrataciondelsectorpublico.gob.es",
     "contrataciondelestado.es",
@@ -87,6 +88,51 @@ def fecha_utc(valor: object) -> datetime | None:
         return None
     fecha = pd.to_datetime(valor, errors="coerce", utc=True)
     return None if pd.isna(fecha) else fecha.to_pydatetime()
+
+
+def cpv_admitido(codigos: list[str] | tuple[str, ...]) -> bool:
+    return any(
+        str(codigo).strip().startswith(CPV_PREFIJOS_ADMITIDOS)
+        for codigo in codigos
+    )
+
+
+def fecha_relevante_registro(fila: dict[str, object]) -> datetime | None:
+    """Fecha que determina a que historico pertenece el expediente.
+
+    Se priorizan las fechas contractuales frente a la fecha tecnica de
+    actualizacion. Para expedientes antiguos corregidos recientemente, la
+    publicacion prevalece sobre esa actualizacion y evita reintroducirlos.
+    """
+    origen = str(fila.get("origen") or "perfil_plataforma")
+    estado = str(fila.get("estado") or "").upper()
+    if origen == "contrato_menor":
+        candidatos = (
+            fila.get("fecha_adjudicacion"),
+            fila.get("fecha_formalizacion"),
+            fila.get("fecha_inicio_contrato"),
+            fila.get("fecha_actualizacion"),
+        )
+    elif estado in {"PUB", "EV", "PRE"}:
+        candidatos = (
+            fila.get("fecha_publicacion"),
+            fila.get("fecha_actualizacion"),
+        )
+    elif estado == "RES" or str(fila.get("adjudicatario") or "").strip():
+        candidatos = (
+            fila.get("fecha_adjudicacion"),
+            fila.get("fecha_formalizacion"),
+            fila.get("fecha_resolucion"),
+            fila.get("fecha_publicacion"),
+            fila.get("fecha_actualizacion"),
+        )
+    else:
+        candidatos = (
+            fila.get("fecha_resolucion"),
+            fila.get("fecha_publicacion"),
+            fila.get("fecha_actualizacion"),
+        )
+    return next((fecha for fecha in map(fecha_utc, candidatos) if fecha), None)
 
 
 def descargar_pagina(url: str) -> tuple[bytes, ET.Element, str]:
@@ -186,14 +232,14 @@ def evaluar_y_enriquecer(
     cpvs = [codigo.strip() for codigo in str(fila.get("cpv") or "").split(",")]
     if not any(cpvs):
         return None, "sin_cpv"
-    if not any(codigo.startswith("71") for codigo in cpvs):
-        return None, "cpv_fuera_71"
+    if not cpv_admitido(cpvs):
+        return None, "cpv_fuera_71_45"
 
     origen = str(fila.get("origen") or "perfil_plataforma")
     inicio = INICIO_HISTORICO.get(origen)
-    actualizada = fecha_utc(fila.get("fecha_actualizacion"))
-    if inicio and actualizada and actualizada < inicio:
-        return None, "actualizacion_anterior_inicio_base"
+    fecha_relevante = fecha_relevante_registro(fila)
+    if inicio and fecha_relevante and fecha_relevante < inicio:
+        return None, "fecha_relevante_anterior_inicio_base"
 
     cp = codigo_postal(fila.get("codigo_postal"))
     ubicacion = maestro.get(cp)
@@ -202,12 +248,11 @@ def evaluar_y_enriquecer(
 
     provincia = clave_texto(fila.get("provincia"))
     comunidad = clave_texto(fila.get("comunidad_autonoma"))
-    es_cv = "valenc" in comunidad or provincia in {
-        "alicante",
-        "castellon",
-        "castello",
-        "valencia",
-    }
+    provincia_cv = any(
+        nombre in provincia
+        for nombre in ("alicante", "alacant", "castellon", "castello", "valencia")
+    )
+    es_cv = "valenc" in comunidad or provincia_cv
     nuts = codigo_nuts(fila.get("codigo_nuts"))
     if not es_cv and nuts.startswith("ES52"):
         fila["comunidad_autonoma"] = "Comunitat Valenciana"
@@ -224,6 +269,10 @@ def evaluar_y_enriquecer(
             "fuera_comunitat_valenciana"
             if tiene_evidencia else "ubicacion_no_verificable"
         )
+    # La base solo contiene lugares de ejecucion validados en la Comunitat.
+    # Normalizamos el campo para que filtros, mapas y graficos no mezclen la
+    # sede del organo u otras etiquetas territoriales presentes en el XML.
+    fila["comunidad_autonoma"] = "Comunitat Valenciana"
 
     if origen == "contrato_menor":
         fecha_adjudicacion = str(fila.get("fecha_adjudicacion") or "")

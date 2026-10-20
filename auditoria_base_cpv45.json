@@ -1,0 +1,26 @@
+{
+  "total": 20176,
+  "por_origen": {
+    "contrato_menor": 10089,
+    "perfil_plataforma": 10087
+  },
+  "por_familia_cpv": {
+    "45": 12492,
+    "71": 7984
+  },
+  "con_cpv_71_y_45": 300,
+  "por_anio_relevante": {
+    "2025": 11218,
+    "2026": 8958
+  },
+  "fecha_relevante_anterior_2025": 0,
+  "sin_fecha_relevante": 0,
+  "duplicados": 0,
+  "fuera_cpv_71_45": 0,
+  "fuera_comunitat_valenciana": 0,
+  "cuarentena_por_motivo": {
+    "sin_adjudicatario": 62,
+    "ubicacion_no_verificable": 43
+  },
+  "comunidades_normalizadas_en_esta_ejecucion": 3819
+}

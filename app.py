@@ -1462,17 +1462,20 @@ def normalizar_estado_vigente(tabla):
         elif fila.get("estado") == "ADJ":
             candidatos = (
                 fila.get("fecha_adjudicacion"), fila.get("fecha_formalizacion"),
-                fila.get("fecha_resolucion"), fila.get("fecha_actualizacion"),
+                fila.get("fecha_resolucion"), fila.get("fecha_publicacion"),
+                fila.get("fecha_actualizacion"),
             )
         else:
             candidatos = (
-                fila.get("fecha_resolucion"), fila.get("fecha_actualizacion"),
-                fila.get("fecha_publicacion"),
+                fila.get("fecha_resolucion"), fila.get("fecha_publicacion"),
+                fila.get("fecha_actualizacion"),
             )
         return next((anio for anio in map(anio_de, candidatos) if anio), None)
 
     resultado["anio_relevante"] = resultado.apply(anio_relevante, axis=1)
-    return resultado
+    return resultado[
+        resultado["anio_relevante"].fillna(0).astype(int) >= 2025
+    ].copy()
 
 FEED_RECIENTE_URLS = (
     (
@@ -2214,6 +2217,8 @@ if st.session_state.get("contexto_filtros") != contexto_filtros:
 
 if "f_cpv" not in st.session_state:
     st.session_state["f_cpv"] = ""
+if "f_familia_cpv" not in st.session_state:
+    st.session_state["f_familia_cpv"] = []
 if "f_estado" not in st.session_state:
     st.session_state["f_estado"] = []
 if "f_anio" not in st.session_state:
@@ -2233,6 +2238,7 @@ if st.sidebar.button("🗑️ Quitar todos los filtros", use_container_width=Tru
     st.session_state["f_texto"] = ""
     st.session_state["f_tipo"] = []
     st.session_state["f_cpv"] = ""
+    st.session_state["f_familia_cpv"] = []
     st.session_state["f_estado"] = []
     st.session_state["f_anio"] = []
     st.session_state["f_ccaa"] = []
@@ -2252,6 +2258,7 @@ if st.sidebar.button(
     st.session_state["f_texto"] = ""
     st.session_state["f_tipo"] = []
     st.session_state["f_cpv"] = ""
+    st.session_state["f_familia_cpv"] = []
     st.session_state["f_estado"] = ["PUB"]
     st.session_state["f_anio"] = []
     st.session_state["f_ccaa"] = []
@@ -2271,6 +2278,7 @@ if st.sidebar.button(
     st.session_state["f_texto"] = ""
     st.session_state["f_tipo"] = []
     st.session_state["f_cpv"] = ""
+    st.session_state["f_familia_cpv"] = []
     st.session_state["f_estado"] = ["ADJ"]
     st.session_state["f_anio"] = []
     st.session_state["f_ccaa"] = []
@@ -2286,7 +2294,27 @@ st.sidebar.divider()
 busqueda_texto = st.sidebar.text_input("🔍 Palabras clave (título, expediente...):", key="f_texto")
 tipos_list = sorted([x for x in df_catalogo_filtros['tipo_contrato_desc'].dropna().unique() if x])
 tipo_sel = st.sidebar.multiselect("📦 Tipo de Contrato:", tipos_list, key="f_tipo")
+familias_cpv = {
+    "71": "Ingeniería y arquitectura · CPV 71",
+    "45": "Construcción · CPV 45",
+}
+familias_cpv_sel = st.sidebar.multiselect(
+    "🏗️ Familia CPV:",
+    list(familias_cpv),
+    format_func=lambda codigo: familias_cpv[codigo],
+    key="f_familia_cpv",
+    placeholder="Todas",
+)
 cpv_2dig = st.sidebar.text_input("🏷️ CPV (2 dígitos):", max_chars=2, key="f_cpv")
+
+
+def coincide_familia_cpv(valor, prefijos):
+    if not prefijos:
+        return True
+    return any(
+        codigo.strip().startswith(tuple(prefijos))
+        for codigo in str(valor or "").split(',')
+    )
 
 opciones_estado = CATEGORIAS_ESTADO
 estados_sel = st.sidebar.multiselect("📌 Estado:", list(opciones_estado.keys()), format_func=lambda x: opciones_estado[x], key="f_estado")
@@ -2362,6 +2390,10 @@ if prov_sel: df_f = df_f[df_f['provincia'].isin(prov_sel)]
 if muni_sel: df_f = df_f[df_f['municipio'].isin(muni_sel)]
 if organo_sel: df_f = df_f[df_f['organo_contratante'].isin(organo_sel)]
 if adjudicatario_sel: df_f = df_f[df_f['adjudicatario'].isin(adjudicatario_sel)]
+if familias_cpv_sel:
+    df_f = df_f[df_f['cpv'].apply(
+        lambda valor: coincide_familia_cpv(valor, familias_cpv_sel)
+    )]
 
 if cpv_2dig.strip():
     prefijo = cpv_2dig.strip()
@@ -2403,6 +2435,10 @@ if organo_sel:
     df_menores_f = df_menores_f[df_menores_f['organo_contratante'].isin(organo_sel)]
 if adjudicatario_sel:
     df_menores_f = df_menores_f[df_menores_f['adjudicatario'].isin(adjudicatario_sel)]
+if familias_cpv_sel:
+    df_menores_f = df_menores_f[df_menores_f['cpv'].apply(
+        lambda valor: coincide_familia_cpv(valor, familias_cpv_sel)
+    )]
 if cpv_2dig.strip():
     prefijo_menores = cpv_2dig.strip()
     df_menores_f = df_menores_f[
@@ -2477,6 +2513,10 @@ def aplicar_filtros_al_feed(df_entrada):
         filtrado = filtrado[
             filtrado["adjudicatario"].isin(adjudicatario_sel)
         ]
+    if familias_cpv_sel:
+        filtrado = filtrado[filtrado["cpv"].apply(
+            lambda valor: coincide_familia_cpv(valor, familias_cpv_sel)
+        )]
     if cpv_2dig.strip():
         prefijo_feed = cpv_2dig.strip()
         filtrado = filtrado[
@@ -2748,6 +2788,10 @@ with kpi4:
 filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
 if tipo_sel: filtros_activos.append('Tipo: ' + ', '.join(tipo_sel))
+if familias_cpv_sel:
+    filtros_activos.append(
+        'Familia CPV: ' + ', '.join(familias_cpv[codigo] for codigo in familias_cpv_sel)
+    )
 if cpv_2dig.strip(): filtros_activos.append('CPV: ' + cpv_2dig.strip())
 if estados_sel and not vista_datos_menores:
     filtros_activos.append('Estado: ' + ', '.join(opciones_estado[e] for e in estados_sel))

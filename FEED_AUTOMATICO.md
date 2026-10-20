@@ -1,5 +1,8 @@
 # Feed automático
 
+La sincronización incorpora las familias CPV 71 y CPV 45 para la Comunitat
+Valenciana, tanto en licitaciones ordinarias como en contratos menores.
+
 El feed reciente se descarga y valida mediante GitHub Actions con el cron UTC
 `0 7,11,15,19 * * *`. Durante el horario de verano peninsular corresponde a
 las 09:00, 13:00, 17:00 y 21:00 en España.

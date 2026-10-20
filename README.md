@@ -28,4 +28,12 @@ La base de datos se busca en `licitaciones.db`. Puede indicarse otra ruta con `L
 
 ## ActualizaciÃ³n
 
+## Familias CPV incluidas
+
+La base conserva expedientes de la Comunitat Valenciana pertenecientes a las
+divisiones `71` (servicios de arquitectura e ingeniería) y `45` (trabajos de
+construcción). El dashboard permite consultar una familia, la otra o ambas.
+El histórico comienza el 1 de enero de 2025 según la fecha relevante del
+estado contractual, no según la mera fecha técnica de actualización del feed.
+
 `ingestar_todo.py` procesa los ficheros de `datos_atom`. La aplicaciÃ³n incluye la fecha de modificaciÃ³n de SQLite en la clave de cachÃ©, por lo que detecta una base actualizada sin reiniciar el servicio.

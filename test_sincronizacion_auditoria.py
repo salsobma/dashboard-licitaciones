@@ -40,6 +40,60 @@ def fila_base(lic_id: str) -> dict[str, object]:
 
 
 class SincronizacionAuditableTest(unittest.TestCase):
+    def test_admite_cpv_71_y_45(self):
+        for cpv in ("71000000", "45000000"):
+            fila = fila_base(f"cpv-{cpv}")
+            fila["cpv"] = cpv
+            fila["codigo_nuts"] = "ES523"
+            evaluada, motivo = sync.evaluar_y_enriquecer(fila, {})
+            self.assertIsNotNone(evaluada)
+            self.assertIsNone(motivo)
+
+        fila = fila_base("cpv-fuera")
+        fila["cpv"] = "33000000"
+        fila["codigo_nuts"] = "ES523"
+        evaluada, motivo = sync.evaluar_y_enriquecer(fila, {})
+        self.assertIsNone(evaluada)
+        self.assertEqual(motivo, "cpv_fuera_71_45")
+
+    def test_fecha_relevante_excluye_expediente_antiguo_actualizado(self):
+        fila = fila_base("antigua")
+        fila.update({
+            "estado": "RES",
+            "fecha_publicacion": "2021-05-10",
+            "fecha_actualizacion": "2026-10-20T10:00:00+02:00",
+            "codigo_nuts": "ES523",
+        })
+        evaluada, motivo = sync.evaluar_y_enriquecer(fila, {})
+        self.assertIsNone(evaluada)
+        self.assertEqual(motivo, "fecha_relevante_anterior_inicio_base")
+
+    def test_fecha_relevante_conserva_adjudicacion_actual_de_licitacion_antigua(self):
+        fila = fila_base("adjudicada-actual")
+        fila.update({
+            "estado": "RES",
+            "fecha_publicacion": "2021-05-10",
+            "fecha_adjudicacion": "2026-04-15",
+            "adjudicatario": "Empresa de prueba",
+            "codigo_nuts": "ES523",
+        })
+        evaluada, motivo = sync.evaluar_y_enriquecer(fila, {})
+        self.assertIsNotNone(evaluada)
+        self.assertIsNone(motivo)
+
+    def test_normaliza_comunidad_cuando_la_provincia_es_valenciana(self):
+        fila = fila_base("provincia-valenciana")
+        fila.update({
+            "provincia": "Valencia/València",
+            "comunidad_autonoma": "Murcia",
+        })
+        evaluada, motivo = sync.evaluar_y_enriquecer(fila, {})
+        self.assertIsNotNone(evaluada)
+        self.assertIsNone(motivo)
+        self.assertEqual(
+            evaluada["comunidad_autonoma"], "Comunitat Valenciana"
+        )
+
     def test_ubicacion_es52_no_se_completa_con_sede_del_organo(self):
         status = ET.fromstring(
             f'''<ContractFolderStatus xmlns:cac="{NAMESPACES["cac"]}"

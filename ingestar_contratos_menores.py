@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from feed_parser import NAMESPACES, extraer_cpvs, fila_desde_entrada
 from sincronizar_licitaciones import (
+    CPV_PREFIJOS_ADMITIDOS,
     COLUMNAS_FUENTE,
     DB_PATH,
     MOTIVOS_CUARENTENA,
@@ -56,8 +57,8 @@ def motivo_descarte_preliminar(entrada: ET.Element) -> str | None:
     cpvs = extraer_cpvs(status, proyecto)
     if not any(cpvs):
         return "sin_cpv"
-    if not any(cpv.startswith("71") for cpv in cpvs):
-        return "cpv_fuera_71"
+    if not any(cpv.startswith(CPV_PREFIJOS_ADMITIDOS) for cpv in cpvs):
+        return "cpv_fuera_71_45"
     return None
 
 
@@ -67,10 +68,6 @@ def ingestar(
     reemplazar: bool = False,
     origen: str = ORIGEN,
 ) -> dict[str, object]:
-    if reemplazar and origen != ORIGEN:
-        raise ValueError(
-            "La carga histórica ordinaria debe conciliarse sin reemplazar la base reciente."
-        )
     archivos = archivos_atom(directorios)
     if not archivos:
         raise RuntimeError("No se encontraron archivos ATOM.")
@@ -173,9 +170,19 @@ def ingestar(
         cpvs_guardados = conexion.execute(
             "SELECT cpv FROM licitaciones WHERE origen = ?", (origen,)
         ).fetchall()
+        por_familia = {
+            prefijo: sum(
+                any(
+                    codigo.strip().startswith(prefijo)
+                    for codigo in str(cpv or "").split(",")
+                )
+                for (cpv,) in cpvs_guardados
+            )
+            for prefijo in CPV_PREFIJOS_ADMITIDOS
+        }
         fuera_cpv = sum(
             not any(
-                codigo.strip().startswith("71")
+                codigo.strip().startswith(CPV_PREFIJOS_ADMITIDOS)
                 for codigo in str(cpv or "").split(",")
             )
             for (cpv,) in cpvs_guardados
@@ -209,8 +216,9 @@ def ingestar(
             "cuadra": conciliadas == leidas,
         },
         clave_total: total,
+        "registros_por_familia_cpv": por_familia,
         "duplicados": duplicados,
-        "fuera_cpv_71": fuera_cpv,
+        "fuera_cpv_71_45": fuera_cpv,
         "fuera_comunitat_valenciana": fuera_cv,
     }
 
@@ -224,7 +232,7 @@ def main() -> None:
     parser.add_argument(
         "--reemplazar",
         action="store_true",
-        help="Elimina antes los contratos menores existentes.",
+        help="Elimina antes los expedientes existentes del origen seleccionado.",
     )
     parser.add_argument(
         "--informe",

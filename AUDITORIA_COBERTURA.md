@@ -39,7 +39,7 @@ se conservan en la tabla `cuarentena_licitaciones` de SQLite.
   indicada por el XML y el código NUTS `ES52`, `ES521`, `ES522` o `ES523`.
 - Una actualización sin evidencia territorial hereda la ubicación de la
   versión anterior del mismo identificador. Los demás campos sí se actualizan.
-- Una entrada nueva con CPV 71 pero sin evidencia territorial verificable se
+- Una entrada nueva con CPV 71 o CPV 45 pero sin evidencia territorial verificable se
   conserva en cuarentena.
 - Cada sincronización informa de insertados, actualizados, registros sin
   cambios, versiones antiguas, ubicación heredada y descartes por motivo.
@@ -73,6 +73,11 @@ En esta auditoría se encontraron fechas de formalización en 370 contratos
 menores y 1.091 licitaciones ordinarias.
 
 ## Automatización
+
+Las familias admitidas son CPV 71 y CPV 45, incluidos los códigos declarados
+a nivel de lote. El corte histórico se aplica sobre la fecha relevante del
+estado contractual: una corrección reciente no reintroduce por sí sola un
+expediente anterior a 2025.
 
 Las sincronizaciones incrementales se ejecutan cuatro veces al día. Los
 domingos se lanza automáticamente una auditoría histórica de ambas fuentes
