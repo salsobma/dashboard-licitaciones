@@ -909,6 +909,19 @@ def formato_fecha(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y · %H:%M")
 
+
+def formato_fecha_madrid(valor):
+    """Muestra marcas temporales operativas en la zona horaria del usuario."""
+    fecha = pd.to_datetime(valor, errors="coerce")
+    if pd.isna(fecha):
+        return "No disponible"
+    if fecha.tzinfo is None:
+        fecha = fecha.tz_localize("Europe/Madrid")
+    else:
+        fecha = fecha.tz_convert("Europe/Madrid")
+    return fecha.strftime("%d/%m/%Y · %H:%M")
+
+
 def formato_fecha_corta(valor):
     fecha = pd.to_datetime(valor, errors="coerce")
     return "No disponible" if pd.isna(fecha) else fecha.strftime("%d/%m/%Y")
@@ -2589,12 +2602,12 @@ novedad_base = (
     else pd.NaT
 )
 st.caption(
-    "**Última sincronización con la base de datos:** "
-    f"{formato_fecha(sincronizacion_base)}"
+    "**Última comprobación automática de los feeds:** "
+    f"{formato_fecha_madrid(sincronizacion_base)}"
 )
 st.caption(
-    "**Última novedad incorporada en esta copia de la base:** "
-    f"{formato_fecha(novedad_base)}"
+    "**Fecha oficial del registro más reciente incorporado:** "
+    f"{formato_fecha_madrid(novedad_base)}"
 )
 if pd.notna(novedad_base):
     antiguedad_novedad = pd.Timestamp.now(tz="UTC") - novedad_base
