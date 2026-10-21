@@ -71,6 +71,7 @@ COLUMNAS_FUENTE = (
     "fecha_resolucion",
     "fecha_actualizacion",
     "adjudicatario",
+    "adjudicatarios_detalle",
     "fecha_adjudicacion",
     "importe_adjudicacion_sin_iva",
     "importe_adjudicacion_con_iva",
@@ -407,6 +408,7 @@ def inicializar_esquema(conexion: sqlite3.Connection) -> None:
         "origen": "TEXT NOT NULL DEFAULT 'perfil_plataforma'",
         "resultado_codigos": "TEXT",
         "resultados_lotes": "TEXT",
+        "adjudicatarios_detalle": "TEXT",
     }
     for columna, tipo in migraciones.items():
         if columna not in columnas:

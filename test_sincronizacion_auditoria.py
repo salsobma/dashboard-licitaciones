@@ -9,6 +9,7 @@ import sincronizar_licitaciones as sync
 from feed_parser import (
     NAMESPACES,
     bajas_desde_pagina,
+    extraer_adjudicatarios,
     extraer_resultados,
     extraer_resultados_lotes,
     extraer_fecha_resolucion,
@@ -40,6 +41,26 @@ def fila_base(lic_id: str) -> dict[str, object]:
 
 
 class SincronizacionAuditableTest(unittest.TestCase):
+    def test_adjudicatarios_conservan_identidad_nombre_y_lote(self):
+        status = ET.fromstring(
+            f'''<ContractFolderStatus xmlns:cac="{NAMESPACES["cac"]}"
+                xmlns:cbc="{NAMESPACES["cbc"]}">
+                <cac:TenderResult>
+                    <cbc:ResultCode>8</cbc:ResultCode>
+                    <cbc:ProcurementProjectLotID>2</cbc:ProcurementProjectLotID>
+                    <cac:WinningParty>
+                        <cac:PartyIdentification><cbc:ID schemeName="NIF">B-12345678</cbc:ID></cac:PartyIdentification>
+                        <cac:PartyName><cbc:Name>Empresa Ejemplo, S.L.</cbc:Name></cac:PartyName>
+                    </cac:WinningParty>
+                </cac:TenderResult>
+            </ContractFolderStatus>'''
+        )
+        self.assertEqual(
+            extraer_adjudicatarios(status),
+            '[{"identificador": "B-12345678", "tipo_identificador": "NIF", '
+            '"nombre": "Empresa Ejemplo, S.L.", "lote": "2", "resultado": "8"}]',
+        )
+
     def test_admite_cpv_71_y_45(self):
         for cpv in ("71000000", "45000000"):
             fila = fila_base(f"cpv-{cpv}")

@@ -27,6 +27,7 @@ from google import genai
 from google.genai import types
 from feed_parser import (
     extraer_adjudicacion,
+    extraer_adjudicatarios,
     extraer_cpvs,
     extraer_fecha_resolucion,
     extraer_ubicacion,
@@ -937,6 +938,142 @@ def normalizar_nombre_entidad(valor):
     return re.sub(r"\s+", " ", texto).strip()
 
 
+def normalizar_identificador_fiscal(valor):
+    return re.sub(r"[^A-Z0-9]+", "", str(valor or "").upper())
+
+
+def aplicar_identidades_empresas(datos):
+    """Agrupa variantes publicadas mediante el identificador fiscal oficial."""
+    resultado = datos.copy()
+    if "adjudicatarios_detalle" not in resultado.columns:
+        resultado["adjudicatarios_detalle"] = None
+
+    detalles_filas = []
+    estadisticas = {}
+    for _, fila in resultado.iterrows():
+        try:
+            detalles = json.loads(fila.get("adjudicatarios_detalle") or "[]")
+            if not isinstance(detalles, list):
+                detalles = []
+        except (TypeError, ValueError, json.JSONDecodeError):
+            detalles = []
+        if not detalles:
+            nombres = [
+                nombre.strip()
+                for nombre in str(fila.get("adjudicatario") or "").split(" · ")
+                if nombre.strip()
+            ]
+            detalles = [{"nombre": nombre} for nombre in nombres]
+
+        identidades = []
+        vistas = set()
+        fecha = str(fila.get("fecha_actualizacion") or "")
+        for detalle in detalles:
+            if not isinstance(detalle, dict):
+                continue
+            nombre = str(detalle.get("nombre") or "").strip()
+            identificador = normalizar_identificador_fiscal(
+                detalle.get("identificador")
+            )
+            tipo = normalizar_nombre_entidad(
+                detalle.get("tipo_identificador") or "ID"
+            )
+            if identificador:
+                clave = f"ID:{tipo}:{identificador}"
+            elif nombre:
+                clave = f"NOMBRE:{normalizar_nombre_entidad(nombre)}"
+            else:
+                continue
+            firma = (clave, nombre)
+            if firma in vistas:
+                continue
+            vistas.add(firma)
+            identidades.append({
+                "clave": clave,
+                "identificador": identificador or None,
+                "tipo_identificador": tipo or None,
+                "nombre": nombre or identificador,
+            })
+            alias = nombre or identificador
+            alias_stats = estadisticas.setdefault(clave, {}).setdefault(
+                alias, {"apariciones": 0, "ultima_fecha": ""}
+            )
+            alias_stats["apariciones"] += 1
+            alias_stats["ultima_fecha"] = max(
+                alias_stats["ultima_fecha"], fecha
+            )
+        detalles_filas.append(identidades)
+
+    canonicos = {
+        clave: max(
+            aliases,
+            key=lambda alias: (
+                aliases[alias]["apariciones"],
+                aliases[alias]["ultima_fecha"],
+                len(alias),
+            ),
+        )
+        for clave, aliases in estadisticas.items()
+    }
+    resultado["adjudicatario_original"] = resultado["adjudicatario"]
+    resultado["adjudicatario_claves"] = [
+        list(dict.fromkeys(item["clave"] for item in identidades))
+        for identidades in detalles_filas
+    ]
+    resultado["adjudicatario_identificadores"] = [
+        " · ".join(dict.fromkeys(
+            item["identificador"] for item in identidades
+            if item["identificador"]
+        )) or None
+        for identidades in detalles_filas
+    ]
+    resultado["adjudicatario"] = [
+        " · ".join(dict.fromkeys(
+            canonicos.get(item["clave"], item["nombre"])
+            for item in identidades
+        )) or original
+        for identidades, original in zip(
+            detalles_filas, resultado["adjudicatario_original"]
+        )
+    ]
+    resultado["adjudicatario_entidades"] = [
+        [
+            {
+                "clave": item["clave"],
+                "nombre": canonicos.get(item["clave"], item["nombre"]),
+                "identificador": item["identificador"],
+                "tipo_identificador": item["tipo_identificador"],
+            }
+            for item in identidades
+        ]
+        for identidades in detalles_filas
+    ]
+    return resultado
+
+
+def catalogo_identidades_empresas(datos):
+    """Devuelve una etiqueta única por empresa, aun en adjudicaciones conjuntas."""
+    catalogo = {}
+    for entidades in datos.get(
+        "adjudicatario_entidades", pd.Series(index=datos.index, dtype="object")
+    ):
+        for entidad in entidades if isinstance(entidades, list) else []:
+            clave = entidad.get("clave")
+            nombre = str(entidad.get("nombre") or "").strip()
+            identificador = str(entidad.get("identificador") or "").strip()
+            if clave and nombre:
+                catalogo[clave] = (
+                    f"{nombre} · {identificador}" if identificador else nombre
+                )
+    return dict(sorted(catalogo.items(), key=lambda item: item[1].upper()))
+
+
+def contiene_identidad_empresa(entidades, seleccion):
+    if not isinstance(entidades, list):
+        return False
+    return any(entidad.get("clave") in seleccion for entidad in entidades)
+
+
 def normalizar_ubicacion_valenciana(datos):
     """Evita presentar la sede del órgano como lugar de ejecución."""
     resultado = datos.copy()
@@ -990,6 +1127,22 @@ def preparar_base_contratacion_analisis(df_licitaciones, df_contratos_menores):
     datos["empresa_clave"] = datos["adjudicatario"].map(normalizar_nombre_entidad)
     datos["organo_clave"] = datos["organo_contratante"].map(normalizar_nombre_entidad)
     return datos
+
+
+def expandir_empresas_analisis(datos):
+    """Crea una fila por empresa solo para su análisis, manteniendo el expediente."""
+    if "adjudicatario_entidades" not in datos.columns:
+        return datos
+    resultado = datos.explode("adjudicatario_entidades", ignore_index=True)
+    entidades = resultado["adjudicatario_entidades"].apply(
+        lambda valor: valor if isinstance(valor, dict) else {}
+    )
+    resultado["empresa_clave"] = entidades.apply(lambda valor: valor.get("clave", ""))
+    resultado["adjudicatario"] = entidades.apply(lambda valor: valor.get("nombre"))
+    resultado["adjudicatario_identificadores"] = entidades.apply(
+        lambda valor: valor.get("identificador")
+    )
+    return resultado
 
 
 def filtrar_fuente_y_anio(datos, fuente, anios):
@@ -1174,6 +1327,7 @@ def tabla_adjudicaciones_analisis(datos):
         "baja_importe": "Baja sin IVA",
         "baja_porcentaje": "Baja (%)",
         "adjudicatario": "Empresa adjudicataria",
+        "adjudicatario_identificadores": "NIF/CIF publicado",
         "organo_contratante": "Órgano de contratación",
         "municipio": "Municipio",
         "provincia": "Provincia",
@@ -1864,6 +2018,7 @@ def _fila_desde_entrada_feed(entrada):
         "fecha_actualizacion": _texto_xml(entrada, "atom:updated"),
         "fecha_resolucion": extraer_fecha_resolucion(status),
         "adjudicatario": adjudicatario,
+        "adjudicatarios_detalle": extraer_adjudicatarios(status),
         "fecha_adjudicacion": fecha_adjudicacion,
         "importe_adjudicacion_sin_iva": importe_adjudicacion_sin_iva,
         "importe_adjudicacion_con_iva": importe_adjudicacion_con_iva,
@@ -2131,6 +2286,7 @@ def cargar_datos(db_mtime):
     df['fecha_limite_dt'] = pd.to_datetime(df['fecha_limite'].astype(str).str.slice(0, 10), errors='coerce', utc=True)
     df['fecha_act_dt'] = pd.to_datetime(df['fecha_actualizacion'], errors='coerce', utc=True)
     df['tipo_contrato_desc'] = df['tipo_contrato'].map(MAPA_TIPOS).fillna('Otros')
+    df = aplicar_identidades_empresas(df)
     return normalizar_estado_vigente(df)
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -2356,12 +2512,16 @@ else:
 organos = sorted([x for x in df_catalogo_filtros['organo_contratante'].dropna().unique() if x])
 organo_sel = st.sidebar.multiselect("🏛️ Órgano de Contratación:", organos, key="f_organo")
 
-adjudicatarios = sorted([
-    x for x in df_catalogo_filtros['adjudicatario'].dropna().unique()
-    if str(x).strip()
-])
+catalogo_adjudicatarios = catalogo_identidades_empresas(df_catalogo_filtros)
+adjudicatarios = list(catalogo_adjudicatarios)
+if "f_adjudicatario" in st.session_state:
+    st.session_state["f_adjudicatario"] = [
+        clave for clave in st.session_state["f_adjudicatario"]
+        if clave in catalogo_adjudicatarios
+    ]
 adjudicatario_sel = st.sidebar.multiselect(
-    "🏆 Adjudicatario:", adjudicatarios, key="f_adjudicatario"
+    "🏆 Adjudicatario:", adjudicatarios, key="f_adjudicatario",
+    format_func=lambda clave: catalogo_adjudicatarios.get(clave, clave),
 )
 
 df_f = df.copy()
@@ -2394,7 +2554,11 @@ if ccaa_sel: df_f = df_f[df_f['comunidad_autonoma'].isin(ccaa_sel)]
 if prov_sel: df_f = df_f[df_f['provincia'].isin(prov_sel)]
 if muni_sel: df_f = df_f[df_f['municipio'].isin(muni_sel)]
 if organo_sel: df_f = df_f[df_f['organo_contratante'].isin(organo_sel)]
-if adjudicatario_sel: df_f = df_f[df_f['adjudicatario'].isin(adjudicatario_sel)]
+if adjudicatario_sel:
+    seleccion_empresas = set(adjudicatario_sel)
+    df_f = df_f[df_f["adjudicatario_entidades"].apply(
+        contiene_identidad_empresa, seleccion=seleccion_empresas
+    )]
 if familias_cpv_sel:
     df_f = df_f[df_f['cpv'].apply(
         lambda valor: coincide_familia_cpv(valor, familias_cpv_sel)
@@ -2435,7 +2599,9 @@ if muni_sel:
 if organo_sel:
     df_menores_f = df_menores_f[df_menores_f['organo_contratante'].isin(organo_sel)]
 if adjudicatario_sel:
-    df_menores_f = df_menores_f[df_menores_f['adjudicatario'].isin(adjudicatario_sel)]
+    df_menores_f = df_menores_f[df_menores_f["adjudicatario_entidades"].apply(
+        contiene_identidad_empresa, seleccion=set(adjudicatario_sel)
+    )]
 if familias_cpv_sel:
     df_menores_f = df_menores_f[df_menores_f['cpv'].apply(
         lambda valor: coincide_familia_cpv(valor, familias_cpv_sel)
@@ -2501,9 +2667,9 @@ def aplicar_filtros_al_feed(df_entrada):
             filtrado["organo_contratante"].isin(organo_sel)
         ]
     if adjudicatario_sel:
-        filtrado = filtrado[
-            filtrado["adjudicatario"].isin(adjudicatario_sel)
-        ]
+        filtrado = filtrado[filtrado["adjudicatario_entidades"].apply(
+            contiene_identidad_empresa, seleccion=set(adjudicatario_sel)
+        )]
     if familias_cpv_sel:
         filtrado = filtrado[filtrado["cpv"].apply(
             lambda valor: coincide_familia_cpv(valor, familias_cpv_sel)
@@ -2795,7 +2961,12 @@ if (
         f'– {fecha_rango[1].strftime("%d/%m/%Y")}'
     )
 if organo_sel: filtros_activos.append('Órgano: ' + ', '.join(organo_sel))
-if adjudicatario_sel: filtros_activos.append('Adjudicatario: ' + ', '.join(adjudicatario_sel))
+if adjudicatario_sel:
+    filtros_activos.append(
+        "Adjudicatario: " + ", ".join(
+            catalogo_adjudicatarios.get(clave, clave) for clave in adjudicatario_sel
+        )
+    )
 
 resumen_filtros = ' · '.join(filtros_activos) if filtros_activos else 'Ninguno'
 st.markdown(
@@ -3463,10 +3634,12 @@ else:
     elif vista_principal == "🏢 Análisis de empresas":
         st.subheader("🏢 Análisis de empresas adjudicatarias")
         st.caption(
-            "Consulta conjuntamente una o varias denominaciones de empresa. Esta ficha "
+            "Consulta conjuntamente una o varias empresas identificadas por su NIF/CIF. Esta ficha "
             "se actualiza con los filtros del menú lateral."
         )
-        base_empresas = preparar_adjudicaciones_analisis(df_f, df_menores_f)
+        base_empresas = expandir_empresas_analisis(
+            preparar_adjudicaciones_analisis(df_f, df_menores_f)
+        )
         fuente_empresa = st.segmented_control(
             "Origen de los contratos",
             ["Ambos", "Licitaciones", "Contratos menores"],
@@ -3481,16 +3654,20 @@ else:
             .agg(lambda valores: valores.dropna().astype(str).value_counts().index[0])
             .sort_values(key=lambda serie: serie.str.upper())
         )
-        opciones_empresas = catalogo_empresas.tolist()
+        opciones_empresas = catalogo_empresas.index.tolist()
         empresas_elegidas = st.multiselect(
-            "Buscar una o varias denominaciones de empresa", opciones_empresas,
+            "Buscar una o varias empresas", opciones_empresas,
             key="analisis_empresa_selector_multiple",
             placeholder="Escribe para buscar empresas",
+            format_func=lambda clave: (
+                f"{catalogo_empresas.get(clave, clave)} · {clave.rsplit(':', 1)[-1]}"
+                if str(clave).startswith("ID:") else catalogo_empresas.get(clave, clave)
+            ),
         )
         if not empresas_elegidas:
             st.info("Selecciona una o varias empresas para ver una ficha conjunta.")
         else:
-            claves_empresa = {normalizar_nombre_entidad(nombre) for nombre in empresas_elegidas}
+            claves_empresa = set(empresas_elegidas)
             empresa = universo_empresas[
                 universo_empresas["empresa_clave"].isin(claves_empresa)
             ].drop_duplicates(subset=["id"]).copy()
@@ -3531,12 +3708,22 @@ else:
             st.caption(
                 f"Cobertura: fecha de adjudicación/formalización {cobertura_fecha:.0f} % · "
                 f"importe adjudicado {cobertura_importe:.0f} %. La identificación se basa "
-                "en el nombre publicado; las UTE o adjudicatarios múltiples se conservan como figuran en origen."
+                "en el NIF/CIF oficial cuando PLACSP lo publica; las variantes del nombre "
+                "se agrupan sin alterar el texto original almacenado."
             )
-            st.info(
-                "La base actual no guarda teléfono, correo ni NIF/CIF del adjudicatario. "
-                "Estos datos solo podrán mostrarse si ampliamos la extracción y la fuente oficial los publica."
-            )
+            identificadores = sorted({
+                identificador.strip()
+                for valor in empresa["adjudicatario_identificadores"].dropna()
+                for identificador in str(valor).split(" · ")
+                if identificador.strip()
+            })
+            if identificadores:
+                st.info("NIF/CIF publicados: " + " · ".join(identificadores))
+            else:
+                st.info(
+                    "PLACSP no publica un NIF/CIF para la selección actual; "
+                    "en estos casos se mantiene la agrupación por nombre normalizado."
+                )
 
             izquierda, derecha = st.columns(2)
             evolucion = empresa.dropna(subset=["fecha_analisis", "importe_analisis"]).copy()
@@ -3847,6 +4034,7 @@ else:
                 "municipio": "Municipio",
                 "organo_contratante": "Órgano de contratación",
                 "adjudicatario": "Empresa adjudicataria",
+                "adjudicatario_identificadores": "NIF/CIF publicado",
                 "fecha_adjudicacion": "Fecha adjudicación",
                 "fecha_formalizacion": "Fecha formalización",
                 "fecha_inicio_contrato": "Fecha inicio contrato",
@@ -3878,6 +4066,7 @@ else:
                 "tipo_contrato_desc": "Tipo de contrato",
                 "cpv": "CPV",
                 "adjudicatario": "Empresa adjudicataria",
+                "adjudicatario_identificadores": "NIF/CIF publicado",
                 "importe_adjudicacion_sin_iva": "Importe adjudicación sin IVA",
                 "fecha_adjudicacion": "Fecha adjudicación",
                 "fecha_formalizacion": "Fecha formalización",

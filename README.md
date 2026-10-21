@@ -36,4 +36,14 @@ construcción). El dashboard permite consultar una familia, la otra o ambas.
 El histórico comienza el 1 de enero de 2025 según la fecha relevante del
 estado contractual, no según la mera fecha técnica de actualización del feed.
 
+## Identidad de las empresas adjudicatarias
+
+El parser conserva para cada adjudicatario el identificador publicado por
+PLACSP, su tipo (`NIF`, `OTROS` o `UTE`), el nombre original, el lote y el
+resultado. El dashboard agrupa las variantes que comparten identificador y
+muestra como nombre canónico la denominación más frecuente; en caso de empate
+prevalece la observada más recientemente. Los nombres originales permanecen en
+`adjudicatarios_detalle`. Si la fuente no publica identificador, no se inventa
+una equivalencia y se utiliza el nombre normalizado.
+
 `ingestar_todo.py` procesa los ficheros de `datos_atom`. La aplicaciÃ³n incluye la fecha de modificaciÃ³n de SQLite en la clave de cachÃ©, por lo que detecta una base actualizada sin reiniciar el servicio.

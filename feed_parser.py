@@ -75,6 +75,54 @@ def extraer_adjudicacion(status: ET.Element) -> tuple[
     )
 
 
+def extraer_adjudicatarios(status: ET.Element) -> str | None:
+    """Conserva identidad fiscal, nombre y lote de cada adjudicatario publicado."""
+    adjudicatarios = []
+    vistos = set()
+    for resultado in status.findall("cac:TenderResult", NAMESPACES):
+        codigo_resultado = texto_xml(resultado, "cbc:ResultCode")
+        lotes = [
+            nodo.text.strip()
+            for nodo in resultado.findall(
+                ".//cbc:ProcurementProjectLotID", NAMESPACES
+            )
+            if nodo.text and nodo.text.strip()
+        ] or [None]
+        for parte in resultado.findall("cac:WinningParty", NAMESPACES):
+            nombre = texto_xml(parte, "cac:PartyName/cbc:Name")
+            identificador_nodo = parte.find(
+                "cac:PartyIdentification/cbc:ID", NAMESPACES
+            )
+            identificador = (
+                identificador_nodo.text.strip()
+                if identificador_nodo is not None and identificador_nodo.text
+                else None
+            )
+            tipo = (
+                identificador_nodo.attrib.get("schemeName")
+                if identificador_nodo is not None
+                else None
+            )
+            if not nombre and not identificador:
+                continue
+            for lote in lotes:
+                clave = (identificador, tipo, nombre, lote, codigo_resultado)
+                if clave in vistos:
+                    continue
+                vistos.add(clave)
+                adjudicatarios.append({
+                    "identificador": identificador,
+                    "tipo_identificador": tipo,
+                    "nombre": nombre,
+                    "lote": lote,
+                    "resultado": codigo_resultado,
+                })
+    return (
+        json.dumps(adjudicatarios, ensure_ascii=False)
+        if adjudicatarios else None
+    )
+
+
 def extraer_resultados(status: ET.Element) -> str | None:
     """Conserva todos los resultados oficiales, incluidos los de cada lote."""
     codigos = []
@@ -295,6 +343,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "fecha_resolucion": extraer_fecha_resolucion(status),
         "fecha_actualizacion": texto_xml(entrada, "atom:updated"),
         "adjudicatario": adjudicatario,
+        "adjudicatarios_detalle": extraer_adjudicatarios(status),
         "fecha_adjudicacion": fecha_adjudicacion,
         "importe_adjudicacion_sin_iva": importe_adjudicacion_sin_iva,
         "importe_adjudicacion_con_iva": importe_adjudicacion_con_iva,
