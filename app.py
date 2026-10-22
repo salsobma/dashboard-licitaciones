@@ -835,6 +835,91 @@ st.markdown("""
         div[data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; max-width: 100% !important; flex: 0 0 auto !important; }\n        div[data-testid="stHorizontalBlock"], .metric-box-grid, div[data-testid="stExpander"] { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
         h1 { font-size: 1.8rem !important; }
     }
+
+    /* LandAI 2026 — interfaz clara de inteligencia contractual */
+    :root {
+        --landa-ink: #10213a;
+        --landa-muted: #66758a;
+        --landa-line: #d9e2ec;
+        --landa-blue: #155eef;
+        --landa-cyan: #06b6d4;
+        --landa-surface: #ffffff;
+        --landa-canvas: #eef3f8;
+    }
+    html, body, [class*="css"] { font-family: "Inter", "Segoe UI", sans-serif; }
+    .stApp {
+        background: linear-gradient(180deg, #f8fbff 0, var(--landa-canvas) 420px) !important;
+        color: var(--landa-ink) !important;
+    }
+    .block-container { max-width: 1540px !important; padding-top: 2rem !important; }
+    [data-testid="stSidebar"] {
+        background: #f7f9fc !important;
+        border-right: 1px solid var(--landa-line) !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding: 1.15rem 0.9rem !important; }
+    [data-testid="stSidebar"] h1 { font-size: 1.05rem !important; letter-spacing: .01em; }
+    [data-testid="stSidebar"] label { color: #526177 !important; font-weight: 650 !important; }
+    [data-testid="stSidebar"] button,
+    [data-testid="stSidebar"] [data-baseweb="select"] > div,
+    [data-testid="stSidebar"] input {
+        border-radius: 10px !important; border-color: #d7e0eb !important;
+        background: #ffffff !important;
+    }
+    .landa-hero {
+        position: relative; overflow: hidden; margin-bottom: 1rem;
+        padding: 1.55rem 1.75rem; border: 1px solid #d8e5f4; border-radius: 20px;
+        background: linear-gradient(115deg, #ffffff 0%, #f1f7ff 70%, #e5fbff 100%);
+        box-shadow: 0 14px 35px rgba(16, 33, 58, .08);
+    }
+    .landa-hero:after {
+        content: ""; position: absolute; right: -70px; top: -100px;
+        width: 280px; height: 280px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(6,182,212,.19), rgba(21,94,239,0));
+    }
+    .landa-eyebrow { color: var(--landa-blue); font-size: .72rem; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+    .landa-hero h1 { margin: .28rem 0 .32rem !important; color: var(--landa-ink); font-size: clamp(2rem,4vw,3.15rem) !important; letter-spacing: -.045em; }
+    .landa-hero p { margin: 0; color: var(--landa-muted); font-size: .98rem; }
+    [data-testid="stSegmentedControl"] { margin: .65rem 0 .8rem; }
+    [data-testid="stSegmentedControl"] > div {
+        padding: 5px !important; border: 1px solid var(--landa-line); border-radius: 13px !important;
+        background: rgba(255,255,255,.82) !important; box-shadow: 0 5px 18px rgba(16,33,58,.05);
+    }
+    [data-testid="stSegmentedControl"] button { border-radius: 9px !important; font-weight: 700 !important; }
+    .metric-box-grid {
+        background: rgba(255,255,255,.96) !important; border: 1px solid #dce5ef !important;
+        border-radius: 14px !important; box-shadow: 0 8px 22px rgba(16,33,58,.07) !important;
+    }
+    .top-kpi { height: 104px !important; text-align: left !important; padding: 1.15rem 1.3rem !important; }
+    .top-kpi .metric-val-grid { font-size: 1.65rem !important; color: var(--landa-ink) !important; }
+    .top-kpi .metric-lbl-grid { color: #718096 !important; letter-spacing: .08em; }
+    div[class*="st-key-tarjeta_"] {
+        margin: 0 0 1rem !important; padding: 1.2rem 1.3rem .9rem !important;
+        border: 1px solid #d4dfeb !important; border-left: 5px solid var(--landa-blue) !important;
+        border-radius: 16px !important; background: var(--landa-surface) !important;
+        box-shadow: 0 9px 26px rgba(16,33,58,.075) !important;
+    }
+    div[class*="st-key-tarjeta_"]:hover { border-color: #aebfd3 !important; transform: translateY(-1px); box-shadow: 0 13px 32px rgba(16,33,58,.11) !important; }
+    div[class*="st-key-tarjeta_"] .card-title {
+        min-height: 0 !important; height: auto !important; max-height: none !important;
+        margin: .75rem 0 .55rem !important; color: var(--landa-ink) !important;
+        font-size: 1.12rem !important; line-height: 1.35 !important; text-align: left !important;
+        -webkit-line-clamp: 2;
+    }
+    div[class*="st-key-tarjeta_"] .card-metric {
+        height: 78px !important; min-height: 78px !important; margin-bottom: .25rem !important;
+        background: #f7f9fc !important; box-shadow: none !important; border-color: #e3eaf2 !important;
+    }
+    div[class*="st-key-tarjeta_"] .metric-val-grid { color: #123f92 !important; }
+    div[class*="st-key-tarjeta_"] [data-testid="stExpander"] {
+        margin-top: .45rem !important; border: 0 !important; background: #f7f9fc !important; border-radius: 10px !important;
+    }
+    .badge-pub,.badge-ev,.badge-adj,.badge-res { border-radius: 999px !important; padding: 5px 11px !important; letter-spacing: .02em; }
+    .company-card { padding: 1rem 1.2rem !important; border-radius: 14px !important; box-shadow: none !important; }
+    .company-logo { width: 42px !important; height: 42px !important; flex-basis: 42px !important; }
+    .company-copy { margin: .2rem 0 .65rem !important; font-size: .86rem; }
+    .company-action { min-height: 34px !important; padding: .42rem .7rem !important; font-size: .82rem; }
+    [data-testid="stAlert"] { border-radius: 12px !important; }
+    hr { border-color: #d8e2ed !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -2687,8 +2772,16 @@ df_combinado = df_f.copy()
 # Los favoritos son una selección persistente y no deben desaparecer al cambiar filtros.
 df_catalogo_favoritos = df.copy()
 
-st.title("🏛️ LandAI Licitaciones")
-st.caption("Dashboard de oportunidades y análisis para proyectos de ingeniería civil.")
+st.markdown(
+    """
+    <section class="landa-hero">
+        <div class="landa-eyebrow">Inteligencia de contratación pública</div>
+        <h1>LandAI Licitaciones</h1>
+        <p>Oportunidades, adjudicaciones y análisis del mercado público valenciano en un solo espacio.</p>
+    </section>
+    """,
+    unsafe_allow_html=True,
+)
 
 if ES_PREMIUM:
     acceso_col, lista_col, salir_col = st.columns([3, 2, 1])
@@ -2920,17 +3013,12 @@ if not df_indicadores.empty and "fecha_act_dt" in df_indicadores.columns:
 else:
     actividad_reciente = 0
 
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+kpi1, kpi2 = st.columns(2)
 with kpi1:
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{len(df_indicadores)}</div><div class="metric-lbl-grid">{etiqueta_cantidad}</div></div>', unsafe_allow_html=True)
 with kpi2:
     etiqueta_volumen = "Importe adjudicado (sin IVA)" if vista_datos_menores else "Volumen Total (sin IVA)"
     st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(volumen_total)}</div><div class="metric-lbl-grid">{etiqueta_volumen}</div></div>', unsafe_allow_html=True)
-with kpi3:
-    etiqueta_mediana = "Adjudicación típica (mediana) · sin IVA" if vista_datos_menores else "Presupuesto típico (mediana) · sin IVA"
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{formato_eur(presupuesto_mediano)}</div><div class="metric-lbl-grid">{etiqueta_mediana}</div></div>', unsafe_allow_html=True)
-with kpi4:
-    st.markdown(f'<div class="metric-box-grid top-kpi"><div class="metric-val-grid">{actividad_reciente}</div><div class="metric-lbl-grid">Actividad reciente</div><div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:#198754;">Licitaciones actualizadas en los últimos 7 días</div></div>', unsafe_allow_html=True)
 
 filtros_activos = []
 if busqueda_texto.strip(): filtros_activos.append(f'Texto: “{busqueda_texto.strip()}”')
@@ -3007,9 +3095,9 @@ def render_grid_tarjetas(df_vista, key_prefix):
         if df_vista.empty:
             st.info("Todavía no hay licitaciones favoritas.")
             return
-    for i in range(0, len(df_vista), 3):
-        cols = st.columns(3)
-        lote = df_vista.iloc[i:i+3]
+    for i in range(0, len(df_vista), 1):
+        cols = st.columns(1)
+        lote = df_vista.iloc[i:i+1]
         
         for col, (_, r) in zip(cols, lote.iterrows()):
             st_txt, badge_cls = MAPA_ESTADOS.get(r['estado'], (r['estado'], 'badge-res'))
@@ -3038,11 +3126,11 @@ def render_grid_tarjetas(df_vista, key_prefix):
             cpv_safe = texto_seguro(r.get('cpv'))
             
             with col:
-                with st.container(border=True):
-                    licitacion_id = str(r.get("id") or "").strip()
-                    token_acciones = hashlib.sha1(
-                        f"{key_prefix}-{licitacion_id}".encode("utf-8")
-                    ).hexdigest()[:12]
+                licitacion_id = str(r.get("id") or "").strip()
+                token_acciones = hashlib.sha1(
+                    f"{key_prefix}-{licitacion_id}".encode("utf-8")
+                ).hexdigest()[:12]
+                with st.container(border=True, key=f"tarjeta_{token_acciones}"):
                     with st.container(key=f"acciones_{token_acciones}"):
                         if ES_PREMIUM:
                             cabecera_col, fav_col, enlace_col, mapa_col = st.columns(
