@@ -22,6 +22,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "licitaciones.db"
 METADATA_PATH = BASE_DIR / "sync_metadata.json"
 MAESTRO_PATH = BASE_DIR / "provincias.xlsx"
+MUNICIPIOS_INE_PATH = BASE_DIR / "municipios_ine_2026.xlsx"
 FEED_URL = (
     "https://contrataciondelsectorpublico.gob.es/sindicacion/"
     "sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom"
@@ -63,6 +64,10 @@ COLUMNAS_FUENTE = (
     "municipio",
     "provincia",
     "codigo_nuts",
+    "municipio_organo",
+    "codigo_postal_organo",
+    "municipio_fuente",
+    "municipio_confianza",
     "comunidad_autonoma",
     "latitud",
     "longitud",
@@ -209,17 +214,45 @@ def cargar_maestro() -> dict[str, dict[str, object]]:
     maestro = pd.read_excel(
         MAESTRO_PATH, sheet_name="municipios datos", dtype={"codigo_postal": str}
     )
+    nombres_ine: dict[int, str] = {}
+    for provincia in ("03", "12", "46"):
+        tabla = pd.read_excel(
+            MUNICIPIOS_INE_PATH,
+            sheet_name=provincia,
+            header=2,
+            dtype={"CPRO": str, "CMUN": str},
+        )
+        for _, municipio in tabla.iterrows():
+            try:
+                identificador = int(
+                    f"{str(municipio['CPRO']).zfill(2)}{str(municipio['CMUN']).zfill(3)}"
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            nombres_ine[identificador] = str(municipio.get("NOMBRE") or "").strip()
+
+    maestro["cp_clave"] = maestro["codigo_postal"].map(codigo_postal)
+    maestro["municipio_id_num"] = pd.to_numeric(
+        maestro["municipio_id"], errors="coerce"
+    ).astype("Int64")
     resultado: dict[str, dict[str, object]] = {}
-    for _, fila in maestro.iterrows():
-        cp = codigo_postal(fila.get("codigo_postal"))
-        if cp and cp not in resultado:
-            resultado[cp] = {
-                "municipio": fila.get("nucleo_nombre"),
-                "provincia": fila.get("PROVINCIA"),
-                "comunidad_autonoma": fila.get("COMUNIDAD"),
-                "latitud": fila.get("Latitud"),
-                "longitud": fila.get("Longitud"),
-            }
+    for cp, grupo in maestro.groupby("cp_clave"):
+        ids = grupo["municipio_id_num"].dropna().unique()
+        # Algunos códigos postales abarcan más de un municipio. No se adivina.
+        if not cp or len(ids) != 1:
+            continue
+        municipio_id = int(ids[0])
+        nombre_oficial = nombres_ine.get(municipio_id)
+        if not nombre_oficial:
+            continue
+        fila = grupo.iloc[0]
+        resultado[cp] = {
+            "municipio": nombre_oficial,
+            "provincia": fila.get("PROVINCIA"),
+            "comunidad_autonoma": fila.get("COMUNIDAD"),
+            "latitud": pd.to_numeric(grupo["Latitud"], errors="coerce").mean(),
+            "longitud": pd.to_numeric(grupo["Longitud"], errors="coerce").mean(),
+        }
     return resultado
 
 
@@ -409,6 +442,10 @@ def inicializar_esquema(conexion: sqlite3.Connection) -> None:
         "resultado_codigos": "TEXT",
         "resultados_lotes": "TEXT",
         "adjudicatarios_detalle": "TEXT",
+        "municipio_organo": "TEXT",
+        "codigo_postal_organo": "TEXT",
+        "municipio_fuente": "TEXT",
+        "municipio_confianza": "TEXT",
     }
     for columna, tipo in migraciones.items():
         if columna not in columnas:
@@ -441,6 +478,10 @@ CAMPOS_UBICACION = (
     "comunidad_autonoma",
     "latitud",
     "longitud",
+    "municipio_organo",
+    "codigo_postal_organo",
+    "municipio_fuente",
+    "municipio_confianza",
 )
 MOTIVOS_CUARENTENA = {
     "ubicacion_no_verificable",
@@ -455,15 +496,36 @@ def heredar_ubicacion_anterior(
 ) -> bool:
     if existente is None:
         return False
-    # NUTS, provincia o código postal nuevos constituyen evidencia territorial
-    # propia. Solo heredamos cuando la actualización no trae ninguna de ellas.
-    if any(
+    # Una actualización puede conservar el NUTS provincial y omitir el detalle
+    # municipal. En ese caso no debe borrar un municipio ya conocido.
+    hay_evidencia_nueva = any(
         str(fila.get(campo) or "").strip()
         for campo in ("codigo_postal", "provincia", "codigo_nuts")
-    ):
+    )
+    nuts_nuevo = codigo_nuts(fila.get("codigo_nuts"))[:5]
+    nuts_anterior = codigo_nuts(
+        existente[COLUMNAS_FUENTE.index("codigo_nuts")]
+    )[:5]
+    territorio_compatible = not (
+        nuts_nuevo.startswith("ES52")
+        and nuts_anterior.startswith("ES52")
+        and nuts_nuevo != nuts_anterior
+    )
+    if not territorio_compatible:
         return False
+
+    campos_heredables = CAMPOS_UBICACION if not hay_evidencia_nueva else (
+        "codigo_postal",
+        "municipio",
+        "latitud",
+        "longitud",
+        "municipio_organo",
+        "codigo_postal_organo",
+        "municipio_fuente",
+        "municipio_confianza",
+    )
     heredada = False
-    for campo in CAMPOS_UBICACION:
+    for campo in campos_heredables:
         indice = COLUMNAS_FUENTE.index(campo)
         if not str(fila.get(campo) or "").strip() and existente[indice] is not None:
             fila[campo] = existente[indice]

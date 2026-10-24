@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 import xml.etree.ElementTree as ET
 
 
@@ -167,11 +169,33 @@ def extraer_cpvs(status: ET.Element, proyecto: ET.Element) -> list[str]:
     return sorted({n.text.strip() for n in nodos if n.text and n.text.strip()})
 
 
-def extraer_ubicacion(status: ET.Element, proyecto: ET.Element, party: ET.Element | None):
-    """Prioriza una ubicación valenciana, incluida la declarada a nivel de lote."""
-    ubicaciones = list(proyecto.findall("cac:RealizedLocation", NAMESPACES))
+def _clave_texto(valor: str | None) -> str:
+    texto = unicodedata.normalize("NFKD", str(valor or ""))
+    texto = "".join(c for c in texto if not unicodedata.combining(c)).lower()
+    return " ".join(re.findall(r"[a-z0-9]+", texto))
+
+
+def _municipio_sede(valor: str | None) -> str | None:
+    municipio = re.sub(r"\s*\([^)]*\)\s*$", "", str(valor or "")).strip()
+    return municipio or None
+
+
+def _provincia_por_cp(cp: str | None) -> str | None:
+    return {"03": "ES521", "12": "ES522", "46": "ES523"}.get(str(cp or "")[:2])
+
+
+def extraer_ubicacion_detallada(
+    status: ET.Element,
+    proyecto: ET.Element,
+    party: ET.Element | None,
+) -> dict[str, str | None]:
+    """Elige la ubicación más precisa y documenta cualquier inferencia."""
+    ubicaciones = [("xml_proyecto", u) for u in proyecto.findall("cac:RealizedLocation", NAMESPACES)]
     for lote in status.findall("cac:ProcurementProjectLot", NAMESPACES):
-        ubicaciones.extend(lote.findall(".//cac:RealizedLocation", NAMESPACES))
+        ubicaciones.extend(
+            ("xml_lote", u)
+            for u in lote.findall(".//cac:RealizedLocation", NAMESPACES)
+        )
 
     def datos(ubicacion: ET.Element):
         return (
@@ -183,20 +207,97 @@ def extraer_ubicacion(status: ET.Element, proyecto: ET.Element, party: ET.Elemen
             or texto_xml(ubicacion, "cac:Address/cbc:CountrySubentityCode"),
         )
 
-    candidatas = [datos(u) for u in ubicaciones]
-    elegida = next((u for u in candidatas if (u[3] or "").upper().startswith("ES52")), None)
-    if elegida is None:
-        elegida = next((u for u in candidatas if (u[0] or "")[:2] in {"03", "12", "46"}), None)
-    if elegida is None:
-        elegida = candidatas[0] if candidatas else (None, None, None, None)
-    cp, municipio, provincia, nuts = elegida
+    candidatas = [(fuente, *datos(u)) for fuente, u in ubicaciones]
+
+    def es_valenciana(candidata):
+        _, cp, _, provincia, nuts = candidata
+        clave_provincia = _clave_texto(provincia)
+        return (
+            str(nuts or "").upper().startswith("ES52")
+            or str(cp or "")[:2] in {"03", "12", "46"}
+            or any(x in clave_provincia for x in ("alicante", "alacant", "castellon", "castello", "valencia"))
+        )
+
+    def puntuacion(candidata):
+        fuente, cp, municipio, provincia, nuts = candidata
+        # La precisión manda sobre un NUTS meramente provincial. En igualdad,
+        # la ubicación general prevalece sobre la repetida en un lote.
+        return (
+            12 * bool(municipio)
+            + 8 * bool(cp)
+            + 2 * bool(provincia)
+            + bool(nuts)
+            + (2 if fuente == "xml_proyecto" else 1)
+        )
+
+    validas = [c for c in candidatas if es_valenciana(c)]
+    elegida = max(validas or candidatas, key=puntuacion) if candidatas else None
+    if elegida:
+        fuente, cp, municipio, provincia, nuts = elegida
+    else:
+        fuente, cp, municipio, provincia, nuts = (None, None, None, None, None)
+
+    municipio_organo = _municipio_sede(
+        texto_xml(party, "cac:PostalAddress/cbc:CityName")
+    )
+    cp_organo = texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
+    fuente_municipio = fuente if municipio else None
+    confianza = "oficial" if municipio else None
+
     # La dirección de la entidad contratante no es el lugar de ejecución. Solo se
     # usa como último recurso cuando el XML no declara ninguna ubicación de obra.
     if not candidatas:
-        cp = texto_xml(party, "cac:PostalAddress/cbc:PostalZone")
-        municipio = texto_xml(party, "cac:PostalAddress/cbc:CityName")
+        cp = cp_organo
+        municipio = municipio_organo
         provincia = texto_xml(party, "cac:PostalAddress/cbc:CountrySubentity")
-    return cp, municipio, provincia, nuts
+        fuente_municipio = "sede_organo_sin_ubicacion_ejecucion" if municipio else None
+        confianza = "media" if municipio else None
+    elif not municipio and municipio_organo and cp_organo:
+        nuts_provincia = str(nuts or "").upper()[:5]
+        cp_provincia = _provincia_por_cp(cp_organo)
+        organo = _clave_texto(texto_xml(party, "cac:PartyName/cbc:Name"))
+        es_organo_municipal = any(
+            etiqueta in organo
+            for etiqueta in (
+                "ayuntamiento", "ajuntament", "alcaldia", "alcalde",
+                "pleno", "junta de gobierno local", "concejal",
+            )
+        )
+        titulo = _clave_texto(texto_xml(proyecto, "cbc:Name"))
+        municipio_clave = _clave_texto(municipio_organo)
+        citado_en_titulo = bool(
+            municipio_clave
+            and re.search(rf"(?<![a-z0-9]){re.escape(municipio_clave)}(?![a-z0-9])", titulo)
+        )
+        provincia_coherente = bool(
+            cp_provincia and (not nuts_provincia.startswith("ES52") or cp_provincia == nuts_provincia)
+        )
+        if provincia_coherente and (citado_en_titulo or es_organo_municipal):
+            cp = cp_organo
+            municipio = municipio_organo
+            fuente_municipio = (
+                "titulo_y_sede_organo" if citado_en_titulo else "sede_organo_municipal"
+            )
+            confianza = "alta" if citado_en_titulo else "media"
+
+    return {
+        "codigo_postal": cp,
+        "municipio": municipio,
+        "provincia": provincia,
+        "codigo_nuts": nuts,
+        "municipio_organo": municipio_organo,
+        "codigo_postal_organo": cp_organo,
+        "municipio_fuente": fuente_municipio,
+        "municipio_confianza": confianza,
+    }
+
+
+def extraer_ubicacion(status: ET.Element, proyecto: ET.Element, party: ET.Element | None):
+    ubicacion = extraer_ubicacion_detallada(status, proyecto, party)
+    return tuple(
+        ubicacion[campo]
+        for campo in ("codigo_postal", "municipio", "provincia", "codigo_nuts")
+    )
 
 
 def extraer_fecha_publicacion(status: ET.Element) -> str | None:
@@ -281,9 +382,11 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         except (TypeError, ValueError):
             return None
 
-    codigo_postal, municipio, provincia, codigo_nuts = extraer_ubicacion(
-        status, proyecto, party
-    )
+    ubicacion = extraer_ubicacion_detallada(status, proyecto, party)
+    codigo_postal = ubicacion["codigo_postal"]
+    municipio = ubicacion["municipio"]
+    provincia = ubicacion["provincia"]
+    codigo_nuts = ubicacion["codigo_nuts"]
     cpvs = extraer_cpvs(status, proyecto)
     fecha_limite = texto_xml(
         status, "cac:TenderingProcess/cac:TenderSubmissionDeadlinePeriod/cbc:EndDate"
@@ -335,6 +438,10 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "municipio": municipio,
         "provincia": provincia,
         "codigo_nuts": codigo_nuts,
+        "municipio_organo": ubicacion["municipio_organo"],
+        "codigo_postal_organo": ubicacion["codigo_postal_organo"],
+        "municipio_fuente": ubicacion["municipio_fuente"],
+        "municipio_confianza": ubicacion["municipio_confianza"],
         "comunidad_autonoma": None,
         "latitud": None,
         "longitud": None,

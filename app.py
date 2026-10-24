@@ -32,6 +32,7 @@ from feed_parser import (
     extraer_fecha_resolucion,
     extraer_ubicacion,
 )
+from sincronizar_licitaciones import cargar_maestro as cargar_maestro_postal
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -2175,26 +2176,22 @@ def _codigo_postal_normalizado(valor):
 
 @st.cache_data(ttl=3600)
 def cargar_maestro_ubicaciones():
-    maestro = pd.read_excel(
-        "provincias.xlsx",
-        sheet_name="municipios datos",
-        dtype={"codigo_postal": str},
+    maestro = pd.DataFrame.from_dict(
+        cargar_maestro_postal(), orient="index"
+    ).reset_index(names="cp_clave")
+    maestro["municipio_clave"] = maestro["municipio"].apply(_clave_ubicacion)
+    maestro = maestro.dropna(subset=["latitud", "longitud"])
+    por_cp = maestro.set_index("cp_clave")
+    municipios_unicos = maestro.groupby("municipio_clave").filter(
+        lambda grupo: grupo["provincia"].nunique(dropna=True) <= 1
     )
-    maestro["cp_clave"] = maestro["codigo_postal"].apply(
-        _codigo_postal_normalizado
+    por_municipio = municipios_unicos.groupby("municipio_clave").agg(
+        municipio=("municipio", "first"),
+        provincia=("provincia", "first"),
+        comunidad_autonoma=("comunidad_autonoma", "first"),
+        latitud=("latitud", "mean"),
+        longitud=("longitud", "mean"),
     )
-    maestro["municipio_clave"] = maestro["nucleo_nombre"].apply(
-        _clave_ubicacion
-    )
-    maestro = maestro.dropna(subset=["Latitud", "Longitud"])
-    por_cp = (
-        maestro.drop_duplicates(subset=["cp_clave"])
-        .set_index("cp_clave")
-    )
-    municipios_unicos = maestro[
-        ~maestro["municipio_clave"].duplicated(keep=False)
-    ]
-    por_municipio = municipios_unicos.set_index("municipio_clave")
     return por_cp, por_municipio
 
 def completar_ubicaciones_feed(df_feed):
@@ -2208,11 +2205,11 @@ def completar_ubicaciones_feed(df_feed):
         return enriquecido
 
     correspondencias = {
-        "municipio": "nucleo_nombre",
-        "provincia": "PROVINCIA",
-        "comunidad_autonoma": "COMUNIDAD",
-        "latitud": "Latitud",
-        "longitud": "Longitud",
+        "municipio": "municipio",
+        "provincia": "provincia",
+        "comunidad_autonoma": "comunidad_autonoma",
+        "latitud": "latitud",
+        "longitud": "longitud",
     }
     for indice, fila in enriquecido.iterrows():
         cp = _codigo_postal_normalizado(fila.get("codigo_postal"))
@@ -4121,6 +4118,28 @@ else:
             "Contratos menores" if es_grafico_menores else "Licitaciones"
         )
         st.info("🗓️ Histórico acumulado desde el 1 de enero de 2025.")
+
+        if not es_grafico_menores and not df_graficos.empty:
+            municipios_disponibles = df_graficos["municipio"].fillna("").astype(str).str.strip().ne("").sum()
+            fuentes_inferidas = {
+                "titulo_y_organo_municipal",
+                "organo_municipal_catalogo",
+                "titulo_y_sede_organo",
+                "sede_organo_municipal",
+                "sede_organo_sin_ubicacion_ejecucion",
+            }
+            inferidos = (
+                df_graficos["municipio_fuente"].isin(fuentes_inferidas).sum()
+                if "municipio_fuente" in df_graficos.columns
+                else 0
+            )
+            porcentaje_cobertura = municipios_disponibles / len(df_graficos) * 100
+            st.caption(
+                f"Cobertura municipal: {municipios_disponibles} de {len(df_graficos)} "
+                f"licitaciones ({porcentaje_cobertura:.1f} %). "
+                f"{inferidos} municipios se han completado mediante una inferencia "
+                "territorial trazable; el resto procede del XML o del código postal."
+            )
 
         if df_graficos.empty:
             st.info("No hay datos de esta fuente que coincidan con los filtros actuales.")
