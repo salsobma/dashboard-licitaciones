@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
 from collections import Counter
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
@@ -261,6 +263,118 @@ def codigo_nuts(valor: object) -> str:
     return "".join(c for c in str(valor or "").upper() if c.isalnum())
 
 
+def texto_busqueda(valor: object) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", clave_texto(valor)))
+
+
+@lru_cache(maxsize=1)
+def catalogo_aliases_ine() -> list[tuple[str, str, str]]:
+    aliases: dict[str, set[tuple[str, str]]] = {}
+    for provincia in ("03", "12", "46"):
+        tabla = pd.read_excel(
+            MUNICIPIOS_INE_PATH, sheet_name=provincia, header=2
+        )
+        for _, municipio in tabla.iterrows():
+            oficial = str(municipio.get("NOMBRE") or "").strip()
+            variantes = {oficial, *oficial.split("/")}
+            for variante in list(variantes):
+                if "," in variante:
+                    nombre, articulo = [p.strip() for p in variante.split(",", 1)]
+                    variantes.add(f"{articulo} {nombre}")
+            for variante in variantes:
+                alias = texto_busqueda(variante)
+                if len(alias) >= 4:
+                    aliases.setdefault(alias, set()).add((oficial, provincia))
+    return [
+        (alias, next(iter(valores))[0], next(iter(valores))[1])
+        for alias, valores in sorted(
+            aliases.items(), key=lambda elemento: len(elemento[0]), reverse=True
+        )
+        if len(valores) == 1
+    ]
+
+
+def completar_ambito_municipal(
+    fila: dict[str, object], maestro: dict[str, dict[str, object]]
+) -> None:
+    if str(fila.get("municipio") or "").strip():
+        fila["ambito_ubicacion"] = "municipio_concreto"
+        return
+    titulo = texto_busqueda(fila.get("titulo"))
+    organo = texto_busqueda(fila.get("organo_contratante"))
+    provincia_nuts = {"ES521": "03", "ES522": "12", "ES523": "46"}.get(
+        codigo_nuts(fila.get("codigo_nuts"))[:5]
+    )
+    coincidencias_titulo: dict[str, tuple[str, str]] = {}
+    coincidencias_organo: dict[str, tuple[str, str]] = {}
+    for alias, oficial, provincia in catalogo_aliases_ine():
+        if provincia_nuts and provincia != provincia_nuts:
+            continue
+        patron = rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])"
+        if re.search(patron, titulo):
+            coincidencias_titulo[oficial] = (alias, provincia)
+        if re.search(patron, organo):
+            coincidencias_organo[oficial] = (alias, provincia)
+
+    contexto_multiple = len(coincidencias_titulo) >= 2 and (
+        " municipios " in f" {titulo} " or " t m " in f" {titulo} "
+    )
+    es_organo_municipal = any(
+        etiqueta in f" {organo} "
+        for etiqueta in (
+            " ayuntamiento ", " ajuntament ", " alcaldia ", " alcalde ",
+            " pleno ", " junta de gobierno", " concejal",
+        )
+    )
+    elegida = None
+    fuente = confianza = None
+    if es_organo_municipal and len(coincidencias_organo) == 1 and not contexto_multiple:
+        elegida = next(iter(coincidencias_organo))
+        fuente = "titulo_y_organo_municipal" if elegida in coincidencias_titulo else "organo_municipal_catalogo"
+        confianza = "alta" if fuente.startswith("titulo_") else "media"
+    elif len(coincidencias_titulo) == 1 and not contexto_multiple:
+        oficial, (alias, _) = next(iter(coincidencias_titulo.items()))
+        if re.search(
+            rf"\b(?:municipio|termino municipal|localidad)\s+(?:de\s+|del\s+)?{re.escape(alias)}\b",
+            titulo,
+        ):
+            elegida = oficial
+            fuente = "titulo_contexto_explicito"
+            confianza = "alta"
+
+    if elegida:
+        fila["municipio"] = elegida
+        fila["municipio_fuente"] = fuente
+        fila["municipio_confianza"] = confianza
+        fila["ambito_ubicacion"] = "municipio_concreto"
+        referencia = next(
+            (
+                valor for valor in maestro.values()
+                if texto_busqueda(valor.get("municipio")) == texto_busqueda(elegida)
+            ),
+            None,
+        )
+        if referencia:
+            for campo in ("latitud", "longitud"):
+                fila[campo] = referencia.get(campo)
+        return
+    if contexto_multiple or any(frase in titulo for frase in (
+        "varios municipios", "diversos municipios",
+        "distintos municipios", "multiples municipios",
+    )):
+        fila["ambito_ubicacion"] = "varios_municipios"
+    elif any(frase in titulo for frase in (
+        "ambito provincial", "red provincial", "carreteras provinciales",
+        "provincia de alicante", "provincia de valencia",
+        "provincia de castellon",
+    )):
+        fila["ambito_ubicacion"] = "ambito_provincial"
+    elif len(coincidencias_titulo) == 1:
+        fila["ambito_ubicacion"] = "pendiente_identificar"
+    else:
+        fila["ambito_ubicacion"] = "municipio_no_publicado"
+
+
 def evaluar_y_enriquecer(
     fila: dict[str, object], maestro: dict[str, dict[str, object]]
 ) -> tuple[dict[str, object] | None, str | None]:
@@ -308,6 +422,7 @@ def evaluar_y_enriquecer(
     # Normalizamos el campo para que filtros, mapas y graficos no mezclen la
     # sede del organo u otras etiquetas territoriales presentes en el XML.
     fila["comunidad_autonoma"] = "Comunitat Valenciana"
+    completar_ambito_municipal(fila, maestro)
 
     if origen == "contrato_menor":
         fecha_adjudicacion = str(fila.get("fecha_adjudicacion") or "")

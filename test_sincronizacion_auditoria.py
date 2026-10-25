@@ -83,6 +83,31 @@ class SincronizacionAuditableTest(unittest.TestCase):
         self.assertEqual(maestro["12540"]["municipio"], "Vila-real")
         self.assertNotEqual(maestro["12540"]["municipio"], "Carinyena")
 
+    def test_feed_infiere_municipio_en_contexto_explicito(self):
+        fila = fila_base("titulo-municipio")
+        fila.update({
+            "titulo": "Obras de saneamiento en el municipio de Silla",
+            "organo_contratante": "Presidencia de la Diputación de Valencia",
+            "codigo_nuts": "ES523",
+        })
+        evaluada, motivo = sync.evaluar_y_enriquecer(fila, {})
+        self.assertIsNone(motivo)
+        self.assertEqual(evaluada["municipio"], "Silla")
+        self.assertEqual(evaluada["municipio_fuente"], "titulo_contexto_explicito")
+        self.assertEqual(evaluada["ambito_ubicacion"], "municipio_concreto")
+
+    def test_feed_no_elige_uno_si_el_titulo_declara_varios(self):
+        fila = fila_base("titulo-varios")
+        fila.update({
+            "titulo": "Actuaciones en los municipios de Silla y Beniparrell",
+            "organo_contratante": "Presidencia de la Diputación de Valencia",
+            "codigo_nuts": "ES523",
+        })
+        evaluada, motivo = sync.evaluar_y_enriquecer(fila, {})
+        self.assertIsNone(motivo)
+        self.assertIsNone(evaluada["municipio"])
+        self.assertEqual(evaluada["ambito_ubicacion"], "varios_municipios")
+
     def test_fecha_relevante_excluye_expediente_antiguo_actualizado(self):
         fila = fila_base("antigua")
         fila.update({
