@@ -71,6 +71,7 @@ COLUMNAS_FUENTE = (
     "municipio_fuente",
     "municipio_confianza",
     "ambito_ubicacion",
+    "incidencias_datos",
     "comunidad_autonoma",
     "latitud",
     "longitud",
@@ -425,6 +426,7 @@ def evaluar_y_enriquecer(
     completar_ambito_municipal(fila, maestro)
 
     if origen == "contrato_menor":
+        incidencias = []
         fecha_adjudicacion = str(fila.get("fecha_adjudicacion") or "")
         try:
             anyo_adjudicacion = int(fecha_adjudicacion[:4])
@@ -433,9 +435,14 @@ def evaluar_y_enriquecer(
         if anyo_adjudicacion < 2025:
             return None, "adjudicacion_anterior_2025"
         if not str(fila.get("adjudicatario") or "").strip():
-            return None, "sin_adjudicatario"
+            incidencias.append("adjudicatario_no_publicado")
         if fila.get("importe_adjudicacion_sin_iva") is None:
-            return None, "sin_importe_adjudicacion"
+            incidencias.append("importe_adjudicacion_no_publicado")
+        fila["incidencias_datos"] = json.dumps(
+            incidencias, ensure_ascii=False
+        )
+    elif not fila.get("incidencias_datos"):
+        fila["incidencias_datos"] = "[]"
 
     return fila, None
 
@@ -563,6 +570,7 @@ def inicializar_esquema(conexion: sqlite3.Connection) -> None:
         "municipio_fuente": "TEXT",
         "municipio_confianza": "TEXT",
         "ambito_ubicacion": "TEXT",
+        "incidencias_datos": "TEXT",
     }
     for columna, tipo in migraciones.items():
         if columna not in columnas:
@@ -604,9 +612,46 @@ CAMPOS_UBICACION = (
 MOTIVOS_CUARENTENA = {
     "ubicacion_no_verificable",
     "fecha_adjudicacion_invalida",
-    "sin_adjudicatario",
-    "sin_importe_adjudicacion",
 }
+
+
+def reincorporar_cuarentena_incompleta(
+    conexion: sqlite3.Connection,
+    maestro: dict[str, dict[str, object]],
+) -> int:
+    filas = conexion.execute(
+        "SELECT id, origen, datos_json FROM cuarentena_licitaciones "
+        "WHERE motivo IN ('sin_adjudicatario', 'sin_importe_adjudicacion')"
+    ).fetchall()
+    reincorporadas = 0
+    for lic_id, origen, datos_json in filas:
+        try:
+            fila = json.loads(datos_json)
+        except (TypeError, ValueError):
+            continue
+        fila["origen"] = origen
+        evaluada, motivo = evaluar_y_enriquecer(fila, maestro)
+        if evaluada is None:
+            continue
+        valores = tuple(
+            valor_sqlite(evaluada.get(columna)) for columna in COLUMNAS_FUENTE
+        )
+        marcadores = ",".join("?" for _ in COLUMNAS_FUENTE)
+        actualizaciones = ",".join(
+            f"{columna}=excluded.{columna}"
+            for columna in COLUMNAS_FUENTE if columna != "id"
+        )
+        conexion.execute(
+            f"INSERT INTO licitaciones ({','.join(COLUMNAS_FUENTE)}) "
+            f"VALUES ({marcadores}) ON CONFLICT(id) DO UPDATE SET {actualizaciones}",
+            valores,
+        )
+        conexion.execute(
+            "DELETE FROM cuarentena_licitaciones WHERE id=? AND origen=?",
+            (lic_id, origen),
+        )
+        reincorporadas += 1
+    return reincorporadas
 
 
 def heredar_ubicacion_anterior(
@@ -707,6 +752,10 @@ def sincronizar(
     maestro = cargar_maestro()
     with sqlite3.connect(db_path) as conexion:
         inicializar_esquema(conexion)
+        reincorporadas_incompletas = reincorporar_cuarentena_incompleta(
+            conexion, maestro
+        )
+        conexion.commit()
         checkpoint = obtener_checkpoint(
             conexion,
             metadata_path,
@@ -878,6 +927,7 @@ def sincronizar(
         "descartadas_por_motivo": dict(sorted(motivos_descarte.items())),
         "cuarentena_revisada": cuarentena_revisada,
         "cuarentena_total": cuarentena_total,
+        "reincorporadas_incompletas": reincorporadas_incompletas,
         "conciliacion": {
             "ids_revisados": len(ultimas),
             "ids_conciliados": conciliados,

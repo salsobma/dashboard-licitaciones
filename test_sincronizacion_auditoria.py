@@ -108,6 +108,24 @@ class SincronizacionAuditableTest(unittest.TestCase):
         self.assertIsNone(evaluada["municipio"])
         self.assertEqual(evaluada["ambito_ubicacion"], "varios_municipios")
 
+    def test_contrato_menor_sin_adjudicatario_se_incorpora_con_aviso(self):
+        fila = fila_base("menor-incompleto")
+        fila.update({
+            "origen": "contrato_menor",
+            "estado": "RES",
+            "fecha_adjudicacion": "2026-04-12",
+            "adjudicatario": None,
+            "importe_adjudicacion_sin_iva": 4500.0,
+            "codigo_nuts": "ES523",
+        })
+        evaluada, motivo = sync.evaluar_y_enriquecer(fila, {})
+        self.assertIsNone(motivo)
+        self.assertIsNotNone(evaluada)
+        self.assertEqual(
+            evaluada["incidencias_datos"],
+            '["adjudicatario_no_publicado"]',
+        )
+
     def test_fecha_relevante_excluye_expediente_antiguo_actualizado(self):
         fila = fila_base("antigua")
         fila.update({

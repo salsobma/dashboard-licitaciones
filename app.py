@@ -3149,7 +3149,7 @@ def render_grid_tarjetas(df_vista, key_prefix):
                             if baja_porcentaje is not None else "Sin datos suficientes"
                         )
                         adjudicatario_safe = texto_seguro(
-                            r.get("adjudicatario"), "No disponible"
+                            r.get("adjudicatario"), "No publicado en PLACSP"
                         )
                         ma1, ma2, ma3 = st.columns(3)
                         with ma1:
@@ -3981,25 +3981,93 @@ else:
             )
 
     elif vista_principal == "✅ Control de cobertura":
-        st.subheader("✅ Control de cobertura y cuarentena")
+        st.subheader("✅ Control de cobertura")
         st.caption(
-            "Aquí aparecen los expedientes que podrían ser relevantes, pero que "
-            "no se incorporan hasta poder verificar los datos imprescindibles."
+            "Distingue los registros incorporados con algún dato no publicado de "
+            "aquellos cuyo alcance territorial todavía no puede verificarse."
+        )
+
+        etiquetas_incidencia = {
+            "adjudicatario_no_publicado": "Empresa adjudicataria no publicada",
+            "importe_adjudicacion_no_publicado": "Importe adjudicado no publicado",
+        }
+
+        def leer_incidencias(valor):
+            try:
+                datos = json.loads(valor or "[]")
+                return datos if isinstance(datos, list) else []
+            except (TypeError, ValueError):
+                return []
+
+        if "incidencias_datos" in df.columns:
+            incorporados_incompletos = df.copy()
+            incorporados_incompletos["incidencias_lista"] = (
+                incorporados_incompletos["incidencias_datos"].map(leer_incidencias)
+            )
+            incorporados_incompletos = incorporados_incompletos[
+                incorporados_incompletos["incidencias_lista"].map(bool)
+            ].copy()
+        else:
+            incorporados_incompletos = df.iloc[0:0].copy()
+
+        st.markdown("#### Incorporados con información incompleta")
+        st.caption(
+            "Estos expedientes sí aparecen en tarjetas, tablas y análisis. "
+            "La ausencia se indica expresamente y no provoca su exclusión."
+        )
+        st.metric("Registros incorporados con avisos", len(incorporados_incompletos))
+        if incorporados_incompletos.empty:
+            st.success("No hay registros incorporados con campos esenciales sin publicar.")
+        else:
+            incorporados_incompletos["Información no publicada"] = (
+                incorporados_incompletos["incidencias_lista"].map(
+                    lambda valores: " · ".join(
+                        etiquetas_incidencia.get(valor, valor) for valor in valores
+                    )
+                )
+            )
+            columnas_incompletos = {
+                "titulo": "Servicio",
+                "expediente": "Expediente",
+                "organo_contratante": "Órgano de contratación",
+                "municipio": "Municipio",
+                "Información no publicada": "Información no publicada",
+                "url_licitacion": "Ficha oficial",
+            }
+            disponibles = [
+                columna for columna in columnas_incompletos
+                if columna in incorporados_incompletos.columns
+            ]
+            st.dataframe(
+                incorporados_incompletos[disponibles].rename(
+                    columns=columnas_incompletos
+                ),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Ficha oficial": st.column_config.LinkColumn(
+                        display_text="Abrir ficha"
+                    )
+                },
+            )
+
+        st.markdown("#### Alcance territorial pendiente de verificar")
+        st.caption(
+            "Son visibles aquí, pero no se mezclan con el catálogo valenciano, "
+            "los mapas ni las estadísticas hasta poder confirmar su ubicación."
         )
         if df_cuarentena.empty:
-            st.success("La cuarentena está vacía.")
+            st.success("No hay expedientes pendientes de verificación territorial.")
         else:
             etiquetas_motivo = {
                 "ubicacion_no_verificable": "Ubicación no verificable",
                 "fecha_adjudicacion_invalida": "Fecha de adjudicación inválida",
-                "sin_adjudicatario": "Falta empresa adjudicataria",
-                "sin_importe_adjudicacion": "Falta importe adjudicado",
             }
             control = df_cuarentena.copy()
             control["motivo"] = control["motivo"].map(
                 lambda valor: etiquetas_motivo.get(valor, valor)
             )
-            st.metric("Expedientes en cuarentena", len(control))
+            st.metric("Expedientes pendientes de verificación", len(control))
             resumen = (
                 control.groupby(["origen", "motivo"], dropna=False)
                 .size().reset_index(name="expedientes")
