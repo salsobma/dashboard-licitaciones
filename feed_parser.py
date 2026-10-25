@@ -280,6 +280,34 @@ def extraer_ubicacion_detallada(
             )
             confianza = "alta" if citado_en_titulo else "media"
 
+    titulo_clave = _clave_texto(texto_xml(proyecto, "cbc:Name"))
+    municipios_xml = {
+        _clave_texto(candidata[2])
+        for candidata in candidatas
+        if candidata[2]
+    }
+    if municipio:
+        ambito_ubicacion = "municipio_concreto"
+    elif len(municipios_xml) > 1 or any(
+        frase in titulo_clave
+        for frase in (
+            "varios municipios", "diversos municipios",
+            "distintos municipios", "multiples municipios",
+        )
+    ):
+        ambito_ubicacion = "varios_municipios"
+    elif any(
+        frase in titulo_clave
+        for frase in (
+            "ambito provincial", "red provincial",
+            "carreteras provinciales", "provincia de alicante",
+            "provincia de valencia", "provincia de castellon",
+        )
+    ):
+        ambito_ubicacion = "ambito_provincial"
+    else:
+        ambito_ubicacion = "municipio_no_publicado"
+
     return {
         "codigo_postal": cp,
         "municipio": municipio,
@@ -289,6 +317,7 @@ def extraer_ubicacion_detallada(
         "codigo_postal_organo": cp_organo,
         "municipio_fuente": fuente_municipio,
         "municipio_confianza": confianza,
+        "ambito_ubicacion": ambito_ubicacion,
     }
 
 
@@ -442,6 +471,7 @@ def fila_desde_entrada(entrada: ET.Element) -> dict[str, object] | None:
         "codigo_postal_organo": ubicacion["codigo_postal_organo"],
         "municipio_fuente": ubicacion["municipio_fuente"],
         "municipio_confianza": ubicacion["municipio_confianza"],
+        "ambito_ubicacion": ubicacion["ambito_ubicacion"],
         "comunidad_autonoma": None,
         "latitud": None,
         "longitud": None,

@@ -68,6 +68,7 @@ COLUMNAS_FUENTE = (
     "codigo_postal_organo",
     "municipio_fuente",
     "municipio_confianza",
+    "ambito_ubicacion",
     "comunidad_autonoma",
     "latitud",
     "longitud",
@@ -446,6 +447,7 @@ def inicializar_esquema(conexion: sqlite3.Connection) -> None:
         "codigo_postal_organo": "TEXT",
         "municipio_fuente": "TEXT",
         "municipio_confianza": "TEXT",
+        "ambito_ubicacion": "TEXT",
     }
     for columna, tipo in migraciones.items():
         if columna not in columnas:
@@ -482,6 +484,7 @@ CAMPOS_UBICACION = (
     "codigo_postal_organo",
     "municipio_fuente",
     "municipio_confianza",
+    "ambito_ubicacion",
 )
 MOTIVOS_CUARENTENA = {
     "ubicacion_no_verificable",
@@ -523,6 +526,7 @@ def heredar_ubicacion_anterior(
         "codigo_postal_organo",
         "municipio_fuente",
         "municipio_confianza",
+        "ambito_ubicacion",
     )
     heredada = False
     for campo in campos_heredables:

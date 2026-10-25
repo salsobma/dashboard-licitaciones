@@ -4154,6 +4154,19 @@ else:
             df_graficos[f"{clave}_grafico"] = df_graficos[columna].fillna(
                 fallback
             )
+        if "ambito_ubicacion" in df_graficos.columns:
+            etiquetas_ambito = {
+                "municipio_no_publicado": "Municipio no publicado",
+                "varios_municipios": "Varios municipios",
+                "ambito_provincial": "Ámbito provincial",
+                "pendiente_identificar": "Pendiente de identificar",
+            }
+            sin_municipio = df_graficos["municipio"].fillna("").astype(str).str.strip().eq("")
+            df_graficos.loc[sin_municipio, "municipio_grafico"] = (
+                df_graficos.loc[sin_municipio, "ambito_ubicacion"]
+                .map(etiquetas_ambito)
+                .fillna("Municipio no publicado")
+            )
         df_graficos["importe_grafico"] = pd.to_numeric(
             df_graficos[columna_importe_grafico], errors="coerce"
         ).fillna(0)

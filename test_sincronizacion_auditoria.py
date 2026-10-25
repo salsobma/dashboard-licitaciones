@@ -196,6 +196,22 @@ class SincronizacionAuditableTest(unittest.TestCase):
         party = status.find("cac:LocatedContractingParty/cac:Party", NAMESPACES)
         ubicacion = extraer_ubicacion_detallada(status, proyecto, party)
         self.assertIsNone(ubicacion["municipio"])
+        self.assertEqual(ubicacion["ambito_ubicacion"], "municipio_no_publicado")
+
+    def test_detecta_ubicacion_en_varios_municipios(self):
+        status = ET.fromstring(
+            f'''<ContractFolderStatus xmlns:cac="{NAMESPACES["cac"]}"
+                xmlns:cbc="{NAMESPACES["cbc"]}">
+                <cac:ProcurementProject>
+                    <cbc:Name>Actuaciones en varios municipios</cbc:Name>
+                    <cac:RealizedLocation><cbc:CountrySubentityCode>ES523</cbc:CountrySubentityCode></cac:RealizedLocation>
+                </cac:ProcurementProject>
+            </ContractFolderStatus>'''
+        )
+        proyecto = status.find("cac:ProcurementProject", NAMESPACES)
+        ubicacion = extraer_ubicacion_detallada(status, proyecto, None)
+        self.assertIsNone(ubicacion["municipio"])
+        self.assertEqual(ubicacion["ambito_ubicacion"], "varios_municipios")
 
     def test_fecha_resolucion_usa_el_anuncio_oficial(self):
         status = ET.fromstring(
